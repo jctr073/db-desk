@@ -1,8 +1,12 @@
 # DB Desk
 
-Minimal Electron + TypeScript + React + Vite + Monaco Editor foundation for a Mac desktop database client.
+Electron + TypeScript + React + Vite + Monaco Editor foundation for a Mac desktop database client.
 
-This bootstrap step intentionally does not include database connections, schema browsing, query execution, authentication, persistence, or AI features.
+The shell implements the DB Desk connection panel: a light/dark themed three-pane
+layout with a schema browser tree (connections → databases → schemas → tables,
+views, functions, and more), object filtering, two tree styles, and a New
+Connection dialog. The schema is currently mock data — real PostgreSQL
+connectivity, query execution, persistence, and AI features are not yet wired up.
 
 ## Setup
 
@@ -33,9 +37,25 @@ src/
     index.html
     src/
       main.tsx
-      App.tsx
+      App.tsx              # shell: title bar + 3 panes + dialog
+      theme.ts             # light/dark theme hook (persisted)
+      styles.css           # design tokens + component styles
       components/
+        TitleBar.tsx
+        EditorPanel.tsx    # tab bar chrome + Monaco editor
+        AgentPanel.tsx
         SqlEditor.tsx
+        icons.tsx          # shared UI icons
+      connections/
+        types.ts
+        treeData.ts        # tree construction + mock schema
+        flatten.ts         # visible-row flattening + filtering
+        useConnectionState.ts
+        ConnectionPanel.tsx
+        ConnectionTree.tsx
+        TreeRow.tsx
+        NodeIcon.tsx
+        NewConnectionDialog.tsx
 ```
 
 ## Monaco Notes
