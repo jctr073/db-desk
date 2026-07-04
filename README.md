@@ -12,7 +12,16 @@ views, materialized views, indexes, functions, sequences, types, and aggregates.
 Sibling databases are introspected lazily on first expand. Connections persist
 across sessions (passwords encrypted at rest via Electron `safeStorage`) and are
 restored offline on launch — reconnect, disconnect, and remove are available from
-a right-click menu. Query execution and AI features are not yet wired up.
+a right-click menu.
+
+The SQL editor executes queries for real: a toolbar dropdown picks the
+(connection, database) target, Run (or ⌘⏎) executes the statement under the
+cursor — or the selection — and results land in a grid on the lower half of the
+editor. Each run replaces the live results tab unless it is pinned, in which
+case the next run opens a fresh tab; pinned tabs can be re-run and closed. Bare
+SELECTs get an automatic `LIMIT 500` (configurable in the toolbar, including no
+limit); statements that can't take an appended LIMIT are truncated to the same
+cap after execution. AI features are not yet wired up.
 
 ## Setup
 
@@ -37,12 +46,13 @@ npm run format    # Format project files with Prettier
 src/
   main/
     index.ts             # app bootstrap + db/store IPC handlers
-    db.ts                # PostgreSQL connection pooling + catalog introspection
+    db.ts                # PostgreSQL pooling, introspection + query execution
     store.ts             # saved-connection persistence (safeStorage-encrypted)
   preload/
     index.ts             # typed window.dbDesk bridge (db + store)
   shared/
     db.ts                # wire types shared by main, preload, and renderer
+    sql.ts               # statement splitting + auto-LIMIT lexer (main + renderer)
   renderer/
     index.html
     src/
@@ -52,9 +62,11 @@ src/
       styles.css           # design tokens + component styles
       components/
         TitleBar.tsx
-        EditorPanel.tsx    # tab bar chrome + Monaco editor
+        EditorPanel.tsx    # tab bar, target/limit toolbar, editor + results split
         AgentPanel.tsx
         SqlEditor.tsx
+        ResultsPanel.tsx   # result tabs (live + pinned), grid, status bar
+        useQueryRunner.ts  # result-tab state machine + query dispatch
         icons.tsx          # shared UI icons
       connections/
         types.ts

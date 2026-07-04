@@ -1,4 +1,5 @@
 import Editor from '@monaco-editor/react'
+import type { OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
 import type { ReactElement } from 'react'
 
@@ -24,14 +25,17 @@ const editorOptions: editor.IStandaloneEditorConstructionOptions = {
 
 interface SqlEditorProps {
   theme?: Theme
+  onMount?: OnMount
 }
 
 function resolveTheme(theme?: Theme): 'light' | 'vs-dark' {
   if (theme) return theme === 'dark' ? 'vs-dark' : 'light'
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'vs-dark' : 'light'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'vs-dark'
+    : 'light'
 }
 
-export function SqlEditor({ theme }: SqlEditorProps): ReactElement {
+export function SqlEditor({ theme, onMount }: SqlEditorProps): ReactElement {
   return (
     <section className="sql-editor" aria-label="SQL editor">
       <Editor
@@ -40,6 +44,7 @@ export function SqlEditor({ theme }: SqlEditorProps): ReactElement {
         height="100%"
         options={editorOptions}
         theme={resolveTheme(theme)}
+        onMount={onMount}
       />
     </section>
   )
