@@ -2,17 +2,22 @@ import { Client, Pool } from 'pg'
 import type { ClientBase, ClientConfig, PoolClient } from 'pg'
 
 import type {
+  CellValue,
   ColumnInfo,
   ConnectParams,
   ConnectResult,
   DatabaseIntrospection,
   DbResult,
+  QueryField,
+  QueryResult,
   RelationInfo,
   RoutineInfo,
   SchemaIntrospection,
   TestResult,
   TypeInfo
 } from '../shared/db'
+import { normalizeConnectionUrl } from '../shared/connectionUrl'
+import { applyAutoLimit } from '../shared/sql'
 
 const CONNECT_TIMEOUT_MS = 8000
 
@@ -21,32 +26,122 @@ interface ManagedConnection {
   /** Pool against the database the user originally connected to. */
   pool: Pool
   database: string
+  /**
+   * TLS override the connection was established with; extra pools inherit
+   * it. null defers to the connection URL's own sslmode (verify-ca/
+   * verify-full/disable), which propagates to extra pools via the URL.
+   */
+  ssl: SslOverride
+  /** Lazily created pools for queries against sibling databases. */
+  extraPools: Map<string, Pool>
+  /** Cache of type OID → name lookups shared by every result on this server. */
+  typeNames: Map<number, string>
 }
 
 const connections = new Map<string, ManagedConnection>()
 
-function clientConfig(params: ConnectParams, databaseOverride?: string): ClientConfig {
+/**
+ * true: force TLS without certificate verification (libpq `require`
+ * semantics — managed providers commonly present self-signed chains, which
+ * psql also accepts). false: force plaintext. null: defer entirely to the
+ * connection URL's own sslmode, which pg enforces as written.
+ */
+type SslOverride = boolean | null
+
+function clientConfig(
+  params: ConnectParams,
+  databaseOverride?: string,
+  ssl: SslOverride = null
+): ClientConfig {
+  let config: ClientConfig
   if (params.useUrl && params.url.trim()) {
-    let connectionString = params.url.trim()
-    if (databaseOverride) {
-      const url = new URL(connectionString)
-      url.pathname = `/${encodeURIComponent(databaseOverride)}`
-      connectionString = url.toString()
+    let connectionString = normalizeConnectionUrl(params.url)
+    if (databaseOverride || ssl !== null) {
+      try {
+        const url = new URL(connectionString)
+        if (databaseOverride) {
+          url.pathname = `/${encodeURIComponent(databaseOverride)}`
+        }
+        if (ssl !== null) {
+          // pg lets a parsed sslmode override explicit ssl config, so the
+          // param must go for the override below to take effect.
+          url.searchParams.delete('sslmode')
+          url.searchParams.delete('ssl')
+        }
+        connectionString = url.toString()
+      } catch {
+        // not WHATWG-parseable; hand it to pg untouched
+      }
     }
-    return { connectionString, connectionTimeoutMillis: CONNECT_TIMEOUT_MS }
+    config = { connectionString, connectionTimeoutMillis: CONNECT_TIMEOUT_MS }
+  } else {
+    config = {
+      host: params.host.trim() || 'localhost',
+      port: Number(params.port) || 5432,
+      database: databaseOverride ?? (params.database.trim() || 'postgres'),
+      user: params.user.trim() || undefined,
+      password: params.password || undefined,
+      connectionTimeoutMillis: CONNECT_TIMEOUT_MS
+    }
   }
-  return {
-    host: params.host.trim() || 'localhost',
-    port: Number(params.port) || 5432,
-    database: databaseOverride ?? (params.database.trim() || 'postgres'),
-    user: params.user.trim() || undefined,
-    password: params.password || undefined,
-    connectionTimeoutMillis: CONNECT_TIMEOUT_MS
+  if (ssl === true) config.ssl = { rejectUnauthorized: false }
+  if (ssl === false) config.ssl = false
+  return config
+}
+
+/** sslmode requested explicitly in a connection URL; null when absent. */
+function explicitSslMode(params: ConnectParams): string | null {
+  if (!params.useUrl || !params.url.trim()) return null
+  try {
+    const url = new URL(normalizeConnectionUrl(params.url))
+    const mode = url.searchParams.get('sslmode')
+    if (mode) return mode.toLowerCase()
+    const ssl = url.searchParams.get('ssl')
+    if (ssl !== null) return /^(1|true|on)$/i.test(ssl) ? 'require' : 'disable'
+    return null
+  } catch {
+    return null
   }
 }
 
+/**
+ * How to negotiate TLS, following libpq sslmode semantics. 'auto' (no
+ * explicit sslmode, or prefer/allow) tries TLS first and falls back to
+ * plaintext; 'tls' (require) uses TLS without certificate verification;
+ * 'verify' (verify-ca/verify-full) defers to pg's own verifying handling of
+ * the URL and must never be downgraded; 'plain' (disable) never uses TLS.
+ */
+function sslStrategy(
+  params: ConnectParams
+): 'auto' | 'plain' | 'tls' | 'verify' {
+  const mode = explicitSslMode(params)
+  if (mode === null || mode === 'prefer' || mode === 'allow') return 'auto'
+  if (mode === 'disable') return 'plain'
+  if (mode === 'require') return 'tls'
+  return 'verify'
+}
+
+/**
+ * After a failed TLS-first attempt: is plaintext worth trying? Only when the
+ * server can't or won't speak TLS — never for auth or network failures, so
+ * credentials are not re-sent over an unexpected downgrade.
+ */
+function plaintextWorthTrying(error: string): boolean {
+  return /does not support SSL|SSL (on|encryption)/i.test(error)
+}
+
 function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message
+  // Node reports a dual-stack (IPv4 + IPv6) connection failure as an
+  // AggregateError whose own message is empty; use the causes instead.
+  if (err instanceof AggregateError) {
+    const parts = [...new Set(err.errors.map(errorMessage).filter(Boolean))]
+    if (parts.length > 0) return parts.join('; ')
+  }
+  if (err instanceof Error) {
+    if (err.message) return err.message
+    const code = (err as { code?: string }).code
+    return code ? `Connection failed (${code})` : err.name
+  }
   return String(err)
 }
 
@@ -60,7 +155,10 @@ const SYSTEM_SCHEMA_FILTER = `
   n.nspname <> 'information_schema' AND n.nspname NOT LIKE 'pg\\_%'
 `
 
-async function introspectWith(client: ClientBase, database: string): Promise<DatabaseIntrospection> {
+async function introspectWith(
+  client: ClientBase,
+  database: string
+): Promise<DatabaseIntrospection> {
   const [schemaRes, relRes, colRes, conRes, idxRes, procRes, typeRes] = [
     await client.query<{ nspname: string }>(
       `SELECT n.nspname
@@ -68,14 +166,24 @@ async function introspectWith(client: ClientBase, database: string): Promise<Dat
         WHERE ${SYSTEM_SCHEMA_FILTER}
         ORDER BY n.nspname`
     ),
-    await client.query<{ oid: string; schema: string; name: string; kind: string }>(
+    await client.query<{
+      oid: string
+      schema: string
+      name: string
+      kind: string
+    }>(
       `SELECT c.oid::text AS oid, n.nspname AS schema, c.relname AS name, c.relkind AS kind
          FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S') AND ${SYSTEM_SCHEMA_FILTER}
         ORDER BY n.nspname, c.relname`
     ),
-    await client.query<{ reloid: string; name: string; dtype: string; attnum: number }>(
+    await client.query<{
+      reloid: string
+      name: string
+      dtype: string
+      attnum: number
+    }>(
       `SELECT a.attrelid::text AS reloid, a.attname AS name,
               format_type(a.atttypid, a.atttypmod) AS dtype, a.attnum
          FROM pg_attribute a
@@ -100,7 +208,13 @@ async function introspectWith(client: ClientBase, database: string): Promise<Dat
         WHERE ${SYSTEM_SCHEMA_FILTER}
         ORDER BY n.nspname, ci.relname`
     ),
-    await client.query<{ schema: string; name: string; args: string; ret: string; kind: string }>(
+    await client.query<{
+      schema: string
+      name: string
+      args: string
+      ret: string
+      kind: string
+    }>(
       `SELECT n.nspname AS schema, p.proname AS name,
               pg_get_function_arguments(p.oid) AS args,
               pg_get_function_result(p.oid) AS ret,
@@ -174,7 +288,10 @@ async function introspectWith(client: ClientBase, database: string): Promise<Dat
       schema.sequences.push(rel.name)
       continue
     }
-    const relation: RelationInfo = { name: rel.name, columns: columnsByRel.get(rel.oid) ?? [] }
+    const relation: RelationInfo = {
+      name: rel.name,
+      columns: columnsByRel.get(rel.oid) ?? []
+    }
     if (rel.kind === 'v') schema.views.push(relation)
     else if (rel.kind === 'm') schema.matviews.push(relation)
     else schema.tables.push(relation)
@@ -183,7 +300,11 @@ async function introspectWith(client: ClientBase, database: string): Promise<Dat
   for (const idx of idxRes.rows) schemaFor(idx.schema).indexes.push(idx.name)
 
   for (const proc of procRes.rows) {
-    const routine: RoutineInfo = { name: proc.name, args: proc.args, returnType: proc.ret }
+    const routine: RoutineInfo = {
+      name: proc.name,
+      args: proc.args,
+      returnType: proc.ret
+    }
     if (proc.kind === 'a') schemaFor(proc.schema).aggregates.push(routine)
     else schemaFor(proc.schema).functions.push(routine)
   }
@@ -196,24 +317,34 @@ async function introspectWith(client: ClientBase, database: string): Promise<Dat
     m: 'multirange'
   }
   for (const type of typeRes.rows) {
-    const info: TypeInfo = { name: type.name, kind: TYPE_KIND[type.kind] ?? type.kind }
+    const info: TypeInfo = {
+      name: type.name,
+      kind: TYPE_KIND[type.kind] ?? type.kind
+    }
     schemaFor(type.schema).types.push(info)
   }
 
   return { name: database, schemas: [...schemas.values()] }
 }
 
-export async function testConnection(params: ConnectParams): Promise<DbResult<TestResult>> {
-  const client = new Client(clientConfig(params))
+async function testOnce(
+  params: ConnectParams,
+  sslOverride: SslOverride,
+  sslActive: boolean = sslOverride ?? false
+): Promise<DbResult<TestResult>> {
+  const client = new Client(clientConfig(params, undefined, sslOverride))
   const started = Date.now()
   try {
     await client.connect()
-    const res = await client.query<{ version: string }>('SELECT version() AS version')
+    const res = await client.query<{ version: string }>(
+      'SELECT version() AS version'
+    )
     return {
       ok: true,
       data: {
         serverVersion: parseServerVersion(res.rows[0].version),
-        latencyMs: Date.now() - started
+        latencyMs: Date.now() - started,
+        ssl: sslActive
       }
     }
   } catch (err) {
@@ -223,14 +354,30 @@ export async function testConnection(params: ConnectParams): Promise<DbResult<Te
   }
 }
 
-export async function connect(
-  connId: string,
+export async function testConnection(
   params: ConnectParams
-): Promise<DbResult<ConnectResult>> {
-  if (connections.has(connId)) {
-    return { ok: false, error: `Connection "${connId}" already exists` }
+): Promise<DbResult<TestResult>> {
+  switch (sslStrategy(params)) {
+    case 'plain':
+      return testOnce(params, null, false)
+    case 'tls':
+      return testOnce(params, true)
+    case 'verify':
+      return testOnce(params, null, true)
+    case 'auto': {
+      const tls = await testOnce(params, true)
+      if (tls.ok || !plaintextWorthTrying(tls.error)) return tls
+      return testOnce(params, false)
+    }
   }
-  const pool = new Pool({ ...clientConfig(params), max: 4 })
+}
+
+async function connectOnce(
+  connId: string,
+  params: ConnectParams,
+  ssl: SslOverride
+): Promise<DbResult<ConnectResult>> {
+  const pool = new Pool({ ...clientConfig(params, undefined, ssl), max: 4 })
   let client: PoolClient | undefined
   try {
     client = await pool.connect()
@@ -244,7 +391,14 @@ export async function connect(
         ORDER BY datname`
     )
     const connectedDatabase = await introspectWith(client, database)
-    connections.set(connId, { params, pool, database })
+    connections.set(connId, {
+      params,
+      pool,
+      database,
+      ssl,
+      extraPools: new Map(),
+      typeNames: new Map()
+    })
     return {
       ok: true,
       data: {
@@ -258,6 +412,28 @@ export async function connect(
     return { ok: false, error: errorMessage(err) }
   } finally {
     client?.release()
+  }
+}
+
+export async function connect(
+  connId: string,
+  params: ConnectParams
+): Promise<DbResult<ConnectResult>> {
+  if (connections.has(connId)) {
+    return { ok: false, error: `Connection "${connId}" already exists` }
+  }
+  switch (sslStrategy(params)) {
+    case 'plain':
+    case 'verify':
+      // pg enforces the URL's sslmode as written; no override, no retry.
+      return connectOnce(connId, params, null)
+    case 'tls':
+      return connectOnce(connId, params, true)
+    case 'auto': {
+      const tls = await connectOnce(connId, params, true)
+      if (tls.ok || !plaintextWorthTrying(tls.error)) return tls
+      return connectOnce(connId, params, false)
+    }
   }
 }
 
@@ -282,7 +458,7 @@ export async function introspectDatabase(
   }
 
   // Other databases require their own session; use a short-lived client.
-  const client = new Client(clientConfig(managed.params, database))
+  const client = new Client(clientConfig(managed.params, database, managed.ssl))
   try {
     await client.connect()
     return { ok: true, data: await introspectWith(client, database) }
@@ -293,17 +469,208 @@ export async function introspectDatabase(
   }
 }
 
+function allPools(managed: ManagedConnection): Pool[] {
+  return [managed.pool, ...managed.extraPools.values()]
+}
+
 export async function disconnect(connId: string): Promise<DbResult<null>> {
   const managed = connections.get(connId)
   if (managed) {
     connections.delete(connId)
-    void managed.pool.end().catch(() => {})
+    for (const pool of allPools(managed)) void pool.end().catch(() => {})
   }
   return { ok: true, data: null }
 }
 
 export async function disconnectAll(): Promise<void> {
-  const pools = [...connections.values()].map((managed) => managed.pool)
+  const pools = [...connections.values()].flatMap(allPools)
   connections.clear()
   await Promise.allSettled(pools.map((pool) => pool.end()))
+}
+
+/* ------------------------------------------------------------------ *
+ * Query execution                                                     *
+ * ------------------------------------------------------------------ */
+
+const MAX_CELL_CHARS = 10_000
+
+/** Common built-in type OIDs, so most results need no catalog lookup. */
+const BUILTIN_TYPE_NAMES: Record<number, string> = {
+  16: 'bool',
+  17: 'bytea',
+  18: 'char',
+  19: 'name',
+  20: 'int8',
+  21: 'int2',
+  23: 'int4',
+  25: 'text',
+  26: 'oid',
+  114: 'json',
+  142: 'xml',
+  199: 'json[]',
+  600: 'point',
+  700: 'float4',
+  701: 'float8',
+  790: 'money',
+  829: 'macaddr',
+  869: 'inet',
+  1000: 'bool[]',
+  1007: 'int4[]',
+  1009: 'text[]',
+  1015: 'varchar[]',
+  1016: 'int8[]',
+  1021: 'float4[]',
+  1022: 'float8[]',
+  1042: 'bpchar',
+  1043: 'varchar',
+  1082: 'date',
+  1083: 'time',
+  1114: 'timestamp',
+  1115: 'timestamp[]',
+  1182: 'date[]',
+  1184: 'timestamptz',
+  1185: 'timestamptz[]',
+  1186: 'interval',
+  1231: 'numeric[]',
+  1266: 'timetz',
+  1700: 'numeric',
+  2950: 'uuid',
+  2951: 'uuid[]',
+  3802: 'jsonb',
+  3807: 'jsonb[]'
+}
+
+function truncateCell(value: string): string {
+  return value.length > MAX_CELL_CHARS
+    ? `${value.slice(0, MAX_CELL_CHARS)}…`
+    : value
+}
+
+function serializeCell(value: unknown): CellValue {
+  if (value === null || value === undefined) return null
+  switch (typeof value) {
+    case 'string':
+      return truncateCell(value)
+    case 'number':
+      return Number.isFinite(value) ? value : String(value)
+    case 'boolean':
+      return value
+    case 'bigint':
+      return value.toString()
+    default:
+      if (value instanceof Date) {
+        return Number.isNaN(value.getTime())
+          ? String(value)
+          : value.toISOString()
+      }
+      if (Buffer.isBuffer(value)) {
+        return truncateCell(`\\x${value.toString('hex')}`)
+      }
+      try {
+        return truncateCell(JSON.stringify(value) ?? String(value))
+      } catch {
+        return String(value)
+      }
+  }
+}
+
+function poolFor(managed: ManagedConnection, database: string): Pool {
+  if (database === managed.database) return managed.pool
+  let pool = managed.extraPools.get(database)
+  if (!pool) {
+    pool = new Pool({
+      ...clientConfig(managed.params, database, managed.ssl),
+      max: 2
+    })
+    managed.extraPools.set(database, pool)
+  }
+  return pool
+}
+
+/** Resolve field type names, hitting pg_type only for OIDs not yet cached. */
+async function resolveFields(
+  client: ClientBase,
+  managed: ManagedConnection,
+  fields: { name: string; dataTypeID: number }[]
+): Promise<QueryField[]> {
+  const unknown = [
+    ...new Set(
+      fields
+        .map((f) => f.dataTypeID)
+        .filter(
+          (oid) => !(oid in BUILTIN_TYPE_NAMES) && !managed.typeNames.has(oid)
+        )
+    )
+  ]
+  if (unknown.length > 0) {
+    try {
+      const res = await client.query<{ oid: string; name: string }>(
+        `SELECT oid::text AS oid, format_type(oid, NULL) AS name
+           FROM pg_type WHERE oid = ANY($1::oid[])`,
+        [unknown]
+      )
+      for (const row of res.rows)
+        managed.typeNames.set(Number(row.oid), row.name)
+    } catch {
+      // Lookup is cosmetic; fall through to the numeric fallback below.
+    }
+  }
+  return fields.map((f) => ({
+    name: f.name,
+    dataType:
+      BUILTIN_TYPE_NAMES[f.dataTypeID] ??
+      managed.typeNames.get(f.dataTypeID) ??
+      `oid ${f.dataTypeID}`
+  }))
+}
+
+export async function runQuery(
+  connId: string,
+  database: string,
+  sql: string,
+  limit: number | null
+): Promise<DbResult<QueryResult>> {
+  const managed = connections.get(connId)
+  if (!managed) return { ok: false, error: 'Connection no longer exists' }
+
+  const prepared =
+    limit === null ? { text: sql, applied: false } : applyAutoLimit(sql, limit)
+  let client: PoolClient | undefined
+  try {
+    client = await poolFor(managed, database).connect()
+    const started = Date.now()
+    const res = await client.query({ text: prepared.text, rowMode: 'array' })
+    const durationMs = Date.now() - started
+    // Multiple statements resolve to an array of results; report the last one.
+    const results = (Array.isArray(res) ? res : [res]) as unknown as {
+      command: string
+      rowCount: number | null
+      fields: { name: string; dataTypeID: number }[]
+      rows: unknown[][]
+    }[]
+    const last = results[results.length - 1]
+    const fields = await resolveFields(client, managed, last.fields ?? [])
+    let rows = (last.rows ?? []).map((row) => row.map(serializeCell))
+    let truncated = false
+    if (limit !== null && !prepared.applied && rows.length > limit) {
+      rows = rows.slice(0, limit)
+      truncated = true
+    }
+    return {
+      ok: true,
+      data: {
+        command: last.command ?? '',
+        fields,
+        rows,
+        rowCount: last.rowCount,
+        durationMs,
+        limitApplied: prepared.applied ? limit : null,
+        truncated
+      }
+    }
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) }
+  } finally {
+    client?.release()
+  }
 }

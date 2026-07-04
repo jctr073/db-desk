@@ -1,3 +1,4 @@
+import { parseConnectionUrl } from '../../../shared/connectionUrl'
 import type {
   ColumnInfo,
   ConnectResult,
@@ -24,7 +25,10 @@ export function assignIds(node: TreeNode, parentId: string): void {
 }
 
 /** Depth-first search for a node by id. */
-export function findNode(id: string | null, nodes: TreeNode[]): TreeNode | null {
+export function findNode(
+  id: string | null,
+  nodes: TreeNode[]
+): TreeNode | null {
   if (!id) return null
   for (const node of nodes) {
     if (node.id === id) return node
@@ -37,11 +41,25 @@ export function findNode(id: string | null, nodes: TreeNode[]): TreeNode | null 
 }
 
 function columnNode(col: ColumnInfo): TreeNode {
-  return { id: '', kind: 'column', label: col.name, dtype: col.dataType, badge: col.badge }
+  return {
+    id: '',
+    kind: 'column',
+    label: col.name,
+    dtype: col.dataType,
+    badge: col.badge
+  }
 }
 
-function relationNode(kind: 'table' | 'view' | 'matview', rel: RelationInfo): TreeNode {
-  return { id: '', kind, label: rel.name, children: rel.columns.map(columnNode) }
+function relationNode(
+  kind: 'table' | 'view' | 'matview',
+  rel: RelationInfo
+): TreeNode {
+  return {
+    id: '',
+    kind,
+    label: rel.name,
+    children: rel.columns.map(columnNode)
+  }
 }
 
 function routineLabel(routine: RoutineInfo): string {
@@ -85,7 +103,11 @@ function schemaNode(schema: SchemaIntrospection): TreeNode {
         key: 'indexes',
         icon: 'index',
         label: 'Indexes',
-        children: schema.indexes.map((name) => ({ id: '', kind: 'index' as const, label: name }))
+        children: schema.indexes.map((name) => ({
+          id: '',
+          kind: 'index' as const,
+          label: name
+        }))
       },
       {
         id: '',
@@ -155,13 +177,12 @@ interface SubtitleSource {
 
 function connectionSubtitle(source: SubtitleSource, useUrl: boolean): string {
   if (useUrl && source.url.trim()) {
-    try {
-      const url = new URL(source.url.trim())
-      const userPart = url.username ? `${decodeURIComponent(url.username)}@` : ''
-      return `${userPart}${url.hostname || 'localhost'}:${url.port || '5432'}`
-    } catch {
-      return source.url.trim()
+    const parsed = parseConnectionUrl(source.url)
+    if (parsed) {
+      const userPart = parsed.user ? `${parsed.user}@` : ''
+      return `${userPart}${parsed.host || 'localhost'}:${parsed.port || '5432'}`
     }
+    return source.url.trim()
   }
   return `${source.user || 'user'}@${source.host || 'localhost'}:${source.port || '5432'}`
 }
@@ -200,7 +221,10 @@ export function formFromSaved(saved: SavedConnection): ConnectionForm {
  * connected to is fully populated; sibling databases are marked lazy and get
  * introspected when first expanded.
  */
-export function connectionNodeFromResult(saved: SavedConnection, result: ConnectResult): TreeNode {
+export function connectionNodeFromResult(
+  saved: SavedConnection,
+  result: ConnectResult
+): TreeNode {
   const connected = result.connectedDatabase
   const names = result.databases.includes(connected.name)
     ? result.databases
@@ -222,7 +246,13 @@ export function connectionNodeFromResult(saved: SavedConnection, result: Connect
             label: name,
             children: databaseChildren(connected)
           }
-        : { id: '', kind: 'database' as const, key: name, label: name, lazy: true }
+        : {
+            id: '',
+            kind: 'database' as const,
+            key: name,
+            label: name,
+            lazy: true
+          }
     )
   }
   assignIds(conn, '')
@@ -230,12 +260,16 @@ export function connectionNodeFromResult(saved: SavedConnection, result: Connect
 }
 
 /** Expand a new connection down to the connected database's tables. */
-export function defaultExpansion(conn: TreeNode, connectedDb: string): Record<string, boolean> {
+export function defaultExpansion(
+  conn: TreeNode,
+  connectedDb: string
+): Record<string, boolean> {
   const out: Record<string, boolean> = { [conn.id]: true }
   const db = conn.children?.find((child) => child.key === connectedDb)
   if (!db) return out
   out[db.id] = true
-  const schema = db.children?.find((s) => s.label === 'public') ?? db.children?.[0]
+  const schema =
+    db.children?.find((s) => s.label === 'public') ?? db.children?.[0]
   if (!schema) return out
   out[schema.id] = true
   const tables = schema.children?.find((cat) => cat.key === 'tables')

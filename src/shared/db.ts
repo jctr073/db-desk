@@ -57,6 +57,8 @@ export interface DatabaseIntrospection {
 export interface TestResult {
   serverVersion: string
   latencyMs: number
+  /** True when the session was established over TLS. */
+  ssl: boolean
 }
 
 export interface ConnectResult {
@@ -69,6 +71,28 @@ export interface ConnectResult {
 
 /** All db IPC calls resolve to this shape; errors travel as values, not throws. */
 export type DbResult<T> = { ok: true; data: T } | { ok: false; error: string }
+
+/** Grid cell payload; every driver value is folded into one of these. */
+export type CellValue = string | number | boolean | null
+
+export interface QueryField {
+  name: string
+  dataType: string
+}
+
+export interface QueryResult {
+  /** Command tag reported by the server, e.g. "SELECT", "UPDATE". */
+  command: string
+  fields: QueryField[]
+  rows: CellValue[][]
+  /** Rows returned or affected as reported by the server (null when unknown). */
+  rowCount: number | null
+  durationMs: number
+  /** LIMIT value that was auto-appended to the statement, if any. */
+  limitApplied: number | null
+  /** True when rows beyond the requested limit were discarded after execution. */
+  truncated: boolean
+}
 
 /**
  * A connection profile persisted across app sessions. Passwords never travel

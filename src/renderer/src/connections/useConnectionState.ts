@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { parseConnectionUrl } from '../../../shared/connectionUrl'
 import type { ConnectParams, SavedConnection } from '../../../shared/db'
 import {
   assignIds,
@@ -87,7 +88,10 @@ function updateNode(
 }
 
 /** Drop every expansion entry at or below the given connection id. */
-function pruneExpansion(expanded: Record<string, boolean>, id: string): Record<string, boolean> {
+function pruneExpansion(
+  expanded: Record<string, boolean>,
+  id: string
+): Record<string, boolean> {
   const next: Record<string, boolean> = {}
   for (const key of Object.keys(expanded)) {
     if (key !== id && !key.startsWith(`${id}/`)) next[key] = expanded[key]
@@ -121,7 +125,9 @@ export function useConnectionState(): ConnectionState {
     let cancelled = false
     void window.dbDesk.store.list().then((saved) => {
       if (cancelled) return
-      setProfiles(Object.fromEntries(saved.map((profile) => [profile.id, profile])))
+      setProfiles(
+        Object.fromEntries(saved.map((profile) => [profile.id, profile]))
+      )
       setTree(saved.map(savedConnectionNode))
     })
     return () => {
@@ -133,7 +139,9 @@ export function useConnectionState(): ConnectionState {
     const dbNodeId = node.id
     const connId = dbNodeId.split('/')[0]
     const dbName = node.label
-    setTree((prev) => updateNode(prev, dbNodeId, (n) => ({ ...n, loading: true })))
+    setTree((prev) =>
+      updateNode(prev, dbNodeId, (n) => ({ ...n, loading: true }))
+    )
     const res = await window.dbDesk.db.introspect(connId, dbName)
     setTree((prev) =>
       updateNode(prev, dbNodeId, (n) => {
@@ -171,7 +179,8 @@ export function useConnectionState(): ConnectionState {
       })
       if (willExpand) {
         const node = findNode(id, tree)
-        if (node?.kind === 'database' && node.lazy && !node.loading) void loadDatabase(node)
+        if (node?.kind === 'database' && node.lazy && !node.loading)
+          void loadDatabase(node)
       }
     },
     [expanded, tree, loadDatabase]
@@ -231,7 +240,9 @@ export function useConnectionState(): ConnectionState {
       }))
     )
     setExpanded((prev) => pruneExpansion(prev, id))
-    setSelected((prev) => (prev && (prev === id || prev.startsWith(`${id}/`)) ? id : prev))
+    setSelected((prev) =>
+      prev && (prev === id || prev.startsWith(`${id}/`)) ? id : prev
+    )
   }, [])
 
   const removeConnection = useCallback((id: string) => {
@@ -244,7 +255,9 @@ export function useConnectionState(): ConnectionState {
     })
     setExpanded((prev) => pruneExpansion(prev, id))
     setTree((prev) => prev.filter((conn) => conn.id !== id))
-    setSelected((prev) => (prev && (prev === id || prev.startsWith(`${id}/`)) ? null : prev))
+    setSelected((prev) =>
+      prev && (prev === id || prev.startsWith(`${id}/`)) ? null : prev
+    )
   }, [])
 
   const removeSelected = useCallback(() => {
@@ -253,24 +266,44 @@ export function useConnectionState(): ConnectionState {
   }, [selected, tree, removeConnection])
 
   const openDialog = useCallback(() => {
-    // Keep whatever the user typed last time, unless it was an edit of a
-    // saved connection — that must not leak into a brand-new profile.
-    if (editingId) {
-      setForm(defaultForm())
-      setDialogTab('params')
-    }
+    // Always start from a clean form: leftovers from a canceled attempt or
+    // an edit of a saved connection must not leak into a new profile.
+    testSeq.current++
+    setForm(defaultForm())
+    setDialogTab('params')
     setEditingId(null)
     setShowPwd(false)
     setTestState('idle')
     setTestMsg('')
     setConnecting(false)
     setDialogOpen(true)
-  }, [editingId])
+  }, [])
 
   const closeDialog = useCallback(() => {
     testSeq.current++
     setDialogOpen(false)
   }, [])
+
+  /** Switch dialog tabs; leaving the URL tab fills the parameter fields from the URL. */
+  const changeDialogTab = useCallback(
+    (tab: DialogTab) => {
+      if (tab === 'params' && dialogTab === 'url') {
+        const parsed = parseConnectionUrl(form.url)
+        if (parsed) {
+          setForm((prev) => ({
+            ...prev,
+            host: parsed.host || prev.host,
+            port: parsed.port || prev.port,
+            database: parsed.database || prev.database,
+            user: parsed.user || prev.user,
+            password: parsed.password || prev.password
+          }))
+        }
+      }
+      setDialogTab(tab)
+    },
+    [dialogTab, form.url]
+  )
 
   const togglePwd = useCallback(() => setShowPwd((prev) => !prev), [])
   const toggleSavePwd = useCallback(
@@ -293,10 +326,14 @@ export function useConnectionState(): ConnectionState {
     if (seq !== testSeq.current) return
     if (res.ok) {
       setTestState('ok')
-      setTestMsg(`Connected · PostgreSQL ${res.data.serverVersion} · ${res.data.latencyMs} ms`)
+      setTestMsg(
+        `Connected · PostgreSQL ${res.data.serverVersion} · ${res.data.latencyMs} ms${
+          res.data.ssl ? ' · SSL' : ''
+        }`
+      )
     } else {
       setTestState('error')
-      setTestMsg(res.error)
+      setTestMsg(res.error || 'Connection failed')
     }
   }, [form, dialogTab])
 
@@ -309,7 +346,7 @@ export function useConnectionState(): ConnectionState {
     if (!res.ok) {
       setConnecting(false)
       setTestState('error')
-      setTestMsg(res.error)
+      setTestMsg(res.error || 'Connection failed')
       return
     }
 
@@ -384,7 +421,7 @@ export function useConnectionState(): ConnectionState {
     removeConnection,
     openDialog,
     closeDialog,
-    setDialogTab,
+    setDialogTab: changeDialogTab,
     togglePwd,
     toggleSavePwd,
     updateForm,
