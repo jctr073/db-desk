@@ -16,6 +16,7 @@ import type {
   TestResult,
   TypeInfo
 } from '../shared/db'
+import { normalizeConnectionUrl } from '../shared/connectionUrl'
 import { applyAutoLimit } from '../shared/sql'
 
 const CONNECT_TIMEOUT_MS = 8000
@@ -38,7 +39,7 @@ function clientConfig(
   databaseOverride?: string
 ): ClientConfig {
   if (params.useUrl && params.url.trim()) {
-    let connectionString = params.url.trim()
+    let connectionString = normalizeConnectionUrl(params.url)
     if (databaseOverride) {
       const url = new URL(connectionString)
       url.pathname = `/${encodeURIComponent(databaseOverride)}`
@@ -57,7 +58,17 @@ function clientConfig(
 }
 
 function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message
+  // Node reports a dual-stack (IPv4 + IPv6) connection failure as an
+  // AggregateError whose own message is empty; use the causes instead.
+  if (err instanceof AggregateError) {
+    const parts = [...new Set(err.errors.map(errorMessage).filter(Boolean))]
+    if (parts.length > 0) return parts.join('; ')
+  }
+  if (err instanceof Error) {
+    if (err.message) return err.message
+    const code = (err as { code?: string }).code
+    return code ? `Connection failed (${code})` : err.name
+  }
   return String(err)
 }
 

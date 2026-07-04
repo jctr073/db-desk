@@ -2,6 +2,7 @@ import { app, safeStorage } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
+import { normalizeConnectionUrl } from '../shared/connectionUrl'
 import type { ConnectParams, SavedConnection } from '../shared/db'
 
 /**
@@ -63,13 +64,14 @@ function toPublic(record: StoredRecord): SavedConnection {
 
 /** Split a connection URL into its password and the URL without it. */
 function splitUrlPassword(rawUrl: string): { url: string; password: string } {
+  const normalized = normalizeConnectionUrl(rawUrl)
   try {
-    const url = new URL(rawUrl.trim())
+    const url = new URL(normalized)
     const password = url.password ? decodeURIComponent(url.password) : ''
     url.password = ''
     return { url: url.toString(), password }
   } catch {
-    return { url: rawUrl.trim(), password: '' }
+    return { url: normalized, password: '' }
   }
 }
 
