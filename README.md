@@ -6,7 +6,9 @@ The shell implements the DB Desk connection panel: a light/dark themed three-pan
 layout with a schema browser tree (connections → databases → schemas → tables,
 views, functions, and more), object filtering, two tree styles, and a New
 Connection dialog. Connections are real: creating one connects to a live
-PostgreSQL server (via discrete parameters or a connection URL), introspects the
+PostgreSQL server (via discrete parameters or a connection URL, preferring
+SSL/TLS automatically and honoring any explicit `sslmode` in a URL, following
+libpq semantics), introspects the
 catalog, and populates the tree with actual databases, schemas, tables, columns,
 views, materialized views, indexes, functions, sequences, types, and aggregates.
 Sibling databases are introspected lazily on first expand. Connections persist

@@ -327,7 +327,9 @@ export function useConnectionState(): ConnectionState {
     if (res.ok) {
       setTestState('ok')
       setTestMsg(
-        `Connected · PostgreSQL ${res.data.serverVersion} · ${res.data.latencyMs} ms`
+        `Connected · PostgreSQL ${res.data.serverVersion} · ${res.data.latencyMs} ms${
+          res.data.ssl ? ' · SSL' : ''
+        }`
       )
     } else {
       setTestState('error')

@@ -57,6 +57,8 @@ export interface DatabaseIntrospection {
 export interface TestResult {
   serverVersion: string
   latencyMs: number
+  /** True when the session was established over TLS. */
+  ssl: boolean
 }
 
 export interface ConnectResult {

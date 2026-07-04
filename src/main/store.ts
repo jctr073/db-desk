@@ -1,5 +1,5 @@
 import { app, safeStorage } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { normalizeConnectionUrl } from '../shared/connectionUrl'
@@ -45,7 +45,17 @@ function persist(records: StoredRecord[]): void {
   cache = records
   const path = storePath()
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, JSON.stringify(records, null, 2), 'utf8')
+  // Owner-only: the file holds connection metadata and encrypted secrets.
+  writeFileSync(path, JSON.stringify(records, null, 2), {
+    encoding: 'utf8',
+    mode: 0o600
+  })
+  try {
+    // mode above only applies on creation; tighten pre-existing files too.
+    chmodSync(path, 0o600)
+  } catch {
+    // best effort (e.g. filesystems without POSIX permissions)
+  }
 }
 
 function toPublic(record: StoredRecord): SavedConnection {
@@ -62,6 +72,15 @@ function toPublic(record: StoredRecord): SavedConnection {
   }
 }
 
+/**
+ * Best-effort removal of the password from a URL that new URL() cannot
+ * parse. Greedy up to the last "@" before the path, so passwords containing
+ * "@" are fully removed.
+ */
+function redactUrlPassword(url: string): string {
+  return url.replace(/^([^:]*:\/\/[^/@]*):[^/]*@/, '$1@')
+}
+
 /** Split a connection URL into its password and the URL without it. */
 function splitUrlPassword(rawUrl: string): { url: string; password: string } {
   const normalized = normalizeConnectionUrl(rawUrl)
@@ -71,7 +90,8 @@ function splitUrlPassword(rawUrl: string): { url: string; password: string } {
     url.password = ''
     return { url: url.toString(), password }
   } catch {
-    return { url: normalized, password: '' }
+    // Unparseable URLs must never be persisted with a credential section.
+    return { url: redactUrlPassword(normalized), password: '' }
   }
 }
 

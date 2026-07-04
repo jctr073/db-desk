@@ -26,6 +26,12 @@ interface ManagedConnection {
   /** Pool against the database the user originally connected to. */
   pool: Pool
   database: string
+  /**
+   * TLS override the connection was established with; extra pools inherit
+   * it. null defers to the connection URL's own sslmode (verify-ca/
+   * verify-full/disable), which propagates to extra pools via the URL.
+   */
+  ssl: SslOverride
   /** Lazily created pools for queries against sibling databases. */
   extraPools: Map<string, Pool>
   /** Cache of type OID → name lookups shared by every result on this server. */
@@ -34,27 +40,94 @@ interface ManagedConnection {
 
 const connections = new Map<string, ManagedConnection>()
 
+/**
+ * true: force TLS without certificate verification (libpq `require`
+ * semantics — managed providers commonly present self-signed chains, which
+ * psql also accepts). false: force plaintext. null: defer entirely to the
+ * connection URL's own sslmode, which pg enforces as written.
+ */
+type SslOverride = boolean | null
+
 function clientConfig(
   params: ConnectParams,
-  databaseOverride?: string
+  databaseOverride?: string,
+  ssl: SslOverride = null
 ): ClientConfig {
+  let config: ClientConfig
   if (params.useUrl && params.url.trim()) {
     let connectionString = normalizeConnectionUrl(params.url)
-    if (databaseOverride) {
-      const url = new URL(connectionString)
-      url.pathname = `/${encodeURIComponent(databaseOverride)}`
-      connectionString = url.toString()
+    if (databaseOverride || ssl !== null) {
+      try {
+        const url = new URL(connectionString)
+        if (databaseOverride) {
+          url.pathname = `/${encodeURIComponent(databaseOverride)}`
+        }
+        if (ssl !== null) {
+          // pg lets a parsed sslmode override explicit ssl config, so the
+          // param must go for the override below to take effect.
+          url.searchParams.delete('sslmode')
+          url.searchParams.delete('ssl')
+        }
+        connectionString = url.toString()
+      } catch {
+        // not WHATWG-parseable; hand it to pg untouched
+      }
     }
-    return { connectionString, connectionTimeoutMillis: CONNECT_TIMEOUT_MS }
+    config = { connectionString, connectionTimeoutMillis: CONNECT_TIMEOUT_MS }
+  } else {
+    config = {
+      host: params.host.trim() || 'localhost',
+      port: Number(params.port) || 5432,
+      database: databaseOverride ?? (params.database.trim() || 'postgres'),
+      user: params.user.trim() || undefined,
+      password: params.password || undefined,
+      connectionTimeoutMillis: CONNECT_TIMEOUT_MS
+    }
   }
-  return {
-    host: params.host.trim() || 'localhost',
-    port: Number(params.port) || 5432,
-    database: databaseOverride ?? (params.database.trim() || 'postgres'),
-    user: params.user.trim() || undefined,
-    password: params.password || undefined,
-    connectionTimeoutMillis: CONNECT_TIMEOUT_MS
+  if (ssl === true) config.ssl = { rejectUnauthorized: false }
+  if (ssl === false) config.ssl = false
+  return config
+}
+
+/** sslmode requested explicitly in a connection URL; null when absent. */
+function explicitSslMode(params: ConnectParams): string | null {
+  if (!params.useUrl || !params.url.trim()) return null
+  try {
+    const url = new URL(normalizeConnectionUrl(params.url))
+    const mode = url.searchParams.get('sslmode')
+    if (mode) return mode.toLowerCase()
+    const ssl = url.searchParams.get('ssl')
+    if (ssl !== null) return /^(1|true|on)$/i.test(ssl) ? 'require' : 'disable'
+    return null
+  } catch {
+    return null
   }
+}
+
+/**
+ * How to negotiate TLS, following libpq sslmode semantics. 'auto' (no
+ * explicit sslmode, or prefer/allow) tries TLS first and falls back to
+ * plaintext; 'tls' (require) uses TLS without certificate verification;
+ * 'verify' (verify-ca/verify-full) defers to pg's own verifying handling of
+ * the URL and must never be downgraded; 'plain' (disable) never uses TLS.
+ */
+function sslStrategy(
+  params: ConnectParams
+): 'auto' | 'plain' | 'tls' | 'verify' {
+  const mode = explicitSslMode(params)
+  if (mode === null || mode === 'prefer' || mode === 'allow') return 'auto'
+  if (mode === 'disable') return 'plain'
+  if (mode === 'require') return 'tls'
+  return 'verify'
+}
+
+/**
+ * After a failed TLS-first attempt: is plaintext worth trying? Only when the
+ * server can't or won't speak TLS — never for auth or network failures, so
+ * credentials are not re-sent over an unexpected downgrade.
+ */
+function plaintextWorthTrying(error: string): boolean {
+  return /does not support SSL|SSL (on|encryption)/i.test(error)
 }
 
 function errorMessage(err: unknown): string {
@@ -254,10 +327,12 @@ async function introspectWith(
   return { name: database, schemas: [...schemas.values()] }
 }
 
-export async function testConnection(
-  params: ConnectParams
+async function testOnce(
+  params: ConnectParams,
+  sslOverride: SslOverride,
+  sslActive: boolean = sslOverride ?? false
 ): Promise<DbResult<TestResult>> {
-  const client = new Client(clientConfig(params))
+  const client = new Client(clientConfig(params, undefined, sslOverride))
   const started = Date.now()
   try {
     await client.connect()
@@ -268,7 +343,8 @@ export async function testConnection(
       ok: true,
       data: {
         serverVersion: parseServerVersion(res.rows[0].version),
-        latencyMs: Date.now() - started
+        latencyMs: Date.now() - started,
+        ssl: sslActive
       }
     }
   } catch (err) {
@@ -278,14 +354,30 @@ export async function testConnection(
   }
 }
 
-export async function connect(
-  connId: string,
+export async function testConnection(
   params: ConnectParams
-): Promise<DbResult<ConnectResult>> {
-  if (connections.has(connId)) {
-    return { ok: false, error: `Connection "${connId}" already exists` }
+): Promise<DbResult<TestResult>> {
+  switch (sslStrategy(params)) {
+    case 'plain':
+      return testOnce(params, null, false)
+    case 'tls':
+      return testOnce(params, true)
+    case 'verify':
+      return testOnce(params, null, true)
+    case 'auto': {
+      const tls = await testOnce(params, true)
+      if (tls.ok || !plaintextWorthTrying(tls.error)) return tls
+      return testOnce(params, false)
+    }
   }
-  const pool = new Pool({ ...clientConfig(params), max: 4 })
+}
+
+async function connectOnce(
+  connId: string,
+  params: ConnectParams,
+  ssl: SslOverride
+): Promise<DbResult<ConnectResult>> {
+  const pool = new Pool({ ...clientConfig(params, undefined, ssl), max: 4 })
   let client: PoolClient | undefined
   try {
     client = await pool.connect()
@@ -303,6 +395,7 @@ export async function connect(
       params,
       pool,
       database,
+      ssl,
       extraPools: new Map(),
       typeNames: new Map()
     })
@@ -319,6 +412,28 @@ export async function connect(
     return { ok: false, error: errorMessage(err) }
   } finally {
     client?.release()
+  }
+}
+
+export async function connect(
+  connId: string,
+  params: ConnectParams
+): Promise<DbResult<ConnectResult>> {
+  if (connections.has(connId)) {
+    return { ok: false, error: `Connection "${connId}" already exists` }
+  }
+  switch (sslStrategy(params)) {
+    case 'plain':
+    case 'verify':
+      // pg enforces the URL's sslmode as written; no override, no retry.
+      return connectOnce(connId, params, null)
+    case 'tls':
+      return connectOnce(connId, params, true)
+    case 'auto': {
+      const tls = await connectOnce(connId, params, true)
+      if (tls.ok || !plaintextWorthTrying(tls.error)) return tls
+      return connectOnce(connId, params, false)
+    }
   }
 }
 
@@ -343,7 +458,7 @@ export async function introspectDatabase(
   }
 
   // Other databases require their own session; use a short-lived client.
-  const client = new Client(clientConfig(managed.params, database))
+  const client = new Client(clientConfig(managed.params, database, managed.ssl))
   try {
     await client.connect()
     return { ok: true, data: await introspectWith(client, database) }
@@ -463,7 +578,10 @@ function poolFor(managed: ManagedConnection, database: string): Pool {
   if (database === managed.database) return managed.pool
   let pool = managed.extraPools.get(database)
   if (!pool) {
-    pool = new Pool({ ...clientConfig(managed.params, database), max: 2 })
+    pool = new Pool({
+      ...clientConfig(managed.params, database, managed.ssl),
+      max: 2
+    })
     managed.extraPools.set(database, pool)
   }
   return pool
