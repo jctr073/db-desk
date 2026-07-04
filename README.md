@@ -5,8 +5,14 @@ Electron + TypeScript + React + Vite + Monaco Editor foundation for a Mac deskto
 The shell implements the DB Desk connection panel: a light/dark themed three-pane
 layout with a schema browser tree (connections → databases → schemas → tables,
 views, functions, and more), object filtering, two tree styles, and a New
-Connection dialog. The schema is currently mock data — real PostgreSQL
-connectivity, query execution, persistence, and AI features are not yet wired up.
+Connection dialog. Connections are real: creating one connects to a live
+PostgreSQL server (via discrete parameters or a connection URL), introspects the
+catalog, and populates the tree with actual databases, schemas, tables, columns,
+views, materialized views, indexes, functions, sequences, types, and aggregates.
+Sibling databases are introspected lazily on first expand. Connections persist
+across sessions (passwords encrypted at rest via Electron `safeStorage`) and are
+restored offline on launch — reconnect, disconnect, and remove are available from
+a right-click menu. Query execution and AI features are not yet wired up.
 
 ## Setup
 
@@ -30,9 +36,13 @@ npm run format    # Format project files with Prettier
 ```text
 src/
   main/
-    index.ts
+    index.ts             # app bootstrap + db/store IPC handlers
+    db.ts                # PostgreSQL connection pooling + catalog introspection
+    store.ts             # saved-connection persistence (safeStorage-encrypted)
   preload/
-    index.ts
+    index.ts             # typed window.dbDesk bridge (db + store)
+  shared/
+    db.ts                # wire types shared by main, preload, and renderer
   renderer/
     index.html
     src/
@@ -48,7 +58,7 @@ src/
         icons.tsx          # shared UI icons
       connections/
         types.ts
-        treeData.ts        # tree construction + mock schema
+        treeData.ts        # tree construction from introspection results
         flatten.ts         # visible-row flattening + filtering
         useConnectionState.ts
         ConnectionPanel.tsx

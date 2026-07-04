@@ -36,7 +36,7 @@ export function flattenTree(tree: TreeNode[], options: FlattenOptions): FlatRow[
 
   const rows: FlatRow[] = []
   const push = (node: TreeNode, depth: number): void => {
-    const expandable = !!(node.children && node.children.length)
+    const expandable = !!(node.children && node.children.length) || !!node.lazy
     const expanded = isExpanded(node)
     rows.push({ node, depth, expandable, expanded })
 

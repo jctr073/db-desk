@@ -22,22 +22,19 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
   if (!state.dialogOpen) return null
 
   const isParams = state.dialogTab === 'params'
+  const editing = state.editingId !== null
 
   return (
-    <div className="dialog-overlay" onClick={closeDialog}>
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="New connection"
-        onClick={(event) => event.stopPropagation()}
-      >
+    // Deliberately no click-to-close on the overlay: a stray click (e.g. when
+    // refocusing the window) must not throw away a half-filled form.
+    <div className="dialog-overlay">
+      <div className="dialog" role="dialog" aria-modal="true" aria-label="New connection">
         <div className="dialog__header">
           <span className="dialog__icon">
             <DatabaseIcon size={18} />
           </span>
           <div className="dialog__titles">
-            <div className="dialog__title">New Connection</div>
+            <div className="dialog__title">{editing ? 'Edit Connection' : 'New Connection'}</div>
             <div className="dialog__subtitle">Connect to a PostgreSQL database</div>
           </div>
           <button className="dialog__close" onClick={closeDialog} title="Close" type="button">
@@ -177,7 +174,12 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
         </div>
 
         <div className="dialog__footer">
-          <button className="btn-test" onClick={state.testConnection} type="button">
+          <button
+            className="btn-test"
+            onClick={state.testConnection}
+            disabled={state.testState === 'testing' || state.connecting}
+            type="button"
+          >
             {state.testState === 'testing' && <span className="spinner" />}
             Test
           </button>
@@ -191,12 +193,19 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
             {state.testState === 'testing' && (
               <span className="test-msg--pending">{state.testMsg}</span>
             )}
+            {state.testState === 'error' && <span className="test-msg--err">{state.testMsg}</span>}
           </div>
           <button className="btn-cancel" onClick={closeDialog} type="button">
             Cancel
           </button>
-          <button className="btn-primary" onClick={state.connect} type="button">
-            Connect
+          <button
+            className="btn-primary"
+            onClick={state.connect}
+            disabled={state.connecting}
+            type="button"
+          >
+            {state.connecting && <span className="spinner" />}
+            {state.connecting ? 'Connecting…' : 'Connect'}
           </button>
         </div>
       </div>

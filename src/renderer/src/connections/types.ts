@@ -1,4 +1,4 @@
-export type ConnectionStatus = 'online' | 'idle' | 'error'
+export type ConnectionStatus = 'online' | 'idle' | 'error' | 'offline'
 
 export type ColumnBadge = 'pk' | 'fk' | null
 
@@ -32,6 +32,12 @@ export interface TreeNode {
   // connection
   subtitle?: string
   status?: ConnectionStatus
+
+  // database / connection
+  /** True when the database's schema has not been introspected yet. */
+  lazy?: boolean
+  /** True while an introspection or connect request is in flight. */
+  loading?: boolean
 
   // category
   icon?: IconKey

@@ -1,5 +1,9 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
+
+import { connect, disconnect, disconnectAll, introspectDatabase, testConnection } from './db'
+import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
+import type { ConnectParams } from '../shared/db'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -55,7 +59,32 @@ function createWindow(): void {
   }
 }
 
+function registerDbHandlers(): void {
+  ipcMain.handle('db:test', (_event, params: ConnectParams) => testConnection(params))
+  ipcMain.handle('db:connect', (_event, connId: string, params: ConnectParams) =>
+    connect(connId, params)
+  )
+  ipcMain.handle('db:introspect', (_event, connId: string, database: string) =>
+    introspectDatabase(connId, database)
+  )
+  ipcMain.handle('db:disconnect', (_event, connId: string) => disconnect(connId))
+  ipcMain.handle('db:connectSaved', (_event, connId: string) => {
+    const params = savedParams(connId)
+    if (!params) return { ok: false as const, error: 'Saved connection not found' }
+    return connect(connId, params)
+  })
+
+  ipcMain.handle('store:list', () => listSaved())
+  ipcMain.handle(
+    'store:save',
+    (_event, id: string, name: string, params: ConnectParams, savePassword: boolean) =>
+      saveConnection(id, name, params, savePassword)
+  )
+  ipcMain.handle('store:delete', (_event, id: string) => deleteSaved(id))
+}
+
 app.whenReady().then(() => {
+  registerDbHandlers()
   createWindow()
 
   app.on('activate', () => {
@@ -69,4 +98,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('will-quit', () => {
+  void disconnectAll()
 })

@@ -1,7 +1,7 @@
-import type { ReactElement } from 'react'
+import type { MouseEvent, ReactElement } from 'react'
 
 import { TreeRow } from './TreeRow'
-import type { FlatRow, TreeMode } from './types'
+import type { FlatRow, TreeMode, TreeNode } from './types'
 
 interface ConnectionTreeProps {
   rows: FlatRow[]
@@ -10,6 +10,7 @@ interface ConnectionTreeProps {
   rowHeight: number
   showStatusDots: boolean
   onRowClick: (id: string, expandable: boolean) => void
+  onRowContextMenu: (node: TreeNode, event: MouseEvent<HTMLDivElement>) => void
 }
 
 export function ConnectionTree({
@@ -18,7 +19,8 @@ export function ConnectionTree({
   mode,
   rowHeight,
   showStatusDots,
-  onRowClick
+  onRowClick,
+  onRowContextMenu
 }: ConnectionTreeProps): ReactElement {
   return (
     <div role="tree">
@@ -34,6 +36,7 @@ export function ConnectionTree({
           rowHeight={rowHeight}
           showStatusDots={showStatusDots}
           onClick={() => onRowClick(row.node.id, row.expandable)}
+          onContextMenu={(event) => onRowContextMenu(row.node, event)}
         />
       ))}
     </div>
