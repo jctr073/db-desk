@@ -133,7 +133,10 @@ export function TreeRow({
 
   let rightText = ''
   let rightStyle: CSSProperties | undefined
-  if (node.kind === 'column') {
+  if (node.kind === 'database' && node.loading) {
+    rightText = 'Loading…'
+    rightStyle = { fontSize: 10.5, color: 'var(--text-faint)', marginLeft: 8, flex: '0 0 auto' }
+  } else if (node.kind === 'column') {
     rightText = node.dtype ?? ''
     rightStyle = monoRight
   } else if (node.kind === 'function') {

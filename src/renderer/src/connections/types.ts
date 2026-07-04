@@ -33,6 +33,12 @@ export interface TreeNode {
   subtitle?: string
   status?: ConnectionStatus
 
+  // database
+  /** True when the database's schema has not been introspected yet. */
+  lazy?: boolean
+  /** True while a lazy introspection request is in flight. */
+  loading?: boolean
+
   // category
   icon?: IconKey
 

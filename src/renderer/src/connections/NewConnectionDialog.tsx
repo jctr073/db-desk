@@ -177,7 +177,12 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
         </div>
 
         <div className="dialog__footer">
-          <button className="btn-test" onClick={state.testConnection} type="button">
+          <button
+            className="btn-test"
+            onClick={state.testConnection}
+            disabled={state.testState === 'testing' || state.connecting}
+            type="button"
+          >
             {state.testState === 'testing' && <span className="spinner" />}
             Test
           </button>
@@ -191,12 +196,19 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
             {state.testState === 'testing' && (
               <span className="test-msg--pending">{state.testMsg}</span>
             )}
+            {state.testState === 'error' && <span className="test-msg--err">{state.testMsg}</span>}
           </div>
           <button className="btn-cancel" onClick={closeDialog} type="button">
             Cancel
           </button>
-          <button className="btn-primary" onClick={state.connect} type="button">
-            Connect
+          <button
+            className="btn-primary"
+            onClick={state.connect}
+            disabled={state.connecting}
+            type="button"
+          >
+            {state.connecting && <span className="spinner" />}
+            {state.connecting ? 'Connecting…' : 'Connect'}
           </button>
         </div>
       </div>

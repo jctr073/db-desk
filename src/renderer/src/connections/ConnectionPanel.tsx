@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 
 import {
   ChevronUpIcon,
+  CloseIcon,
   DatabaseIcon,
   MinusIcon,
   PlusIcon,
@@ -100,6 +101,20 @@ export function ConnectionPanel({ state }: ConnectionPanelProps): ReactElement {
           />
         </div>
       </div>
+
+      {state.loadError && (
+        <div className="load-error" role="alert">
+          <span className="load-error__text">{state.loadError}</span>
+          <button
+            className="load-error__close"
+            onClick={state.clearLoadError}
+            title="Dismiss"
+            type="button"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+      )}
 
       <div className="tree-scroll">
         {state.tree.length === 0 ? (

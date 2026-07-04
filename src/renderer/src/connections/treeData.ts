@@ -1,3 +1,11 @@
+import type {
+  ColumnInfo,
+  ConnectResult,
+  DatabaseIntrospection,
+  RelationInfo,
+  RoutineInfo,
+  SchemaIntrospection
+} from '../../../shared/db'
 import type { ConnectionForm, TreeNode } from './types'
 
 export function slug(value: string): string {
@@ -5,233 +13,6 @@ export function slug(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
-}
-
-function column(name: string, dtype: string, badge?: 'pk' | 'fk'): TreeNode {
-  return { id: '', kind: 'column', label: name, dtype, badge: badge ?? null }
-}
-
-/**
- * A representative `public`-style schema used for every database in the demo
- * tree. Each call returns a fresh object graph so ids can be assigned per path.
- */
-function makeSchema(): TreeNode[] {
-  return [
-    {
-      id: '',
-      kind: 'category',
-      key: 'tables',
-      icon: 'table',
-      label: 'Tables',
-      children: [
-        {
-          id: '',
-          kind: 'table',
-          label: 'users',
-          children: [
-            column('id', 'int8', 'pk'),
-            column('org_id', 'int8', 'fk'),
-            column('email', 'text'),
-            column('full_name', 'text'),
-            column('role', 'user_role'),
-            column('is_active', 'bool'),
-            column('created_at', 'timestamptz'),
-            column('updated_at', 'timestamptz')
-          ]
-        },
-        {
-          id: '',
-          kind: 'table',
-          label: 'orders',
-          children: [
-            column('id', 'int8', 'pk'),
-            column('user_id', 'int8', 'fk'),
-            column('status', 'order_status'),
-            column('total', 'numeric'),
-            column('placed_at', 'timestamptz')
-          ]
-        },
-        {
-          id: '',
-          kind: 'table',
-          label: 'order_items',
-          children: [
-            column('id', 'int8', 'pk'),
-            column('order_id', 'int8', 'fk'),
-            column('product_id', 'int8', 'fk'),
-            column('quantity', 'int4'),
-            column('unit_price', 'numeric')
-          ]
-        },
-        {
-          id: '',
-          kind: 'table',
-          label: 'products',
-          children: [
-            column('id', 'int8', 'pk'),
-            column('sku', 'text'),
-            column('name', 'text'),
-            column('price', 'numeric'),
-            column('category_id', 'int8', 'fk')
-          ]
-        },
-        {
-          id: '',
-          kind: 'table',
-          label: 'organizations',
-          children: [
-            column('id', 'int8', 'pk'),
-            column('name', 'text'),
-            column('plan', 'text'),
-            column('created_at', 'timestamptz')
-          ]
-        }
-      ]
-    },
-    {
-      id: '',
-      kind: 'category',
-      key: 'views',
-      icon: 'view',
-      label: 'Views',
-      children: [
-        {
-          id: '',
-          kind: 'view',
-          label: 'active_users',
-          children: [
-            column('user_id', 'int8'),
-            column('email', 'text'),
-            column('last_seen', 'timestamptz')
-          ]
-        },
-        {
-          id: '',
-          kind: 'view',
-          label: 'pending_orders',
-          children: [
-            column('order_id', 'int8'),
-            column('user_id', 'int8'),
-            column('total', 'numeric')
-          ]
-        },
-        {
-          id: '',
-          kind: 'view',
-          label: 'monthly_revenue',
-          children: [column('month', 'date'), column('revenue', 'numeric')]
-        }
-      ]
-    },
-    {
-      id: '',
-      kind: 'category',
-      key: 'matviews',
-      icon: 'matview',
-      label: 'Materialized Views',
-      children: [
-        {
-          id: '',
-          kind: 'matview',
-          label: 'mv_daily_signups',
-          children: [column('day', 'date'), column('signups', 'int8')]
-        },
-        {
-          id: '',
-          kind: 'matview',
-          label: 'mv_revenue_rollup',
-          children: [
-            column('month', 'date'),
-            column('gross', 'numeric'),
-            column('net', 'numeric')
-          ]
-        }
-      ]
-    },
-    {
-      id: '',
-      kind: 'category',
-      key: 'indexes',
-      icon: 'index',
-      label: 'Indexes',
-      children: [
-        { id: '', kind: 'index', label: 'users_pkey' },
-        { id: '', kind: 'index', label: 'users_email_key' },
-        { id: '', kind: 'index', label: 'orders_user_id_idx' },
-        { id: '', kind: 'index', label: 'orders_status_idx' },
-        { id: '', kind: 'index', label: 'products_sku_key' }
-      ]
-    },
-    {
-      id: '',
-      kind: 'category',
-      key: 'functions',
-      icon: 'function',
-      label: 'Functions',
-      children: [
-        { id: '', kind: 'function', label: 'current_org()', returnType: 'int8' },
-        {
-          id: '',
-          kind: 'function',
-          label: 'calc_order_total(order_id)',
-          returnType: 'numeric'
-        },
-        {
-          id: '',
-          kind: 'function',
-          label: 'soft_delete_user(uid)',
-          returnType: 'void'
-        }
-      ]
-    },
-    {
-      id: '',
-      kind: 'category',
-      key: 'sequences',
-      icon: 'sequence',
-      label: 'Sequences',
-      children: [
-        { id: '', kind: 'sequence', label: 'users_id_seq' },
-        { id: '', kind: 'sequence', label: 'orders_id_seq' },
-        { id: '', kind: 'sequence', label: 'products_id_seq' }
-      ]
-    },
-    {
-      id: '',
-      kind: 'category',
-      key: 'types',
-      icon: 'type',
-      label: 'Data Types',
-      children: [
-        { id: '', kind: 'type', label: 'user_role', meta: 'enum' },
-        { id: '', kind: 'type', label: 'order_status', meta: 'enum' },
-        { id: '', kind: 'type', label: 'address', meta: 'composite' }
-      ]
-    },
-    {
-      id: '',
-      kind: 'category',
-      key: 'aggregates',
-      icon: 'aggregate',
-      label: 'Aggregate Functions',
-      children: [
-        { id: '', kind: 'aggregate', label: 'median(numeric)' },
-        { id: '', kind: 'aggregate', label: 'mode(anyelement)' },
-        { id: '', kind: 'aggregate', label: 'first(anyelement)' }
-      ]
-    }
-  ]
-}
-
-/** A database whose single `public` schema uses the representative schema. */
-function schemaDb(key: string): TreeNode {
-  return {
-    id: '',
-    kind: 'database',
-    key,
-    label: key,
-    children: [{ id: '', kind: 'schema', key: 'public', label: 'public', children: makeSchema() }]
-  }
 }
 
 /** Assign path-based ids to a node and all of its descendants, in place. */
@@ -254,66 +35,181 @@ export function findNode(id: string | null, nodes: TreeNode[]): TreeNode | null 
   return null
 }
 
-/** The seed set of connections shown when the app opens. */
-export function buildInitialTree(): TreeNode[] {
-  const local: TreeNode = {
+function columnNode(col: ColumnInfo): TreeNode {
+  return { id: '', kind: 'column', label: col.name, dtype: col.dataType, badge: col.badge }
+}
+
+function relationNode(kind: 'table' | 'view' | 'matview', rel: RelationInfo): TreeNode {
+  return { id: '', kind, label: rel.name, children: rel.columns.map(columnNode) }
+}
+
+function routineLabel(routine: RoutineInfo): string {
+  return `${routine.name}(${routine.args})`
+}
+
+function schemaNode(schema: SchemaIntrospection): TreeNode {
+  return {
     id: '',
-    kind: 'connection',
-    key: 'c-local',
-    label: 'Local · PostgreSQL 16',
-    subtitle: 'postgres@localhost:5432',
-    status: 'online',
+    kind: 'schema',
+    key: schema.name,
+    label: schema.name,
     children: [
-      schemaDb('postgres'),
       {
         id: '',
-        kind: 'database',
-        key: 'app_production',
-        label: 'app_production',
-        children: [
-          { id: '', kind: 'schema', key: 'public', label: 'public', children: makeSchema() },
-          { id: '', kind: 'schema', key: 'analytics', label: 'analytics', children: makeSchema() },
-          { id: '', kind: 'schema', key: 'audit', label: 'audit', children: makeSchema() }
-        ]
+        kind: 'category',
+        key: 'tables',
+        icon: 'table',
+        label: 'Tables',
+        children: schema.tables.map((rel) => relationNode('table', rel))
       },
-      schemaDb('app_staging')
+      {
+        id: '',
+        kind: 'category',
+        key: 'views',
+        icon: 'view',
+        label: 'Views',
+        children: schema.views.map((rel) => relationNode('view', rel))
+      },
+      {
+        id: '',
+        kind: 'category',
+        key: 'matviews',
+        icon: 'matview',
+        label: 'Materialized Views',
+        children: schema.matviews.map((rel) => relationNode('matview', rel))
+      },
+      {
+        id: '',
+        kind: 'category',
+        key: 'indexes',
+        icon: 'index',
+        label: 'Indexes',
+        children: schema.indexes.map((name) => ({ id: '', kind: 'index' as const, label: name }))
+      },
+      {
+        id: '',
+        kind: 'category',
+        key: 'functions',
+        icon: 'function',
+        label: 'Functions',
+        children: schema.functions.map((fn) => ({
+          id: '',
+          kind: 'function' as const,
+          label: routineLabel(fn),
+          returnType: fn.returnType
+        }))
+      },
+      {
+        id: '',
+        kind: 'category',
+        key: 'sequences',
+        icon: 'sequence',
+        label: 'Sequences',
+        children: schema.sequences.map((name) => ({
+          id: '',
+          kind: 'sequence' as const,
+          label: name
+        }))
+      },
+      {
+        id: '',
+        kind: 'category',
+        key: 'types',
+        icon: 'type',
+        label: 'Data Types',
+        children: schema.types.map((type) => ({
+          id: '',
+          kind: 'type' as const,
+          label: type.name,
+          meta: type.kind
+        }))
+      },
+      {
+        id: '',
+        kind: 'category',
+        key: 'aggregates',
+        icon: 'aggregate',
+        label: 'Aggregate Functions',
+        children: schema.aggregates.map((agg) => ({
+          id: '',
+          kind: 'aggregate' as const,
+          label: routineLabel(agg)
+        }))
+      }
     ]
   }
-  const staging: TreeNode = {
-    id: '',
-    kind: 'connection',
-    key: 'c-staging',
-    label: 'Staging Cluster',
-    subtitle: 'deploy@db.staging.internal:5432',
-    status: 'idle',
-    children: [schemaDb('app_staging'), schemaDb('postgres')]
-  }
-  const warehouse: TreeNode = {
-    id: '',
-    kind: 'connection',
-    key: 'c-warehouse',
-    label: 'Analytics Warehouse',
-    subtitle: 'ro_user@10.0.2.14:5432',
-    status: 'error',
-    children: [schemaDb('warehouse')]
-  }
-  const tree = [local, staging, warehouse]
-  tree.forEach((node) => assignIds(node, ''))
-  return tree
 }
 
-/** The ids expanded by default so the demo opens on a populated table. */
-export function initialExpanded(): Record<string, boolean> {
-  return {
-    'c-local': true,
-    'c-local/app_production': true,
-    'c-local/app_production/public': true,
-    'c-local/app_production/public/tables': true,
-    'c-local/app_production/public/tables/users': true
-  }
+/** Schema nodes for a fully introspected database (ids assigned by the caller). */
+export function databaseChildren(db: DatabaseIntrospection): TreeNode[] {
+  return db.schemas.map(schemaNode)
 }
 
-export const initialSelected = 'c-local/app_production/public/tables/users'
+function connectionSubtitle(form: ConnectionForm, useUrl: boolean): string {
+  if (useUrl && form.url.trim()) {
+    try {
+      const url = new URL(form.url.trim())
+      const userPart = url.username ? `${decodeURIComponent(url.username)}@` : ''
+      return `${userPart}${url.hostname || 'localhost'}:${url.port || '5432'}`
+    } catch {
+      return form.url.trim()
+    }
+  }
+  return `${form.user || 'user'}@${form.host || 'localhost'}:${form.port || '5432'}`
+}
+
+/**
+ * Build the tree node for a freshly established connection. The database we
+ * connected to is fully populated; sibling databases are marked lazy and get
+ * introspected when first expanded.
+ */
+export function connectionNodeFromResult(
+  form: ConnectionForm,
+  useUrl: boolean,
+  connId: string,
+  result: ConnectResult
+): TreeNode {
+  const connected = result.connectedDatabase
+  const names = result.databases.includes(connected.name)
+    ? result.databases
+    : [connected.name, ...result.databases]
+
+  const conn: TreeNode = {
+    id: '',
+    kind: 'connection',
+    key: connId,
+    label: (form.name || 'PostgreSQL').trim() || 'PostgreSQL',
+    subtitle: connectionSubtitle(form, useUrl),
+    status: 'online',
+    children: names.map((name) =>
+      name === connected.name
+        ? {
+            id: '',
+            kind: 'database' as const,
+            key: name,
+            label: name,
+            children: databaseChildren(connected)
+          }
+        : { id: '', kind: 'database' as const, key: name, label: name, lazy: true }
+    )
+  }
+  assignIds(conn, '')
+  return conn
+}
+
+/** Expand a new connection down to the connected database's tables. */
+export function defaultExpansion(conn: TreeNode, connectedDb: string): Record<string, boolean> {
+  const out: Record<string, boolean> = { [conn.id]: true }
+  const db = conn.children?.find((child) => child.key === connectedDb)
+  if (!db) return out
+  out[db.id] = true
+  const schema = db.children?.find((s) => s.label === 'public') ?? db.children?.[0]
+  if (!schema) return out
+  out[schema.id] = true
+  const tables = schema.children?.find((cat) => cat.key === 'tables')
+  if (tables?.children?.length) out[tables.id] = true
+  return out
+}
 
 export function defaultForm(): ConnectionForm {
   return {
@@ -326,28 +222,4 @@ export function defaultForm(): ConnectionForm {
     savePwd: true,
     url: 'postgresql://postgres@localhost:5432/postgres'
   }
-}
-
-/** Build a connection node from a completed New Connection form. */
-export function connectionFromForm(form: ConnectionForm, id: string): TreeNode {
-  const database = form.database || 'postgres'
-  const conn: TreeNode = {
-    id: '',
-    kind: 'connection',
-    key: id,
-    label: (form.name || 'PostgreSQL').trim(),
-    subtitle: `${form.user || 'user'}@${form.host || 'localhost'}:${form.port || '5432'}`,
-    status: 'online',
-    children: [
-      {
-        id: '',
-        kind: 'database',
-        key: database,
-        label: database,
-        children: [{ id: '', kind: 'schema', key: 'public', label: 'public', children: makeSchema() }]
-      }
-    ]
-  }
-  assignIds(conn, '')
-  return conn
 }
