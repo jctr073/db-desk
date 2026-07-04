@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactElement } from 'react'
+import type { CSSProperties, MouseEvent, ReactElement } from 'react'
 
 import { KeyIcon, ChevronRightIcon } from '../components/icons'
 import { NodeIcon } from './NodeIcon'
@@ -9,7 +9,8 @@ const CONTAINER_KINDS = new Set<TreeNode['kind']>(['connection', 'database', 'sc
 const STATUS_COLOR: Record<string, string> = {
   online: 'var(--green)',
   idle: 'var(--amber)',
-  error: 'var(--red)'
+  error: 'var(--red)',
+  offline: 'var(--text-faint)'
 }
 
 const labelWrap: CSSProperties = {
@@ -70,6 +71,7 @@ interface TreeRowProps {
   rowHeight: number
   showStatusDots: boolean
   onClick: () => void
+  onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void
 }
 
 export function TreeRow({
@@ -81,7 +83,8 @@ export function TreeRow({
   mode,
   rowHeight,
   showStatusDots,
-  onClick
+  onClick,
+  onContextMenu
 }: TreeRowProps): ReactElement {
   const isContainer = CONTAINER_KINDS.has(node.kind)
   const isCatHeaderB = mode === 'B' && node.kind === 'category'
@@ -133,7 +136,10 @@ export function TreeRow({
 
   let rightText = ''
   let rightStyle: CSSProperties | undefined
-  if (node.kind === 'database' && node.loading) {
+  if (node.kind === 'connection' && node.loading) {
+    rightText = 'Connecting…'
+    rightStyle = { fontSize: 10.5, color: 'var(--text-faint)', marginLeft: 8, flex: '0 0 auto' }
+  } else if (node.kind === 'database' && node.loading) {
     rightText = 'Loading…'
     rightStyle = { fontSize: 10.5, color: 'var(--text-faint)', marginLeft: 8, flex: '0 0 auto' }
   } else if (node.kind === 'column') {
@@ -216,6 +222,7 @@ export function TreeRow({
       className="tree-row"
       style={rowStyle}
       onClick={onClick}
+      onContextMenu={onContextMenu}
     >
       {guides.map((g, i) => (
         <div key={i} style={g} />

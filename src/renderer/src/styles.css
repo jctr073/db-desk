@@ -792,6 +792,48 @@ textarea {
   color: inherit;
   cursor: pointer;
 }
+.ctx-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+.ctx-menu {
+  position: fixed;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 32px var(--shadow);
+  animation: dbfade 0.1s ease;
+}
+.ctx-menu__item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.ctx-menu__item:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.ctx-menu__item:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.ctx-menu__item--danger {
+  color: var(--red);
+}
+.ctx-menu__sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-soft);
+}
 .btn-cancel {
   height: 32px;
   padding: 0 15px;

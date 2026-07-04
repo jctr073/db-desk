@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import type { ReactElement } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { MouseEvent, ReactElement } from 'react'
 
 import {
   ChevronUpIcon,
@@ -11,7 +11,7 @@ import {
 } from '../components/icons'
 import { ConnectionTree } from './ConnectionTree'
 import { flattenTree } from './flatten'
-import type { NodeKind } from './types'
+import type { NodeKind, TreeNode } from './types'
 import type { ConnectionState } from './useConnectionState'
 
 /** Design props baked to their defaults (see the DB Desk sketch). */
@@ -38,11 +38,36 @@ interface ConnectionPanelProps {
   state: ConnectionState
 }
 
+interface MenuState {
+  x: number
+  y: number
+  connId: string
+}
+
 export function ConnectionPanel({ state }: ConnectionPanelProps): ReactElement {
   const rows = useMemo(
     () => flattenTree(state.tree, { expanded: state.expanded, filter: state.filter }),
     [state.tree, state.expanded, state.filter]
   )
+
+  const [menu, setMenu] = useState<MenuState | null>(null)
+  const menuNode = menu ? state.tree.find((node) => node.id === menu.connId) : undefined
+
+  useEffect(() => {
+    if (!menu) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menu])
+
+  const onRowContextMenu = (node: TreeNode, event: MouseEvent<HTMLDivElement>): void => {
+    if (node.kind !== 'connection') return
+    event.preventDefault()
+    state.toggleRow(node.id, false)
+    setMenu({ x: event.clientX, y: event.clientY, connId: node.id })
+  }
 
   let selText = 'No selection'
   if (state.selectedNode) {
@@ -138,9 +163,64 @@ export function ConnectionPanel({ state }: ConnectionPanelProps): ReactElement {
             rowHeight={ROW_HEIGHT}
             showStatusDots={SHOW_STATUS_DOTS}
             onRowClick={state.toggleRow}
+            onRowContextMenu={onRowContextMenu}
           />
         )}
       </div>
+
+      {menu && menuNode && (
+        <div
+          className="ctx-overlay"
+          onMouseDown={() => setMenu(null)}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setMenu(null)
+          }}
+        >
+          <div
+            className="ctx-menu"
+            role="menu"
+            style={{ left: menu.x, top: menu.y }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            {menuNode.status === 'online' ? (
+              <button
+                className="ctx-menu__item"
+                role="menuitem"
+                onClick={() => {
+                  state.disconnectConnection(menu.connId)
+                  setMenu(null)
+                }}
+              >
+                Disconnect
+              </button>
+            ) : (
+              <button
+                className="ctx-menu__item"
+                role="menuitem"
+                disabled={!!menuNode.loading}
+                onClick={() => {
+                  state.connectSaved(menu.connId)
+                  setMenu(null)
+                }}
+              >
+                Connect
+              </button>
+            )}
+            <div className="ctx-menu__sep" />
+            <button
+              className="ctx-menu__item ctx-menu__item--danger"
+              role="menuitem"
+              onClick={() => {
+                state.removeConnection(menu.connId)
+                setMenu(null)
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="tree-footer">
         <span className="tree-footer__sel">{selText}</span>

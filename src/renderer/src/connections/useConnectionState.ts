@@ -1,13 +1,15 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { ConnectParams } from '../../../shared/db'
+import type { ConnectParams, SavedConnection } from '../../../shared/db'
 import {
   assignIds,
   connectionNodeFromResult,
   databaseChildren,
   defaultExpansion,
   defaultForm,
-  findNode
+  findNode,
+  formFromSaved,
+  savedConnectionNode
 } from './treeData'
 import type { ConnectionForm, TreeMode, TreeNode } from './types'
 
@@ -31,6 +33,8 @@ export interface ConnectionState {
   testMsg: string
   connecting: boolean
   form: ConnectionForm
+  /** Set when the dialog is reconnecting an existing saved connection. */
+  editingId: string | null
 
   setMode: (mode: TreeMode) => void
   setFilter: (value: string) => void
@@ -38,6 +42,10 @@ export interface ConnectionState {
   collapseAll: () => void
   removeSelected: () => void
   clearLoadError: () => void
+
+  connectSaved: (id: string) => void
+  disconnectConnection: (id: string) => void
+  removeConnection: (id: string) => void
 
   openDialog: () => void
   closeDialog: () => void
@@ -78,6 +86,15 @@ function updateNode(
   })
 }
 
+/** Drop every expansion entry at or below the given connection id. */
+function pruneExpansion(expanded: Record<string, boolean>, id: string): Record<string, boolean> {
+  const next: Record<string, boolean> = {}
+  for (const key of Object.keys(expanded)) {
+    if (key !== id && !key.startsWith(`${id}/`)) next[key] = expanded[key]
+  }
+  return next
+}
+
 export function useConnectionState(): ConnectionState {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -85,6 +102,7 @@ export function useConnectionState(): ConnectionState {
   const [mode, setMode] = useState<TreeMode>('A')
   const [filter, setFilter] = useState('')
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [profiles, setProfiles] = useState<Record<string, SavedConnection>>({})
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogTab, setDialogTab] = useState<DialogTab>('params')
@@ -93,9 +111,23 @@ export function useConnectionState(): ConnectionState {
   const [testMsg, setTestMsg] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [form, setForm] = useState<ConnectionForm>(() => defaultForm())
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   /** Bumped whenever an in-flight test's result should be discarded. */
   const testSeq = useRef(0)
+
+  // Saved connections appear on launch as offline nodes; nothing auto-connects.
+  useEffect(() => {
+    let cancelled = false
+    void window.dbDesk.store.list().then((saved) => {
+      if (cancelled) return
+      setProfiles(Object.fromEntries(saved.map((profile) => [profile.id, profile])))
+      setTree(saved.map(savedConnectionNode))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const loadDatabase = useCallback(async (node: TreeNode) => {
     const dbNodeId = node.id
@@ -150,32 +182,90 @@ export function useConnectionState(): ConnectionState {
     setFilter('')
   }, [])
 
-  const removeSelected = useCallback(() => {
-    const node = findNode(selected, tree)
-    if (!node || node.kind !== 'connection') return
-    void window.dbDesk.db.disconnect(node.key ?? node.id)
-    setTree((prev) => {
-      const next = prev.filter((conn) => conn.id !== node.id)
-      setSelected(next.length ? next[0].id : null)
-      return next
-    })
-  }, [selected, tree])
-
   const clearLoadError = useCallback(() => setLoadError(null), [])
 
-  const resetDialog = useCallback(() => {
-    setDialogTab('params')
+  /** Connect a saved (offline) connection; on failure, reopen the dialog to fix credentials. */
+  const connectSaved = useCallback(
+    async (id: string) => {
+      const profile = profiles[id]
+      if (!profile) return
+      const node = findNode(id, tree)
+      if (!node || node.status === 'online' || node.loading) return
+
+      setTree((prev) => updateNode(prev, id, (n) => ({ ...n, loading: true })))
+      const res = await window.dbDesk.db.connectSaved(id)
+      if (res.ok) {
+        const conn = connectionNodeFromResult(profile, res.data)
+        setTree((prev) => prev.map((n) => (n.id === id ? conn : n)))
+        setExpanded((prev) => ({
+          ...prev,
+          ...defaultExpansion(conn, res.data.connectedDatabase.name)
+        }))
+        setSelected(id)
+        return
+      }
+
+      setTree((prev) => updateNode(prev, id, (n) => ({ ...n, loading: false })))
+      const needsPassword = !profile.hasPassword && /password/i.test(res.error)
+      testSeq.current++
+      setForm(formFromSaved(profile))
+      setDialogTab(profile.useUrl ? 'url' : 'params')
+      setShowPwd(false)
+      setConnecting(false)
+      setEditingId(id)
+      setTestState('error')
+      setTestMsg(needsPassword ? 'Enter your password to connect.' : res.error)
+      setDialogOpen(true)
+    },
+    [profiles, tree]
+  )
+
+  const disconnectConnection = useCallback((id: string) => {
+    void window.dbDesk.db.disconnect(id)
+    setTree((prev) =>
+      updateNode(prev, id, (n) => ({
+        ...n,
+        status: 'offline' as const,
+        children: undefined,
+        loading: false
+      }))
+    )
+    setExpanded((prev) => pruneExpansion(prev, id))
+    setSelected((prev) => (prev && (prev === id || prev.startsWith(`${id}/`)) ? id : prev))
+  }, [])
+
+  const removeConnection = useCallback((id: string) => {
+    void window.dbDesk.db.disconnect(id)
+    void window.dbDesk.store.delete(id)
+    setProfiles((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+    setExpanded((prev) => pruneExpansion(prev, id))
+    setTree((prev) => prev.filter((conn) => conn.id !== id))
+    setSelected((prev) => (prev && (prev === id || prev.startsWith(`${id}/`)) ? null : prev))
+  }, [])
+
+  const removeSelected = useCallback(() => {
+    const node = findNode(selected, tree)
+    if (node?.kind === 'connection') removeConnection(node.id)
+  }, [selected, tree, removeConnection])
+
+  const openDialog = useCallback(() => {
+    // Keep whatever the user typed last time, unless it was an edit of a
+    // saved connection — that must not leak into a brand-new profile.
+    if (editingId) {
+      setForm(defaultForm())
+      setDialogTab('params')
+    }
+    setEditingId(null)
     setShowPwd(false)
     setTestState('idle')
     setTestMsg('')
     setConnecting(false)
-    setForm(defaultForm())
-  }, [])
-
-  const openDialog = useCallback(() => {
-    resetDialog()
     setDialogOpen(true)
-  }, [resetDialog])
+  }, [editingId])
 
   const closeDialog = useCallback(() => {
     testSeq.current++
@@ -213,25 +303,55 @@ export function useConnectionState(): ConnectionState {
   const connect = useCallback(async () => {
     if (connecting) return
     setConnecting(true)
-    const connId = `c-${Date.now()}-${nextConnectionSeq++}`
-    const res = await window.dbDesk.db.connect(connId, toParams(form, dialogTab === 'url'))
-    setConnecting(false)
+    const connId = editingId ?? `c-${Date.now()}-${nextConnectionSeq++}`
+    const params = toParams(form, dialogTab === 'url')
+    const res = await window.dbDesk.db.connect(connId, params)
     if (!res.ok) {
+      setConnecting(false)
       setTestState('error')
       setTestMsg(res.error)
       return
     }
-    const conn = connectionNodeFromResult(form, dialogTab === 'url', connId, res.data)
-    setTree((prev) => [...prev, conn])
+
+    const name = (form.name || 'PostgreSQL').trim() || 'PostgreSQL'
+    let saved: SavedConnection
+    try {
+      saved = await window.dbDesk.store.save(connId, name, params, form.savePwd)
+    } catch {
+      // Persisting failed (e.g. disk error) — keep the live connection usable.
+      saved = {
+        id: connId,
+        name,
+        host: form.host,
+        port: form.port,
+        database: form.database,
+        user: form.user,
+        url: form.url,
+        useUrl: dialogTab === 'url',
+        hasPassword: false
+      }
+    }
+    setConnecting(false)
+    setProfiles((prev) => ({ ...prev, [saved.id]: saved }))
+
+    const conn = connectionNodeFromResult(saved, res.data)
+    setTree((prev) =>
+      prev.some((n) => n.id === conn.id)
+        ? prev.map((n) => (n.id === conn.id ? conn : n))
+        : [...prev, conn]
+    )
     setExpanded((prev) => ({
       ...prev,
       ...defaultExpansion(conn, res.data.connectedDatabase.name)
     }))
     setSelected(conn.id)
     setDialogOpen(false)
+    setEditingId(null)
     setTestState('idle')
     setTestMsg('')
-  }, [form, dialogTab, connecting])
+    setForm(defaultForm())
+    setDialogTab('params')
+  }, [form, dialogTab, connecting, editingId])
 
   const selectedNode = useMemo(() => findNode(selected, tree), [selected, tree])
   const canRemove = selectedNode?.kind === 'connection'
@@ -252,12 +372,16 @@ export function useConnectionState(): ConnectionState {
     testMsg,
     connecting,
     form,
+    editingId,
     setMode,
     setFilter,
     toggleRow,
     collapseAll,
     removeSelected,
     clearLoadError,
+    connectSaved: (id: string) => void connectSaved(id),
+    disconnectConnection,
+    removeConnection,
     openDialog,
     closeDialog,
     setDialogTab,

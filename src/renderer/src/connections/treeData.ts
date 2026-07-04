@@ -4,6 +4,7 @@ import type {
   DatabaseIntrospection,
   RelationInfo,
   RoutineInfo,
+  SavedConnection,
   SchemaIntrospection
 } from '../../../shared/db'
 import type { ConnectionForm, TreeNode } from './types'
@@ -145,17 +146,53 @@ export function databaseChildren(db: DatabaseIntrospection): TreeNode[] {
   return db.schemas.map(schemaNode)
 }
 
-function connectionSubtitle(form: ConnectionForm, useUrl: boolean): string {
-  if (useUrl && form.url.trim()) {
+interface SubtitleSource {
+  user: string
+  host: string
+  port: string
+  url: string
+}
+
+function connectionSubtitle(source: SubtitleSource, useUrl: boolean): string {
+  if (useUrl && source.url.trim()) {
     try {
-      const url = new URL(form.url.trim())
+      const url = new URL(source.url.trim())
       const userPart = url.username ? `${decodeURIComponent(url.username)}@` : ''
       return `${userPart}${url.hostname || 'localhost'}:${url.port || '5432'}`
     } catch {
-      return form.url.trim()
+      return source.url.trim()
     }
   }
-  return `${form.user || 'user'}@${form.host || 'localhost'}:${form.port || '5432'}`
+  return `${source.user || 'user'}@${source.host || 'localhost'}:${source.port || '5432'}`
+}
+
+/** Tree node for a saved connection that is not currently connected. */
+export function savedConnectionNode(saved: SavedConnection): TreeNode {
+  const conn: TreeNode = {
+    id: '',
+    kind: 'connection',
+    key: saved.id,
+    label: (saved.name || 'PostgreSQL').trim() || 'PostgreSQL',
+    subtitle: connectionSubtitle(saved, saved.useUrl),
+    status: 'offline'
+  }
+  assignIds(conn, '')
+  return conn
+}
+
+/** Dialog form prefilled from a saved connection (password is never stored renderer-side). */
+export function formFromSaved(saved: SavedConnection): ConnectionForm {
+  const defaults = defaultForm()
+  return {
+    name: saved.name,
+    host: saved.host || defaults.host,
+    port: saved.port || defaults.port,
+    database: saved.database || defaults.database,
+    user: saved.user || defaults.user,
+    password: '',
+    savePwd: true,
+    url: saved.url || defaults.url
+  }
 }
 
 /**
@@ -163,12 +200,7 @@ function connectionSubtitle(form: ConnectionForm, useUrl: boolean): string {
  * connected to is fully populated; sibling databases are marked lazy and get
  * introspected when first expanded.
  */
-export function connectionNodeFromResult(
-  form: ConnectionForm,
-  useUrl: boolean,
-  connId: string,
-  result: ConnectResult
-): TreeNode {
+export function connectionNodeFromResult(saved: SavedConnection, result: ConnectResult): TreeNode {
   const connected = result.connectedDatabase
   const names = result.databases.includes(connected.name)
     ? result.databases
@@ -177,9 +209,9 @@ export function connectionNodeFromResult(
   const conn: TreeNode = {
     id: '',
     kind: 'connection',
-    key: connId,
-    label: (form.name || 'PostgreSQL').trim() || 'PostgreSQL',
-    subtitle: connectionSubtitle(form, useUrl),
+    key: saved.id,
+    label: (saved.name || 'PostgreSQL').trim() || 'PostgreSQL',
+    subtitle: connectionSubtitle(saved, saved.useUrl),
     status: 'online',
     children: names.map((name) =>
       name === connected.name

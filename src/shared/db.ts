@@ -69,3 +69,20 @@ export interface ConnectResult {
 
 /** All db IPC calls resolve to this shape; errors travel as values, not throws. */
 export type DbResult<T> = { ok: true; data: T } | { ok: false; error: string }
+
+/**
+ * A connection profile persisted across app sessions. Passwords never travel
+ * to the renderer: `hasPassword` says whether one is stored (encrypted) in the
+ * main process, and `url` always has any password component stripped.
+ */
+export interface SavedConnection {
+  id: string
+  name: string
+  host: string
+  port: string
+  database: string
+  user: string
+  url: string
+  useUrl: boolean
+  hasPassword: boolean
+}
