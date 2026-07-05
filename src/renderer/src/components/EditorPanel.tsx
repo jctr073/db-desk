@@ -3,7 +3,9 @@ import type { editor } from 'monaco-editor'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 
+import type { DatabaseIntrospection } from '../../../shared/db'
 import { statementAtOffset } from '../../../shared/sql'
+import { ensureSqlLanguageFeatures } from '../sql/completions'
 import type { Theme } from '../theme'
 import { PlayIcon, PlusThinIcon, SqlFileIcon } from './icons'
 import { ResultsPanel } from './ResultsPanel'
@@ -17,6 +19,9 @@ const DEFAULT_LIMIT = 500
 interface EditorPanelProps {
   theme: Theme
   targets: QueryTarget[]
+  /** Introspection cache: connection id → database name → schema. */
+  schemas: Record<string, Record<string, DatabaseIntrospection>>
+  ensureSchema: (connId: string, database: string) => void
 }
 
 function targetKey(target: QueryTarget): string {
@@ -25,7 +30,9 @@ function targetKey(target: QueryTarget): string {
 
 export function EditorPanel({
   theme,
-  targets
+  targets,
+  schemas,
+  ensureSchema
 }: EditorPanelProps): ReactElement {
   const runner = useQueryRunner()
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
@@ -43,6 +50,20 @@ export function EditorPanel({
     const fallback = targets.find((t) => t.primary) ?? targets[0]
     setSelectedKey(fallback ? targetKey(fallback) : null)
   }, [targets, selectedKey])
+
+  // Completion reads the active target's schema through this ref so the
+  // provider (registered once) always sees the latest introspection.
+  const activeSchema = target
+    ? (schemas[target.connId]?.[target.database] ?? null)
+    : null
+  const schemaRef = useRef<DatabaseIntrospection | null>(null)
+  schemaRef.current = activeSchema
+
+  // Databases picked in the toolbar may not have been expanded in the tree
+  // yet; introspect them so completions have something to offer.
+  useEffect(() => {
+    if (target) ensureSchema(target.connId, target.database)
+  }, [target, ensureSchema])
 
   const runCurrent = useCallback(() => {
     const ed = editorRef.current
@@ -71,6 +92,7 @@ export function EditorPanel({
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () =>
       runRef.current()
     )
+    ensureSqlLanguageFeatures(monaco, () => schemaRef.current)
   }, [])
 
   const startResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
