@@ -36,22 +36,32 @@ const KIND_NAMES: Partial<Record<NodeKind, string>> = {
 
 interface ConnectionPanelProps {
   state: ConnectionState
+  onNewQueryFile?: (connId: string, database: string) => void
 }
 
 interface MenuState {
   x: number
   y: number
-  connId: string
+  nodeId: string
+  nodeKind: 'connection' | 'database'
 }
 
-export function ConnectionPanel({ state }: ConnectionPanelProps): ReactElement {
+export function ConnectionPanel({ state, onNewQueryFile }: ConnectionPanelProps): ReactElement {
   const rows = useMemo(
     () => flattenTree(state.tree, { expanded: state.expanded, filter: state.filter }),
     [state.tree, state.expanded, state.filter]
   )
 
   const [menu, setMenu] = useState<MenuState | null>(null)
-  const menuNode = menu ? state.tree.find((node) => node.id === menu.connId) : undefined
+  const menuNode = menu ? state.tree.find((node) => node.id === menu.nodeId) : undefined
+
+  // Find database node if menu is on database
+  let menuDatabaseNode: TreeNode | undefined
+  if (menu && menu.nodeKind === 'database') {
+    const connId = menu.nodeId.split('/')[0]
+    const conn = state.tree.find((n) => n.id === connId)
+    menuDatabaseNode = conn?.children?.find((n) => n.id === menu.nodeId)
+  }
 
   useEffect(() => {
     if (!menu) return
@@ -63,10 +73,10 @@ export function ConnectionPanel({ state }: ConnectionPanelProps): ReactElement {
   }, [menu])
 
   const onRowContextMenu = (node: TreeNode, event: MouseEvent<HTMLDivElement>): void => {
-    if (node.kind !== 'connection') return
+    if (node.kind !== 'connection' && node.kind !== 'database') return
     event.preventDefault()
     state.toggleRow(node.id, false)
-    setMenu({ x: event.clientX, y: event.clientY, connId: node.id })
+    setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id, nodeKind: node.kind })
   }
 
   let selText = 'No selection'
@@ -183,41 +193,76 @@ export function ConnectionPanel({ state }: ConnectionPanelProps): ReactElement {
             style={{ left: menu.x, top: menu.y }}
             onMouseDown={(event) => event.stopPropagation()}
           >
-            {menuNode.status === 'online' ? (
-              <button
-                className="ctx-menu__item"
-                role="menuitem"
-                onClick={() => {
-                  state.disconnectConnection(menu.connId)
-                  setMenu(null)
-                }}
-              >
-                Disconnect
-              </button>
-            ) : (
-              <button
-                className="ctx-menu__item"
-                role="menuitem"
-                disabled={!!menuNode.loading}
-                onClick={() => {
-                  state.connectSaved(menu.connId)
-                  setMenu(null)
-                }}
-              >
-                Connect
-              </button>
+            {menu.nodeKind === 'database' && menuDatabaseNode && (
+              <>
+                <button
+                  className="ctx-menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    const connId = menu.nodeId.split('/')[0]
+                    onNewQueryFile?.(connId, menuDatabaseNode!.label)
+                    setMenu(null)
+                  }}
+                >
+                  New Query File
+                </button>
+                <div className="ctx-menu__sep" />
+              </>
             )}
-            <div className="ctx-menu__sep" />
-            <button
-              className="ctx-menu__item ctx-menu__item--danger"
-              role="menuitem"
-              onClick={() => {
-                state.removeConnection(menu.connId)
-                setMenu(null)
-              }}
-            >
-              Remove
-            </button>
+            {menu.nodeKind === 'connection' && menuNode.status === 'online' && (
+              <>
+                <button
+                  className="ctx-menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    onNewQueryFile?.(menu.nodeId, '')
+                    setMenu(null)
+                  }}
+                >
+                  New Query File
+                </button>
+                <div className="ctx-menu__sep" />
+              </>
+            )}
+            {menu.nodeKind === 'connection' && (
+              <>
+                {menuNode.status === 'online' ? (
+                  <button
+                    className="ctx-menu__item"
+                    role="menuitem"
+                    onClick={() => {
+                      state.disconnectConnection(menu.nodeId)
+                      setMenu(null)
+                    }}
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    className="ctx-menu__item"
+                    role="menuitem"
+                    disabled={!!menuNode.loading}
+                    onClick={() => {
+                      state.connectSaved(menu.nodeId)
+                      setMenu(null)
+                    }}
+                  >
+                    Connect
+                  </button>
+                )}
+                <div className="ctx-menu__sep" />
+                <button
+                  className="ctx-menu__item ctx-menu__item--danger"
+                  role="menuitem"
+                  onClick={() => {
+                    state.removeConnection(menu.nodeId)
+                    setMenu(null)
+                  }}
+                >
+                  Remove
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

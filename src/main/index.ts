@@ -10,6 +10,15 @@ import {
   testConnection
 } from './db'
 import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
+import {
+  listQueries,
+  createQuery,
+  loadQueryContent,
+  saveQueryContent,
+  deleteQuery,
+  getNextQueryName,
+  deleteQueriesForConnection
+} from './files'
 import type { ConnectParams } from '../shared/db'
 
 let mainWindow: BrowserWindow | null = null
@@ -111,8 +120,31 @@ function registerDbHandlers(): void {
   ipcMain.handle('store:delete', (_event, id: string) => deleteSaved(id))
 }
 
+function registerFileHandlers(): void {
+  ipcMain.handle('files:list', () => listQueries())
+  ipcMain.handle(
+    'files:create',
+    (_event, connId: string | null, database: string | null) => {
+      const name = getNextQueryName(connId, database)
+      return createQuery(name, connId, database)
+    }
+  )
+  ipcMain.handle('files:read', (_event, id: string) => loadQueryContent(id))
+  ipcMain.handle('files:save', (_event, id: string, content: string) =>
+    saveQueryContent(id, content)
+  )
+  ipcMain.handle('files:delete', (_event, id: string) => deleteQuery(id))
+  ipcMain.handle('files:getNextName', (_event, connId: string | null, database: string | null) =>
+    getNextQueryName(connId, database)
+  )
+  ipcMain.handle('files:deleteForConnection', (_event, connId: string) =>
+    deleteQueriesForConnection(connId)
+  )
+}
+
 app.whenReady().then(() => {
   registerDbHandlers()
+  registerFileHandlers()
   createWindow()
 
   app.on('activate', () => {

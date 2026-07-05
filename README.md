@@ -25,6 +25,17 @@ SELECTs get an automatic `LIMIT 500` (configurable in the toolbar, including no
 limit); statements that can't take an appended LIMIT are truncated to the same
 cap after execution. AI features are not yet wired up.
 
+Queries are saved as files. Each tab is a `.sql` file persisted under the app's
+user-data directory, with metadata (name, owning connection/database) tracked in
+`queries/metadata.json`. New query files can be created from the editor tab bar's
+`+` button or from the right-click menu on a connection or database in the tree,
+and are auto-named per target (`query1.sql`, `query2.sql`, …). Each tab keeps its
+own edit buffer so switching tabs preserves unsaved changes, with a per-file
+dirty indicator; ⌘S (or the Save button) writes the active file to disk. The
+right-hand panel's **SQL Files** tab lists all saved files grouped by their
+owning connection and database. The window title and chrome use the native OS
+title bar, and the light/dark theme toggle lives in the bottom status bar.
+
 ## Setup
 
 ```bash
@@ -47,11 +58,12 @@ npm run format    # Format project files with Prettier
 ```text
 src/
   main/
-    index.ts             # app bootstrap + db/store IPC handlers
+    index.ts             # app bootstrap + db/store/files IPC handlers
     db.ts                # PostgreSQL pooling, introspection + query execution
     store.ts             # saved-connection persistence (safeStorage-encrypted)
+    files.ts             # query-file persistence (.sql files + metadata.json)
   preload/
-    index.ts             # typed window.dbDesk bridge (db + store)
+    index.ts             # typed window.dbDesk bridge (db + store + files)
   shared/
     db.ts                # wire types shared by main, preload, and renderer
     sql.ts               # statement splitting + auto-LIMIT lexer (main + renderer)
@@ -59,17 +71,20 @@ src/
     index.html
     src/
       main.tsx
-      App.tsx              # shell: title bar + 3 panes + dialog
+      App.tsx              # shell: 3 panes + status bar + dialog
       theme.ts             # light/dark theme hook (persisted)
       styles.css           # design tokens + component styles
       components/
-        TitleBar.tsx
+        StatusBar.tsx      # bottom bar: theme toggle
         EditorPanel.tsx    # tab bar, target/limit toolbar, editor + results split
-        AgentPanel.tsx
+        AgentPanel.tsx     # right pane: SQL Files list + AI Agent tabs
+        FilesPanel.tsx     # saved query files grouped by connection/database
         SqlEditor.tsx
         ResultsPanel.tsx   # result tabs (live + pinned), grid, status bar
         useQueryRunner.ts  # result-tab state machine + query dispatch
         icons.tsx          # shared UI icons
+      files/
+        useFileState.ts    # query-file list/select/create/save/delete state
       connections/
         types.ts
         treeData.ts        # tree construction from introspection results
