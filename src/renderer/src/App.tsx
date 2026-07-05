@@ -45,7 +45,12 @@ export function App(): ReactElement {
       <TitleBar theme={theme} onToggleTheme={toggle} title={title} />
       <div className="main-row">
         <ConnectionPanel state={connections} />
-        <EditorPanel theme={theme} targets={targets} />
+        <EditorPanel
+          theme={theme}
+          targets={targets}
+          schemas={connections.schemas}
+          ensureSchema={connections.ensureSchema}
+        />
         <AgentPanel />
       </div>
       <NewConnectionDialog state={connections} />

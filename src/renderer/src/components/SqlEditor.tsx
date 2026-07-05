@@ -9,6 +9,8 @@ const initialSql = 'SELECT * FROM users LIMIT 100;'
 
 const editorOptions: editor.IStandaloneEditorConstructionOptions = {
   automaticLayout: true,
+  // Keep the suggest widget visible when it overflows the editor panel.
+  fixedOverflowWidgets: true,
   fontFamily:
     'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
   fontSize: 13,
@@ -19,7 +21,13 @@ const editorOptions: editor.IStandaloneEditorConstructionOptions = {
     top: 14,
     bottom: 14
   },
+  quickSuggestions: { other: true, comments: false, strings: false },
   scrollBeyondLastLine: false,
+  suggest: {
+    showWords: false
+  },
+  // Schema-aware completions replace Monaco's buffer-word suggestions.
+  wordBasedSuggestions: 'off',
   wordWrap: 'on'
 }
 
