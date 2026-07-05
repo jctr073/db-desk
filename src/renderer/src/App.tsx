@@ -1,9 +1,9 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import type { ReactElement } from 'react'
 
 import { AgentPanel } from './components/AgentPanel'
 import { EditorPanel } from './components/EditorPanel'
-import { TitleBar } from './components/TitleBar'
+import { StatusBar } from './components/StatusBar'
 import type { QueryTarget } from './components/useQueryRunner'
 import { ConnectionPanel } from './connections/ConnectionPanel'
 import { NewConnectionDialog } from './connections/NewConnectionDialog'
@@ -49,9 +49,13 @@ export function App(): ReactElement {
     ? `DB Desk  —  ${activeConn.subtitle ?? activeConn.label}`
     : 'DB Desk'
 
+  // Drive the native OS window title instead of a custom title bar row.
+  useEffect(() => {
+    document.title = title
+  }, [title])
+
   return (
     <div className="app">
-      <TitleBar theme={theme} onToggleTheme={toggle} title={title} />
       <div className="main-row">
         <ConnectionPanel
           state={connections}
@@ -68,6 +72,7 @@ export function App(): ReactElement {
         />
         <AgentPanel files={files} connNames={connNames} />
       </div>
+      <StatusBar theme={theme} onToggleTheme={toggle} />
       <NewConnectionDialog state={connections} />
     </div>
   )

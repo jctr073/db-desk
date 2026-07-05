@@ -133,46 +133,37 @@ textarea {
 }
 
 /* ------------------------------------------------------------------ *
- * Title bar                                                            *
+ * Status bar                                                           *
  * ------------------------------------------------------------------ */
-.titlebar {
-  height: 38px;
+.statusbar {
+  height: 26px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  padding: 0 14px;
+  gap: 8px;
+  padding: 0 8px 0 12px;
   background: var(--titlebar);
-  border-bottom: 1px solid var(--border);
-  gap: 8px;
+  border-top: 1px solid var(--border);
 }
-
-.traffic-lights {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.traffic-light {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-}
-.traffic-light--red {
-  background: #ff5f57;
-}
-.traffic-light--yellow {
-  background: #febc2e;
-}
-.traffic-light--green {
-  background: #28c840;
-}
-
-.titlebar__title {
+.statusbar__spacer {
   flex: 1;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 600;
+}
+.statusbar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
   color: var(--text-dim);
-  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+.statusbar__btn:hover {
+  background: var(--panel-hi);
+  color: var(--text);
 }
 
 /* ------------------------------------------------------------------ *
@@ -197,12 +188,6 @@ textarea {
   color: var(--text-faint);
   opacity: 0.4;
   cursor: default;
-}
-.icon-btn--toggle {
-  width: 26px;
-  height: 24px;
-  border: 1px solid var(--border);
-  background: var(--panel-hi);
 }
 .icon-btn--sm {
   width: 24px;
