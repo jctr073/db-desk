@@ -41,29 +41,49 @@ export function EditorPanel({
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [limit, setLimit] = useState<number | null>(DEFAULT_LIMIT)
   const [resultsPct, setResultsPct] = useState(50)
-  const [fileContent, setFileContent] = useState<string>('')
-  const [isDirty, setIsDirty] = useState(false)
+  const [dirtyIds, setDirtyIds] = useState<ReadonlySet<string>>(new Set())
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const splitRef = useRef<HTMLDivElement | null>(null)
+
+  // Per-file buffers so switching tabs preserves unsaved edits.
+  const buffersRef = useRef(new Map<string, string>())
+  const activeFileIdRef = useRef<string | null>(null)
+  activeFileIdRef.current = files.selectedFileId
+  // Distinguishes programmatic setValue (tab switch) from user typing.
+  const suppressChangeRef = useRef(false)
 
   const target = targets.find((t) => targetKey(t) === selectedKey) ?? null
   const activeFile = files.selectedFileId
     ? files.files.find((f) => f.id === files.selectedFileId)
     : null
 
-  // Load file content when selected file changes
+  const setEditorValue = useCallback((value: string) => {
+    const ed = editorRef.current
+    if (!ed || ed.getValue() === value) return
+    suppressChangeRef.current = true
+    ed.setValue(value)
+    suppressChangeRef.current = false
+  }, [])
+
+  // Swap the editor buffer when the selected file changes.
   useEffect(() => {
-    if (!files.selectedFileId) return
+    const id = files.selectedFileId
+    if (!id) return
+    const cached = buffersRef.current.get(id)
+    if (cached !== undefined) {
+      setEditorValue(cached)
+      return
+    }
     let cancelled = false
-    void window.dbDesk.files.read(files.selectedFileId).then((content) => {
+    void window.dbDesk.files.read(id).then((content) => {
       if (cancelled) return
-      setFileContent(content)
-      setIsDirty(false)
+      buffersRef.current.set(id, content)
+      if (activeFileIdRef.current === id) setEditorValue(content)
     })
     return () => {
       cancelled = true
     }
-  }, [files.selectedFileId])
+  }, [files.selectedFileId, setEditorValue])
 
   // Keep the selection valid as connections come and go; prefer the database
   // the first connection was actually opened against.
@@ -109,38 +129,73 @@ export function EditorPanel({
     runRef.current = runCurrent
   })
 
+  const saveFileById = useCallback(
+    (id: string | null) => {
+      if (!id) return
+      const content = buffersRef.current.get(id)
+      if (content === undefined) return
+      files.saveFile(id, content)
+      setDirtyIds((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    },
+    [files.saveFile]
+  )
+
+  // Cmd+S is registered once on mount; route it through a ref so it always
+  // saves the currently selected file.
+  const saveRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    saveRef.current = () => saveFileById(activeFileIdRef.current)
+  }, [saveFileById])
+
   const handleMount = useCallback<OnMount>((ed, monaco) => {
     editorRef.current = ed
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () =>
       runRef.current()
     )
-    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      if (files.selectedFileId && isDirty) {
-        files.saveFile(files.selectedFileId, fileContent)
-        setIsDirty(false)
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () =>
+      saveRef.current()
+    )
+    ed.onDidChangeModelContent(() => {
+      if (suppressChangeRef.current) return
+      const id = activeFileIdRef.current
+      if (!id) return
+      buffersRef.current.set(id, ed.getValue())
+      setDirtyIds((prev) => {
+        if (prev.has(id)) return prev
+        return new Set(prev).add(id)
+      })
+    })
+    // A file may have been selected before Monaco finished mounting.
+    const pendingId = activeFileIdRef.current
+    if (pendingId) {
+      const buffered = buffersRef.current.get(pendingId)
+      if (buffered !== undefined) {
+        suppressChangeRef.current = true
+        ed.setValue(buffered)
+        suppressChangeRef.current = false
       }
-    })
+    }
     ensureSqlLanguageFeatures(monaco, () => schemaRef.current)
-  }, [files, isDirty, fileContent])
-
-  // Sync file content to editor when file changes
-  useEffect(() => {
-    const ed = editorRef.current
-    if (!ed) return
-    ed.setValue(fileContent)
-  }, [fileContent])
-
-  // Track editor changes
-  useEffect(() => {
-    const ed = editorRef.current
-    if (!ed) return
-    const dispose = ed.onDidChangeModelContent(() => {
-      const newContent = ed.getValue()
-      setFileContent(newContent)
-      setIsDirty(true)
-    })
-    return () => dispose.dispose()
   }, [])
+
+  const closeFile = useCallback(
+    (id: string) => {
+      buffersRef.current.delete(id)
+      setDirtyIds((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+      files.deleteFile(id)
+    },
+    [files.deleteFile]
+  )
 
   const startResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -193,14 +248,14 @@ export function EditorPanel({
               >
                 <SqlFileIcon />
                 {file.name}
-                {isDirty && files.selectedFileId === file.id && (
+                {dirtyIds.has(file.id) && (
                   <span className="editor-tab__dot" title="Unsaved changes" />
                 )}
                 <button
                   className="editor-tab__close"
                   onClick={(e) => {
                     e.stopPropagation()
-                    files.deleteFile(file.id)
+                    closeFile(file.id)
                   }}
                   title="Close tab"
                   type="button"
@@ -223,6 +278,8 @@ export function EditorPanel({
         >
           <PlusThinIcon />
         </button>
+      </div>
+      <div className="editor-toolbar">
         <div className="editor-tabbar__spacer" />
         <select
           className="toolbar-select toolbar-select--target"
@@ -277,14 +334,15 @@ export function EditorPanel({
         <button
           className="btn-save"
           type="button"
-          disabled={!isDirty || !files.selectedFileId}
-          title={isDirty ? 'Save file (⌘S)' : 'No unsaved changes'}
-          onClick={() => {
-            if (files.selectedFileId) {
-              files.saveFile(files.selectedFileId, fileContent)
-              setIsDirty(false)
-            }
-          }}
+          disabled={
+            !files.selectedFileId || !dirtyIds.has(files.selectedFileId)
+          }
+          title={
+            files.selectedFileId && dirtyIds.has(files.selectedFileId)
+              ? 'Save file (⌘S)'
+              : 'No unsaved changes'
+          }
+          onClick={() => saveFileById(files.selectedFileId)}
         >
           Save
         </button>

@@ -34,6 +34,13 @@ export function App(): ReactElement {
     return out
   }, [connections.tree])
 
+  /** Connection id → display name, for labelling file groups. */
+  const connNames = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const conn of connections.tree) out[conn.id] = conn.label
+    return out
+  }, [connections.tree])
+
   const rootId = connections.selected?.split('/')[0]
   const activeConn = rootId
     ? connections.tree.find((node) => node.id === rootId)
@@ -59,7 +66,7 @@ export function App(): ReactElement {
           ensureSchema={connections.ensureSchema}
           files={files}
         />
-        <AgentPanel />
+        <AgentPanel files={files} connNames={connNames} />
       </div>
       <NewConnectionDialog state={connections} />
     </div>

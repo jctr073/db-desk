@@ -31,14 +31,12 @@ export function useFileState(): FileState {
     void window.dbDesk.files.list().then((loaded) => {
       if (cancelled) return
       setFiles(loaded)
-      if (loaded.length > 0 && !selectedFileId) {
-        setSelectedFileId(loaded[0].id)
-      }
+      setSelectedFileId((cur) => cur ?? loaded[0]?.id ?? null)
     })
     return () => {
       cancelled = true
     }
-  }, [selectedFileId])
+  }, [])
 
   const selectFile = useCallback((id: string) => {
     setSelectedFileId(id)
@@ -71,14 +69,17 @@ export function useFileState(): FileState {
   const deleteFile = useCallback(async (id: string) => {
     try {
       await window.dbDesk.files.delete(id)
-      setFiles((prev) => prev.filter((f) => f.id !== id))
-      if (selectedFileId === id) {
-        setSelectedFileId(files.find((f) => f.id !== id)?.id ?? null)
-      }
+      setFiles((prev) => {
+        const next = prev.filter((f) => f.id !== id)
+        if (selectedFileId === id) {
+          setSelectedFileId(next[0]?.id ?? null)
+        }
+        return next
+      })
     } catch (error) {
       setLoadError(`Failed to delete file: ${error instanceof Error ? error.message : String(error)}`)
     }
-  }, [selectedFileId, files])
+  }, [selectedFileId])
 
   const clearLoadError = useCallback(() => setLoadError(null), [])
 

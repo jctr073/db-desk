@@ -1,15 +1,34 @@
+import { useState } from 'react'
 import type { ReactElement } from 'react'
 
+import type { FileState } from '../files/useFileState'
 import { PlusThinIcon, SparkleIcon } from './icons'
+import { FilesPanel } from './FilesPanel'
 
-export function AgentPanel(): ReactElement {
+interface AgentPanelProps {
+  files: FileState
+  /** Connection id → display name. */
+  connNames: Record<string, string>
+}
+
+export function AgentPanel({ files, connNames }: AgentPanelProps): ReactElement {
+  const [activeTab, setActiveTab] = useState<'files' | 'agent'>('agent')
+
   return (
     <section className="agent-panel">
       <div className="agent-tabbar">
-        <button className="agent-tab" type="button">
+        <button
+          className={`agent-tab${activeTab === 'files' ? ' is-active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('files')}
+        >
           SQL Files
         </button>
-        <button className="agent-tab is-active" type="button">
+        <button
+          className={`agent-tab${activeTab === 'agent' ? ' is-active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('agent')}
+        >
           <SparkleIcon />
           AI Agent
         </button>
@@ -18,12 +37,16 @@ export function AgentPanel(): ReactElement {
           <PlusThinIcon />
         </button>
       </div>
-      <div className="placeholder">
-        <div className="placeholder__mono">ai agent / sql files</div>
-        <div className="placeholder__text">
-          Prompt-driven SQL authoring — not part of this sketch
+      {activeTab === 'files' ? (
+        <FilesPanel files={files} connNames={connNames} />
+      ) : (
+        <div className="placeholder">
+          <div className="placeholder__mono">ai agent / sql files</div>
+          <div className="placeholder__text">
+            Prompt-driven SQL authoring — not part of this sketch
+          </div>
         </div>
-      </div>
+      )}
     </section>
   )
 }
