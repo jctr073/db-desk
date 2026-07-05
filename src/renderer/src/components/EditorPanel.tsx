@@ -1,17 +1,18 @@
 import type { OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 
 import type { DatabaseIntrospection } from '../../../shared/db'
 import { statementAtOffset } from '../../../shared/sql'
 import { ensureSqlLanguageFeatures } from '../sql/completions'
 import type { Theme } from '../theme'
-import { PlayIcon, PlusThinIcon, SqlFileIcon } from './icons'
+import { PlayIcon, PlusThinIcon, SqlFileIcon, CloseIcon } from './icons'
 import { ResultsPanel } from './ResultsPanel'
 import { SqlEditor } from './SqlEditor'
 import { useQueryRunner } from './useQueryRunner'
 import type { QueryTarget } from './useQueryRunner'
+import type { FileState } from '../files/useFileState'
 
 const LIMIT_CHOICES = [100, 500, 1000, 5000]
 const DEFAULT_LIMIT = 500
@@ -22,6 +23,7 @@ interface EditorPanelProps {
   /** Introspection cache: connection id → database name → schema. */
   schemas: Record<string, Record<string, DatabaseIntrospection>>
   ensureSchema: (connId: string, database: string) => void
+  files: FileState
 }
 
 function targetKey(target: QueryTarget): string {
@@ -32,16 +34,36 @@ export function EditorPanel({
   theme,
   targets,
   schemas,
-  ensureSchema
+  ensureSchema,
+  files
 }: EditorPanelProps): ReactElement {
   const runner = useQueryRunner()
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [limit, setLimit] = useState<number | null>(DEFAULT_LIMIT)
   const [resultsPct, setResultsPct] = useState(50)
+  const [fileContent, setFileContent] = useState<string>('')
+  const [isDirty, setIsDirty] = useState(false)
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const splitRef = useRef<HTMLDivElement | null>(null)
 
   const target = targets.find((t) => targetKey(t) === selectedKey) ?? null
+  const activeFile = files.selectedFileId
+    ? files.files.find((f) => f.id === files.selectedFileId)
+    : null
+
+  // Load file content when selected file changes
+  useEffect(() => {
+    if (!files.selectedFileId) return
+    let cancelled = false
+    void window.dbDesk.files.read(files.selectedFileId).then((content) => {
+      if (cancelled) return
+      setFileContent(content)
+      setIsDirty(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [files.selectedFileId])
 
   // Keep the selection valid as connections come and go; prefer the database
   // the first connection was actually opened against.
@@ -92,7 +114,32 @@ export function EditorPanel({
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () =>
       runRef.current()
     )
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      if (files.selectedFileId && isDirty) {
+        files.saveFile(files.selectedFileId, fileContent)
+        setIsDirty(false)
+      }
+    })
     ensureSqlLanguageFeatures(monaco, () => schemaRef.current)
+  }, [files, isDirty, fileContent])
+
+  // Sync file content to editor when file changes
+  useEffect(() => {
+    const ed = editorRef.current
+    if (!ed) return
+    ed.setValue(fileContent)
+  }, [fileContent])
+
+  // Track editor changes
+  useEffect(() => {
+    const ed = editorRef.current
+    if (!ed) return
+    const dispose = ed.onDidChangeModelContent(() => {
+      const newContent = ed.getValue()
+      setFileContent(newContent)
+      setIsDirty(true)
+    })
+    return () => dispose.dispose()
   }, [])
 
   const startResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -119,18 +166,60 @@ export function EditorPanel({
     else byConnection.set(t.connId, [t])
   }
 
+  const filesByGroup = useMemo(() => {
+    const groups = new Map<string, (typeof files.files)[number][]>()
+    for (const file of files.files) {
+      const key = file.connId && file.database
+        ? `${file.connId}/${file.database}`
+        : file.connId || 'unsaved'
+      const list = groups.get(key) ?? []
+      list.push(file)
+      groups.set(key, list)
+    }
+    return groups
+  }, [files.files])
+
   return (
     <section className="editor-panel">
       <div className="editor-tabbar">
-        <div className="editor-tab">
-          <SqlFileIcon />
-          query-1.sql
-          <span className="editor-tab__dot" title="Unsaved changes" />
-        </div>
+        {[...filesByGroup.entries()].map(([groupKey, groupFiles]) => (
+          <div key={groupKey} className="editor-tabs-group">
+            {groupFiles.map((file) => (
+              <div
+                key={file.id}
+                className={`editor-tab${files.selectedFileId === file.id ? ' is-active' : ''}`}
+                onClick={() => files.selectFile(file.id)}
+                title={`${file.name} · ${file.connId}/${file.database || '(connection level)'}`}
+              >
+                <SqlFileIcon />
+                {file.name}
+                {isDirty && files.selectedFileId === file.id && (
+                  <span className="editor-tab__dot" title="Unsaved changes" />
+                )}
+                <button
+                  className="editor-tab__close"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    files.deleteFile(file.id)
+                  }}
+                  title="Close tab"
+                  type="button"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            ))}
+          </div>
+        ))}
         <button
           className="icon-btn icon-btn--sm"
           title="New query"
           type="button"
+          onClick={() => {
+            const connId = activeFile?.connId || null
+            const database = activeFile?.database || null
+            files.createFile(connId, database)
+          }}
         >
           <PlusThinIcon />
         </button>
@@ -184,6 +273,20 @@ export function EditorPanel({
         </button>
         <button className="btn-format" type="button">
           Format
+        </button>
+        <button
+          className="btn-save"
+          type="button"
+          disabled={!isDirty || !files.selectedFileId}
+          title={isDirty ? 'Save file (⌘S)' : 'No unsaved changes'}
+          onClick={() => {
+            if (files.selectedFileId) {
+              files.saveFile(files.selectedFileId, fileContent)
+              setIsDirty(false)
+            }
+          }}
+        >
+          Save
         </button>
       </div>
       <div className="editor-split" ref={splitRef}>

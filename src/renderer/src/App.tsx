@@ -9,10 +9,12 @@ import { ConnectionPanel } from './connections/ConnectionPanel'
 import { NewConnectionDialog } from './connections/NewConnectionDialog'
 import { useConnectionState } from './connections/useConnectionState'
 import { useTheme } from './theme'
+import { useFileState } from './files/useFileState'
 
 export function App(): ReactElement {
   const { theme, toggle } = useTheme()
   const connections = useConnectionState()
+  const files = useFileState()
 
   /** Every (online connection, database) pair the SQL editor can run against. */
   const targets = useMemo(() => {
@@ -44,12 +46,18 @@ export function App(): ReactElement {
     <div className="app">
       <TitleBar theme={theme} onToggleTheme={toggle} title={title} />
       <div className="main-row">
-        <ConnectionPanel state={connections} />
+        <ConnectionPanel
+          state={connections}
+          onNewQueryFile={(connId, database) => {
+            files.createFile(connId, database)
+          }}
+        />
         <EditorPanel
           theme={theme}
           targets={targets}
           schemas={connections.schemas}
           ensureSchema={connections.ensureSchema}
+          files={files}
         />
         <AgentPanel />
       </div>

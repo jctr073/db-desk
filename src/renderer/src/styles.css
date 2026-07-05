@@ -392,8 +392,13 @@ textarea {
   border: 1px solid var(--border);
   border-bottom: none;
   font-size: 12px;
-  color: var(--text);
+  color: var(--text-dim);
   align-self: flex-end;
+  cursor: pointer;
+  user-select: none;
+}
+.editor-tab:hover {
+  color: var(--text);
 }
 .editor-tab__dot {
   width: 6px;
@@ -435,6 +440,51 @@ textarea {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+}
+.btn-save {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-hi);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-left: 4px;
+}
+.btn-save:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.editor-tab.is-active {
+  background: var(--panel-hi);
+  border-bottom: 1px solid var(--panel-hi);
+}
+.editor-tab__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.editor-tab__close:hover {
+  background: var(--row-hover);
+  color: var(--text);
 }
 .editor-host {
   flex: 1;
