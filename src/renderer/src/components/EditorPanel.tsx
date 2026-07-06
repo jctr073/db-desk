@@ -1,7 +1,11 @@
 import type { OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
+import type {
+  MutableRefObject,
+  PointerEvent as ReactPointerEvent,
+  ReactElement
+} from 'react'
 
 import type { DatabaseIntrospection } from '../../../shared/db'
 import { statementAtOffset } from '../../../shared/sql'
@@ -10,8 +14,8 @@ import type { Theme } from '../theme'
 import { PlayIcon, PlusThinIcon, SqlFileIcon, CloseIcon } from './icons'
 import { ResultsPanel } from './ResultsPanel'
 import { SqlEditor } from './SqlEditor'
-import { useQueryRunner } from './useQueryRunner'
-import type { QueryTarget } from './useQueryRunner'
+import type { QueryRunner, QueryTarget } from './useQueryRunner'
+import type { EditorBridge } from './editorBridge'
 import type { FileState } from '../files/useFileState'
 
 const LIMIT_CHOICES = [100, 500, 1000, 5000]
@@ -24,6 +28,9 @@ interface EditorPanelProps {
   schemas: Record<string, Record<string, DatabaseIntrospection>>
   ensureSchema: (connId: string, database: string) => void
   files: FileState
+  runner: QueryRunner
+  /** Registered on mount so the AI agent can read/insert editor SQL. */
+  bridge: MutableRefObject<EditorBridge | null>
 }
 
 function targetKey(target: QueryTarget): string {
@@ -35,9 +42,10 @@ export function EditorPanel({
   targets,
   schemas,
   ensureSchema,
-  files
+  files,
+  runner,
+  bridge
 }: EditorPanelProps): ReactElement {
-  const runner = useQueryRunner()
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [limit, setLimit] = useState<number | null>(DEFAULT_LIMIT)
   const [resultsPct, setResultsPct] = useState(50)
@@ -56,6 +64,38 @@ export function EditorPanel({
   const activeFile = files.selectedFileId
     ? files.files.find((f) => f.id === files.selectedFileId)
     : null
+
+  const activeFileNameRef = useRef<string | null>(null)
+  activeFileNameRef.current = activeFile?.name ?? null
+
+  // Everything is read through refs at call time, so registering once is safe.
+  useEffect(() => {
+    bridge.current = {
+      getActiveSql: () => ({
+        fileName: activeFileNameRef.current,
+        sql: editorRef.current?.getValue() ?? ''
+      }),
+      insertSql: (sql: string) => {
+        const ed = editorRef.current
+        const model = ed?.getModel()
+        if (!ed || !model) return
+        const selection = ed.getSelection()
+        const end = model.getFullModelRange()
+        const range = selection ?? {
+          startLineNumber: end.endLineNumber,
+          startColumn: end.endColumn,
+          endLineNumber: end.endLineNumber,
+          endColumn: end.endColumn
+        }
+        const text = sql.endsWith('\n') ? sql : `${sql}\n`
+        ed.executeEdits('ai-agent', [{ range, text, forceMoveMarkers: true }])
+        ed.focus()
+      }
+    }
+    return () => {
+      bridge.current = null
+    }
+  }, [bridge])
 
   const setEditorValue = useCallback((value: string) => {
     const ed = editorRef.current

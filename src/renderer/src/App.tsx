@@ -1,9 +1,11 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { ReactElement } from 'react'
 
 import { AgentPanel } from './components/AgentPanel'
 import { EditorPanel } from './components/EditorPanel'
 import { StatusBar } from './components/StatusBar'
+import type { EditorBridge } from './components/editorBridge'
+import { useQueryRunner } from './components/useQueryRunner'
 import type { QueryTarget } from './components/useQueryRunner'
 import { ConnectionPanel } from './connections/ConnectionPanel'
 import { NewConnectionDialog } from './connections/NewConnectionDialog'
@@ -15,6 +17,8 @@ export function App(): ReactElement {
   const { theme, toggle } = useTheme()
   const connections = useConnectionState()
   const files = useFileState()
+  const runner = useQueryRunner()
+  const editorBridge = useRef<EditorBridge | null>(null)
 
   /** Every (online connection, database) pair the SQL editor can run against. */
   const targets = useMemo(() => {
@@ -69,8 +73,16 @@ export function App(): ReactElement {
           schemas={connections.schemas}
           ensureSchema={connections.ensureSchema}
           files={files}
+          runner={runner}
+          bridge={editorBridge}
         />
-        <AgentPanel files={files} connNames={connNames} />
+        <AgentPanel
+          files={files}
+          connNames={connNames}
+          targets={targets}
+          editorBridge={editorBridge}
+          onAgentQuery={runner.showResult}
+        />
       </div>
       <StatusBar theme={theme} onToggleTheme={toggle} />
       <NewConnectionDialog state={connections} />

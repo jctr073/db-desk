@@ -1,11 +1,60 @@
 import Editor from '@monaco-editor/react'
-import type { OnMount } from '@monaco-editor/react'
+import type { Monaco, OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
 import type { ReactElement } from 'react'
 
 import type { Theme } from '../theme'
 
 const initialSql = 'SELECT * FROM users LIMIT 100;'
+
+const DARK_THEME = 'db-desk-dark'
+
+/**
+ * Dark editor theme matching the app's Monokai Pro (Octagon) palette — keep in
+ * sync with the design tokens in styles.css.
+ */
+function defineThemes(monaco: Monaco): void {
+  monaco.editor.defineTheme(DARK_THEME, {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      { token: '', foreground: 'eaf2f1', background: '282a3a' },
+      { token: 'keyword', foreground: 'ff657a' },
+      { token: 'operator', foreground: 'ff657a' },
+      { token: 'string', foreground: 'ffd76d' },
+      { token: 'string.sql', foreground: 'ffd76d' },
+      { token: 'number', foreground: 'c39ac9' },
+      { token: 'comment', foreground: '696d77', fontStyle: 'italic' },
+      { token: 'predefined', foreground: 'bad761' },
+      { token: 'type', foreground: '9cd1bb' },
+      { token: 'identifier', foreground: 'eaf2f1' },
+      { token: 'delimiter', foreground: 'b2b9bd' }
+    ],
+    colors: {
+      'editor.background': '#282a3a',
+      'editor.foreground': '#eaf2f1',
+      'editor.lineHighlightBackground': '#313444',
+      'editor.selectionBackground': '#3f4257',
+      'editor.inactiveSelectionBackground': '#343748',
+      'editorCursor.foreground': '#eaf2f1',
+      'editorLineNumber.foreground': '#535763',
+      'editorLineNumber.activeForeground': '#a0a5ae',
+      'editorIndentGuide.background1': '#313344',
+      'editorIndentGuide.activeBackground1': '#3a3d4d',
+      'editorWhitespace.foreground': '#3a3d4d',
+      'editorWidget.background': '#1e1f2b',
+      'editorWidget.border': '#3a3d4d',
+      'editorSuggestWidget.background': '#1e1f2b',
+      'editorSuggestWidget.border': '#3a3d4d',
+      'editorSuggestWidget.selectedBackground': '#313344',
+      'editorHoverWidget.background': '#1e1f2b',
+      'editorHoverWidget.border': '#3a3d4d',
+      'scrollbarSlider.background': '#3a3d4d99',
+      'scrollbarSlider.hoverBackground': '#535763b3',
+      'scrollbarSlider.activeBackground': '#535763'
+    }
+  })
+}
 
 const editorOptions: editor.IStandaloneEditorConstructionOptions = {
   automaticLayout: true,
@@ -36,10 +85,10 @@ interface SqlEditorProps {
   onMount?: OnMount
 }
 
-function resolveTheme(theme?: Theme): 'light' | 'vs-dark' {
-  if (theme) return theme === 'dark' ? 'vs-dark' : 'light'
+function resolveTheme(theme?: Theme): string {
+  if (theme) return theme === 'dark' ? DARK_THEME : 'light'
   return window.matchMedia('(prefers-color-scheme: dark)').matches
-    ? 'vs-dark'
+    ? DARK_THEME
     : 'light'
 }
 
@@ -47,6 +96,7 @@ export function SqlEditor({ theme, onMount }: SqlEditorProps): ReactElement {
   return (
     <section className="sql-editor" aria-label="SQL editor">
       <Editor
+        beforeMount={defineThemes}
         defaultLanguage="sql"
         defaultValue={initialSql}
         height="100%"

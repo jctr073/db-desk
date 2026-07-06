@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { IpcRendererEvent } from 'electron'
 
+import type {
+  AgentEvent,
+  AgentKeyStatus,
+  AgentSendRequest
+} from '../shared/agent'
 import type {
   ConnectParams,
   ConnectResult,
@@ -64,6 +70,25 @@ const api = Object.freeze({
       ipcRenderer.invoke('files:getNextName', connId, database),
     deleteForConnection: (connId: string): Promise<void> =>
       ipcRenderer.invoke('files:deleteForConnection', connId)
+  }),
+  agent: Object.freeze({
+    keyStatus: (): Promise<AgentKeyStatus> =>
+      ipcRenderer.invoke('agent:keyStatus'),
+    send: (req: AgentSendRequest): Promise<void> =>
+      ipcRenderer.invoke('agent:send', req),
+    stop: (chatId: string): Promise<void> =>
+      ipcRenderer.invoke('agent:stop', chatId),
+    reset: (chatId: string): Promise<void> =>
+      ipcRenderer.invoke('agent:reset', chatId),
+    /** Subscribe to agent progress events; returns an unsubscribe function. */
+    onEvent: (callback: (evt: AgentEvent) => void): (() => void) => {
+      const listener = (_event: IpcRendererEvent, evt: AgentEvent): void =>
+        callback(evt)
+      ipcRenderer.on('agent:event', listener)
+      return () => {
+        ipcRenderer.removeListener('agent:event', listener)
+      }
+    }
   })
 })
 

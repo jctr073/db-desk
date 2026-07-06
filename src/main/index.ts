@@ -9,6 +9,7 @@ import {
   runQuery,
   testConnection
 } from './db'
+import { registerAgentHandlers } from './agent'
 import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
 import {
   listQueries,
@@ -145,6 +146,7 @@ function registerFileHandlers(): void {
 app.whenReady().then(() => {
   registerDbHandlers()
   registerFileHandlers()
+  registerAgentHandlers(() => mainWindow)
   createWindow()
 
   app.on('activate', () => {

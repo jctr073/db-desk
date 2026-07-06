@@ -31,6 +31,13 @@ export interface QueryRunner {
   run: (sql: string, target: QueryTarget, limit: number | null) => void
   /** Re-execute a tab's stored query in place. */
   rerun: (id: string, limit: number | null) => void
+  /** Display an already-executed result (e.g. an AI agent run) as a pinned tab. */
+  showResult: (
+    sql: string,
+    target: QueryTarget,
+    result: QueryResult | null,
+    error: string | null
+  ) => void
   pin: (id: string) => void
   closeTab: (id: string) => void
 }
@@ -118,6 +125,30 @@ export function useQueryRunner(): QueryRunner {
     [tabs, execute]
   )
 
+  const showResult = useCallback(
+    (
+      sql: string,
+      target: QueryTarget,
+      result: QueryResult | null,
+      error: string | null
+    ) => {
+      const id = `r${++tabSeq}`
+      const tab: ResultTab = {
+        id,
+        title: `AI · ${snippet(sql)}`,
+        pinned: true,
+        running: false,
+        sql,
+        target,
+        result,
+        error
+      }
+      setTabs((prev) => [...prev, tab])
+      setActiveTabId(id)
+    },
+    []
+  )
+
   const pin = useCallback((id: string) => {
     setTabs((prev) =>
       prev.map((tab) =>
@@ -149,6 +180,7 @@ export function useQueryRunner(): QueryRunner {
     setActiveTab: setActiveTabId,
     run,
     rerun,
+    showResult,
     pin,
     closeTab
   }

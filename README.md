@@ -23,7 +23,20 @@ editor. Each run replaces the live results tab unless it is pinned, in which
 case the next run opens a fresh tab; pinned tabs can be re-run and closed. Bare
 SELECTs get an automatic `LIMIT 500` (configurable in the toolbar, including no
 limit); statements that can't take an appended LIMIT are truncated to the same
-cap after execution. AI features are not yet wired up.
+cap after execution.
+
+The right-hand panel's **AI Agent** tab turns prompts into SQL. It reads
+`ANTHROPIC_API_KEY` from `~/.zshrc` (re-read on every request, so no restart is
+needed after editing it), and offers a model and reasoning-effort picker,
+defaulting to Opus 4.8 at `xhigh` effort. Chat history streams per-session with
+a live "thinking" indicator and a Stop button to cancel mid-response. Each turn
+sees the schema of the connection/database selected in its own target picker
+and the contents of the active SQL editor file, so generated SQL can reference
+real tables and columns; SQL code blocks in a reply get an Insert button that
+drops them into the editor at the cursor. An opt-in checkbox lets the agent run
+its own queries against the selected database through a `run_sql` tool to
+validate its work — every run it makes also lands in the results grid as a
+pinned tab so you can verify the output yourself.
 
 Queries are saved as files. Each tab is a `.sql` file persisted under the app's
 user-data directory, with metadata (name, owning connection/database) tracked in
@@ -58,15 +71,17 @@ npm run format    # Format project files with Prettier
 ```text
 src/
   main/
-    index.ts             # app bootstrap + db/store/files IPC handlers
+    index.ts             # app bootstrap + db/store/files/agent IPC handlers
     db.ts                # PostgreSQL pooling, introspection + query execution
     store.ts             # saved-connection persistence (safeStorage-encrypted)
     files.ts             # query-file persistence (.sql files + metadata.json)
+    agent.ts             # Anthropic agent loop: key loading, schema summary, streaming tool use
   preload/
-    index.ts             # typed window.dbDesk bridge (db + store + files)
+    index.ts             # typed window.dbDesk bridge (db + store + files + agent)
   shared/
     db.ts                # wire types shared by main, preload, and renderer
     sql.ts               # statement splitting + auto-LIMIT lexer (main + renderer)
+    agent.ts             # AI agent wire types + model/effort catalog
   renderer/
     index.html
     src/
@@ -77,11 +92,12 @@ src/
       components/
         StatusBar.tsx      # bottom bar: theme toggle
         EditorPanel.tsx    # tab bar, target/limit toolbar, editor + results split
-        AgentPanel.tsx     # right pane: SQL Files list + AI Agent tabs
+        AgentPanel.tsx     # right pane: SQL Files list + AI Agent chat (model/effort picker, prompt-to-SQL)
         FilesPanel.tsx     # saved query files grouped by connection/database
         SqlEditor.tsx
         ResultsPanel.tsx   # result tabs (live + pinned), grid, status bar
         useQueryRunner.ts  # result-tab state machine + query dispatch
+        editorBridge.ts    # imperative handle (active SQL + insert-at-cursor) used by the AI Agent
         icons.tsx          # shared UI icons
       files/
         useFileState.ts    # query-file list/select/create/save/delete state
