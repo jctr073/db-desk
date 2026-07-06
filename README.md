@@ -20,7 +20,11 @@ The SQL editor executes queries for real: a toolbar dropdown picks the
 (connection, database) target, Run (or ⌘⏎) executes the statement under the
 cursor — or the selection — and results land in a grid on the lower half of the
 editor. Each run replaces the live results tab unless it is pinned, in which
-case the next run opens a fresh tab; pinned tabs can be re-run and closed. Bare
+case the next run opens a fresh tab; pinned tabs are titled `Result N · table`
+for scannability (the full statement stays in the tab's tooltip) and can be
+re-run and closed. When more tabs are open than fit the bar, the extras collapse
+into an overflow dropdown that keeps the active tab visible and offers per-tab
+close and a "Close all results" action. Bare
 SELECTs get an automatic `LIMIT 500` (configurable in the toolbar, including no
 limit); statements that can't take an appended LIMIT are truncated to the same
 cap after execution.
