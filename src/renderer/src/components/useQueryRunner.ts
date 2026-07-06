@@ -40,13 +40,24 @@ export interface QueryRunner {
   ) => void
   pin: (id: string) => void
   closeTab: (id: string) => void
+  closeAll: () => void
 }
 
 let tabSeq = 0
+let resultSeq = 0
 
-function snippet(sql: string): string {
-  const flat = sql.replace(/\s+/g, ' ').trim()
-  return flat.length > 26 ? `${flat.slice(0, 26)}…` : flat
+/** Best-effort main table name, used to make tab titles scannable. */
+function tableHint(sql: string): string {
+  const match = /\bfrom\s+("?[\w.]+"?)/i.exec(sql)
+  if (!match) return ''
+  const name = match[1].replace(/"/g, '').split('.').pop() ?? ''
+  return name.length > 18 ? `${name.slice(0, 18)}…` : name
+}
+
+function resultTitle(prefix: string, sql: string): string {
+  const hint = tableHint(sql)
+  const label = `${prefix} ${++resultSeq}`
+  return hint ? `${label} · ${hint}` : label
 }
 
 export function useQueryRunner(): QueryRunner {
@@ -135,7 +146,7 @@ export function useQueryRunner(): QueryRunner {
       const id = `r${++tabSeq}`
       const tab: ResultTab = {
         id,
-        title: `AI · ${snippet(sql)}`,
+        title: resultTitle('AI Result', sql),
         pinned: true,
         running: false,
         sql,
@@ -149,15 +160,18 @@ export function useQueryRunner(): QueryRunner {
     []
   )
 
-  const pin = useCallback((id: string) => {
-    setTabs((prev) =>
-      prev.map((tab) =>
-        tab.id === id && !tab.pinned
-          ? { ...tab, pinned: true, title: snippet(tab.sql) }
-          : tab
+  const pin = useCallback(
+    (id: string) => {
+      const tab = tabs.find((t) => t.id === id)
+      if (!tab || tab.pinned) return
+      // Computed outside the updater: resultSeq++ must run exactly once.
+      const title = resultTitle('Result', tab.sql)
+      setTabs((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, pinned: true, title } : t))
       )
-    )
-  }, [])
+    },
+    [tabs]
+  )
 
   const closeTab = useCallback(
     (id: string) => {
@@ -174,6 +188,12 @@ export function useQueryRunner(): QueryRunner {
     [tabs]
   )
 
+  const closeAll = useCallback(() => {
+    runTokens.current.clear()
+    setTabs([])
+    setActiveTabId(null)
+  }, [])
+
   return {
     tabs,
     activeTabId,
@@ -182,6 +202,7 @@ export function useQueryRunner(): QueryRunner {
     rerun,
     showResult,
     pin,
-    closeTab
+    closeTab,
+    closeAll
   }
 }

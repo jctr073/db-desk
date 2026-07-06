@@ -96,6 +96,20 @@ export function ChevronUpIcon({ size = 15 }: IconProps): ReactElement {
   )
 }
 
+export function ChevronDownIcon({ size = 15 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.4}
+    >
+      <path d="M4.5 6.5 8 10l3.5-3.5" />
+    </svg>
+  )
+}
+
 export function ChevronRightIcon({ size = 9 }: IconProps): ReactElement {
   return (
     <svg

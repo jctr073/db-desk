@@ -407,6 +407,7 @@ export function EditorPanel({
                 activeTabId={runner.activeTabId}
                 onSelect={runner.setActiveTab}
                 onClose={runner.closeTab}
+                onCloseAll={runner.closeAll}
                 onPin={runner.pin}
                 onRerun={(id) => runner.rerun(id, limit)}
               />

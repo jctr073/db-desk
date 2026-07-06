@@ -1,7 +1,8 @@
+import { useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 
 import type { QueryResult } from '../../../shared/db'
-import { CloseIcon, PinIcon, RefreshIcon } from './icons'
+import { ChevronDownIcon, CloseIcon, PinIcon, RefreshIcon } from './icons'
 import type { ResultTab } from './useQueryRunner'
 
 interface ResultsPanelProps {
@@ -9,9 +10,15 @@ interface ResultsPanelProps {
   activeTabId: string | null
   onSelect: (id: string) => void
   onClose: (id: string) => void
+  onCloseAll: () => void
   onPin: (id: string) => void
   onRerun: (id: string) => void
 }
+
+/** Width budgeted per inline tab when deciding how many fit. */
+const TAB_SLOT_PX = 150
+/** Space kept free for the overflow button, spacer and rerun control. */
+const BAR_RESERVED_PX = 120
 
 function statusLine(tab: ResultTab): string {
   const result = tab.result
@@ -100,14 +107,63 @@ export function ResultsPanel({
   activeTabId,
   onSelect,
   onClose,
+  onCloseAll,
   onPin,
   onRerun
 }: ResultsPanelProps): ReactElement {
   const active = tabs.find((tab) => tab.id === activeTabId) ?? null
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [maxVisible, setMaxVisible] = useState(6)
+  const barRef = useRef<HTMLDivElement>(null)
+  const overflowBtnRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    const bar = barRef.current
+    if (!bar) return
+    const observer = new ResizeObserver(() => {
+      setMaxVisible(
+        Math.max(2, Math.floor((bar.clientWidth - BAR_RESERVED_PX) / TAB_SLOT_PX))
+      )
+    })
+    observer.observe(bar)
+    return () => observer.disconnect()
+  }, [])
+
+  // Keep the active tab visible: when it lives past the cutoff it takes the
+  // last inline slot, and everything else collapses into the overflow menu.
+  let visibleTabs = tabs
+  let overflowTabs: ResultTab[] = []
+  if (tabs.length > maxVisible) {
+    const activeIndex = tabs.findIndex((tab) => tab.id === activeTabId)
+    visibleTabs =
+      activeIndex >= maxVisible
+        ? [...tabs.slice(0, maxVisible - 1), tabs[activeIndex]]
+        : tabs.slice(0, maxVisible)
+    const visibleIds = new Set(visibleTabs.map((tab) => tab.id))
+    overflowTabs = tabs.filter((tab) => !visibleIds.has(tab.id))
+  }
+
+  useEffect(() => {
+    if (overflowTabs.length === 0) setMenuOpen(false)
+  }, [overflowTabs.length])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuOpen])
+
+  const menuRect = menuOpen
+    ? overflowBtnRef.current?.getBoundingClientRect()
+    : undefined
+
   return (
     <div className="results-panel">
-      <div className="results-tabbar">
-        {tabs.map((tab) => (
+      <div className="results-tabbar" ref={barRef}>
+        {visibleTabs.map((tab) => (
           <div
             key={tab.id}
             className={`results-tab${tab.id === activeTabId ? ' is-active' : ''}`}
@@ -150,6 +206,18 @@ export function ResultsPanel({
             </button>
           </div>
         ))}
+        {overflowTabs.length > 0 && (
+          <button
+            ref={overflowBtnRef}
+            className={`results-tab-overflow${menuOpen ? ' is-open' : ''}`}
+            title={`${overflowTabs.length} more result tab${overflowTabs.length === 1 ? '' : 's'}`}
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            +{overflowTabs.length}
+            <ChevronDownIcon size={12} />
+          </button>
+        )}
         <div className="editor-tabbar__spacer" />
         {active && !active.running && (
           <button
@@ -162,6 +230,64 @@ export function ResultsPanel({
           </button>
         )}
       </div>
+      {menuOpen && menuRect && (
+        <>
+          <div className="ctx-overlay" onClick={() => setMenuOpen(false)} />
+          <div
+            className="ctx-menu results-overflow-menu"
+            style={{ top: menuRect.bottom + 4, left: menuRect.left }}
+            role="menu"
+          >
+            {overflowTabs.map((tab) => (
+              <div
+                key={tab.id}
+                className="results-overflow-menu__item"
+                title={tab.sql}
+                role="menuitem"
+                onClick={() => {
+                  onSelect(tab.id)
+                  setMenuOpen(false)
+                }}
+              >
+                {tab.pinned && (
+                  <span className="results-tab__pinned">
+                    <PinIcon size={11} />
+                  </span>
+                )}
+                <span className="results-overflow-menu__title">
+                  {tab.title}
+                </span>
+                {tab.running ? (
+                  <span className="spinner spinner--xs" />
+                ) : (
+                  <button
+                    className="results-tab__btn"
+                    title="Close results"
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onClose(tab.id)
+                    }}
+                  >
+                    <CloseIcon size={11} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <div className="ctx-menu__sep" />
+            <button
+              className="ctx-menu__item"
+              type="button"
+              onClick={() => {
+                setMenuOpen(false)
+                onCloseAll()
+              }}
+            >
+              Close all results
+            </button>
+          </div>
+        </>
+      )}
       {active && <TabBody tab={active} />}
       {active && !active.running && (
         <div className="result-status">
