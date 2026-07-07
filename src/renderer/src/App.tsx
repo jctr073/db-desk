@@ -56,6 +56,20 @@ export function App(): ReactElement {
     setAgentContext((prev) => prev.filter((c) => agentContextKey(c) !== key))
   }, [])
 
+  // The two panels feed their footers into the single app-wide status bar.
+  const [connStatus, setConnStatus] = useState({ sel: '', count: '' })
+  const [queryStatus, setQueryStatus] = useState({ text: '', target: '' })
+  const onConnStatus = useCallback((sel: string, count: string) => {
+    setConnStatus((prev) =>
+      prev.sel === sel && prev.count === count ? prev : { sel, count }
+    )
+  }, [])
+  const onQueryStatus = useCallback((text: string, target: string) => {
+    setQueryStatus((prev) =>
+      prev.text === text && prev.target === target ? prev : { text, target }
+    )
+  }, [])
+
   useEffect(() => {
     localStorage.setItem('panel.connWidth', String(Math.round(connWidth)))
   }, [connWidth])
@@ -149,6 +163,7 @@ export function App(): ReactElement {
             files.createFile(connId, database)
           }}
           onAddToAgentThread={addAgentContext}
+          onStatus={onConnStatus}
         />
         <div
           className="col-divider"
@@ -164,6 +179,7 @@ export function App(): ReactElement {
           files={files}
           runner={runner}
           bridge={editorBridge}
+          onQueryStatus={onQueryStatus}
         />
         <div
           className="col-divider"
@@ -184,7 +200,14 @@ export function App(): ReactElement {
           ensureSchema={connections.ensureSchema}
         />
       </div>
-      <StatusBar theme={theme} onToggleTheme={toggle} />
+      <StatusBar
+        theme={theme}
+        onToggleTheme={toggle}
+        connText={connStatus.sel}
+        connCount={connStatus.count}
+        queryText={queryStatus.text}
+        queryTarget={queryStatus.target}
+      />
       <NewConnectionDialog state={connections} />
     </div>
   )

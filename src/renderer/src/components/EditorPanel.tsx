@@ -42,6 +42,8 @@ interface EditorPanelProps {
   runner: QueryRunner
   /** Registered on mount so the AI agent can read/insert editor SQL. */
   bridge: MutableRefObject<EditorBridge | null>
+  /** Report the active result's summary + target up to the app status bar. */
+  onQueryStatus?: (text: string, target: string) => void
 }
 
 function targetKey(target: QueryTarget): string {
@@ -64,7 +66,8 @@ export function EditorPanel({
   ensureSchema,
   files,
   runner,
-  bridge
+  bridge,
+  onQueryStatus
 }: EditorPanelProps): ReactElement {
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [limit, setLimit] = useState<number | null>(DEFAULT_LIMIT)
@@ -513,6 +516,7 @@ export function EditorPanel({
                 onCloseAll={runner.closeAll}
                 onPin={runner.pin}
                 onRerun={(id) => runner.rerun(id, limit)}
+                onStatus={onQueryStatus}
               />
             </div>
           </>

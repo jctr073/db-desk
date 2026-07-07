@@ -141,12 +141,42 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 8px 0 12px;
+  padding: 0 12px 0 6px;
   background: var(--titlebar);
   border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
 }
 .statusbar__spacer {
   flex: 1;
+  min-width: 8px;
+}
+.statusbar__sel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+  flex: 0 1 auto;
+}
+.statusbar__count {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+.statusbar__divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 12px;
+  background: var(--border);
+}
+.statusbar__query {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
+}
+.statusbar__target {
+  flex: 0 0 auto;
+  color: var(--text-faint);
 }
 .statusbar__btn {
   display: inline-flex;
@@ -160,6 +190,7 @@ textarea {
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
+  flex: 0 0 auto;
 }
 .statusbar__btn:hover {
   background: var(--panel-hi);
@@ -322,26 +353,6 @@ textarea {
   max-width: 200px;
 }
 
-.tree-footer {
-  flex: 0 0 auto;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border-top: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-faint);
-}
-.tree-footer__sel {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-.tree-footer__count {
-  flex: 0 0 auto;
-}
 
 /* ------------------------------------------------------------------ *
  * Center editor panel                                                  *
@@ -1120,28 +1131,6 @@ body.is-col-resizing {
   padding: 18px;
   text-align: center;
   font-size: 12px;
-  color: var(--text-faint);
-}
-
-.result-status {
-  height: 25px;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 12px;
-  border-top: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-dim);
-}
-.result-status__main {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.result-status__target {
-  flex: 0 0 auto;
   color: var(--text-faint);
 }
 

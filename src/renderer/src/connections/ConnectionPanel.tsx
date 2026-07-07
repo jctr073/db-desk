@@ -42,6 +42,8 @@ interface ConnectionPanelProps {
   onNewQueryFile?: (connId: string, database: string) => void
   /** Attach a schema/table/view to the AI agent thread as a context chip. */
   onAddToAgentThread?: (item: AgentContextItem) => void
+  /** Report the selected node + object count up to the app status bar. */
+  onStatus?: (sel: string, count: string) => void
 }
 
 /** Tree kinds that can ride along to the agent thread as context chips. */
@@ -80,7 +82,8 @@ function contextItemFor(node: TreeNode): AgentContextItem | null {
 export function ConnectionPanel({
   state,
   onNewQueryFile,
-  onAddToAgentThread
+  onAddToAgentThread,
+  onStatus
 }: ConnectionPanelProps): ReactElement {
   const rows = useMemo(
     () => flattenTree(state.tree, { expanded: state.expanded, filter: state.filter }),
@@ -124,6 +127,10 @@ export function ConnectionPanel({
       : state.selectedNode.label
   }
   const rowCountText = `${rows.length} ${rows.length === 1 ? 'item' : 'items'}`
+
+  useEffect(() => {
+    onStatus?.(selText, rowCountText)
+  }, [selText, rowCountText, onStatus])
 
   return (
     <section className="conn-panel">
@@ -333,10 +340,6 @@ export function ConnectionPanel({
         </div>
       )}
 
-      <div className="tree-footer">
-        <span className="tree-footer__sel">{selText}</span>
-        <span className="tree-footer__count">{rowCountText}</span>
-      </div>
     </section>
   )
 }

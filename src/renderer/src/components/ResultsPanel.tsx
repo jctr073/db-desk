@@ -25,6 +25,8 @@ interface ResultsPanelProps {
   onCloseAll: () => void
   onPin: (id: string) => void
   onRerun: (id: string) => void
+  /** Report the active result's summary + target up to the app status bar. */
+  onStatus?: (text: string, target: string) => void
 }
 
 const LIMIT_CHOICES: (number | null)[] = [100, 500, 1000, 5000, null]
@@ -127,7 +129,8 @@ export function ResultsPanel({
   onCloseMany,
   onCloseAll,
   onPin,
-  onRerun
+  onRerun,
+  onStatus
 }: ResultsPanelProps): ReactElement {
   const active = tabs.find((tab) => tab.id === activeTabId) ?? null
   const [menuOpen, setMenuOpen] = useState(false)
@@ -137,6 +140,19 @@ export function ResultsPanel({
   const barRef = useRef<HTMLDivElement>(null)
   const overflowBtnRef = useRef<HTMLButtonElement>(null)
   const limitBtnRef = useRef<HTMLButtonElement>(null)
+
+  // Mirror the active result's summary into the app-wide status bar.
+  useEffect(() => {
+    if (!onStatus) return
+    if (!active || active.running) {
+      onStatus('', '')
+      return
+    }
+    const text = active.error ? 'Query failed' : statusLine(active)
+    onStatus(text, `${active.target.connName} / ${active.target.database}`)
+  }, [active, onStatus])
+  // Clear the status bar when the results panel unmounts (last tab closed).
+  useEffect(() => () => onStatus?.('', ''), [onStatus])
 
   // Agent-executed runs collapse into a single "AI Agent" group tab instead
   // of flooding the bar; manual runs keep their own tabs.
@@ -426,16 +442,6 @@ export function ResultsPanel({
         </>
       )}
       {active && <TabBody tab={active} />}
-      {active && !active.running && (
-        <div className="result-status">
-          <span className="result-status__main">
-            {active.error ? 'Query failed' : statusLine(active)}
-          </span>
-          <span className="result-status__target">
-            {active.target.connName} / {active.target.database}
-          </span>
-        </div>
-      )}
     </div>
   )
 }
