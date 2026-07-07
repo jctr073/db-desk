@@ -17,18 +17,35 @@ function defineThemes(monaco: Monaco): void {
   monaco.editor.defineTheme(DARK_THEME, {
     base: 'vs-dark',
     inherit: true,
+    // Monaco's SQL grammar tags every token with a `.sql` postfix, and the
+    // inherited vs-dark theme sets those `.sql` variants (e.g. operator.sql,
+    // predefined.sql) — which are *more specific* than a bare `operator`, so
+    // they win. We must override the `.sql` tokens explicitly, otherwise joins
+    // render slate-gray and functions render magenta.
     rules: [
       { token: '', foreground: 'eaf2f1', background: '282a3a' },
       { token: 'keyword', foreground: 'ff657a' },
+      { token: 'keyword.sql', foreground: 'ff657a' },
+      // Joins (JOIN/LEFT/RIGHT/INNER/…) and logical/arithmetic operators are
+      // tagged `operator.sql` — color them like keywords.
       { token: 'operator', foreground: 'ff657a' },
+      { token: 'operator.sql', foreground: 'ff657a' },
       { token: 'string', foreground: 'ffd76d' },
       { token: 'string.sql', foreground: 'ffd76d' },
+      // Numeric constants → purple.
       { token: 'number', foreground: 'c39ac9' },
+      { token: 'number.sql', foreground: 'c39ac9' },
       { token: 'comment', foreground: '696d77', fontStyle: 'italic' },
+      { token: 'comment.sql', foreground: '696d77', fontStyle: 'italic' },
+      // Built-in functions (COUNT/SUM/COALESCE/…) → green.
       { token: 'predefined', foreground: 'bad761' },
+      { token: 'predefined.sql', foreground: 'bad761' },
       { token: 'type', foreground: '9cd1bb' },
+      { token: 'type.sql', foreground: '9cd1bb' },
       { token: 'identifier', foreground: 'eaf2f1' },
-      { token: 'delimiter', foreground: 'b2b9bd' }
+      { token: 'identifier.sql', foreground: 'eaf2f1' },
+      { token: 'delimiter', foreground: 'b2b9bd' },
+      { token: 'delimiter.sql', foreground: 'b2b9bd' }
     ],
     colors: {
       'editor.background': '#282a3a',

@@ -1996,12 +1996,17 @@ body.is-col-resizing {
   opacity: 0.5;
   cursor: default;
 }
-.composer__target {
+.chat__target-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.chat__target {
   height: 28px;
-  flex: 3 1 120px;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 200px;
-  margin-right: 0;
   background: var(--panel);
 }
 .composer__spacer {

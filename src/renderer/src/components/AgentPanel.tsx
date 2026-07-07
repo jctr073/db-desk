@@ -547,6 +547,22 @@ export function AgentPanel({
         <FilesPanel files={files} connNames={connNames} />
       ) : (
         <div className="chat">
+          <div className="chat__target-bar">
+            <select
+              className="toolbar-select chat__target"
+              title="Connection and database the agent works against"
+              value={selectedTargetKey ?? ''}
+              onChange={(e) => setSelectedTargetKey(e.target.value || null)}
+              disabled={targets.length === 0}
+            >
+              {targets.length === 0 && <option value="">No connection</option>}
+              {targets.map((t) => (
+                <option key={targetKey(t)} value={targetKey(t)}>
+                  {t.connName} / {t.database}
+                </option>
+              ))}
+            </select>
+          </div>
           {keyMissing && (
             <div className="chat__notice">
               No API key found — add <code>export ANTHROPIC_API_KEY=…</code> to{' '}
@@ -778,22 +794,6 @@ export function AgentPanel({
                     </>
                   )}
                 </div>
-                <select
-                  className="toolbar-select composer__target"
-                  title="Connection and database the agent works against"
-                  value={selectedTargetKey ?? ''}
-                  onChange={(e) => setSelectedTargetKey(e.target.value || null)}
-                  disabled={targets.length === 0}
-                >
-                  {targets.length === 0 && (
-                    <option value="">No connection</option>
-                  )}
-                  {targets.map((t) => (
-                    <option key={targetKey(t)} value={targetKey(t)}>
-                      {t.connName} / {t.database}
-                    </option>
-                  ))}
-                </select>
                 <div className="composer__spacer" />
                 {busy ? (
                   <button
