@@ -8,6 +8,8 @@ import type {
   SavedConnection,
   SchemaIntrospection
 } from '../../../shared/db'
+import { dialectFor } from '../../../shared/dialect'
+import type { ConnectionType } from '../../../shared/dialect'
 import type { ConnectionForm, TreeNode } from './types'
 
 export function slug(value: string): string {
@@ -169,6 +171,7 @@ export function databaseChildren(db: DatabaseIntrospection): TreeNode[] {
 }
 
 interface SubtitleSource {
+  type: ConnectionType
   user: string
   host: string
   port: string
@@ -176,6 +179,9 @@ interface SubtitleSource {
 }
 
 function connectionSubtitle(source: SubtitleSource, useUrl: boolean): string {
+  if (source.type === 'databricks') {
+    return source.host.trim() || 'Databricks'
+  }
   if (useUrl && source.url.trim()) {
     const parsed = parseConnectionUrl(source.url)
     if (parsed) {
@@ -187,13 +193,18 @@ function connectionSubtitle(source: SubtitleSource, useUrl: boolean): string {
   return `${source.user || 'user'}@${source.host || 'localhost'}:${source.port || '5432'}`
 }
 
+function connectionLabel(saved: SavedConnection): string {
+  const fallback = dialectFor(saved.type).label
+  return (saved.name || fallback).trim() || fallback
+}
+
 /** Tree node for a saved connection that is not currently connected. */
 export function savedConnectionNode(saved: SavedConnection): TreeNode {
   const conn: TreeNode = {
     id: '',
     kind: 'connection',
     key: saved.id,
-    label: (saved.name || 'PostgreSQL').trim() || 'PostgreSQL',
+    label: connectionLabel(saved),
     subtitle: connectionSubtitle(saved, saved.useUrl),
     status: 'offline'
   }
@@ -203,14 +214,16 @@ export function savedConnectionNode(saved: SavedConnection): TreeNode {
 
 /** Dialog form prefilled from a saved connection (password is never stored renderer-side). */
 export function formFromSaved(saved: SavedConnection): ConnectionForm {
-  const defaults = defaultForm()
+  const defaults = defaultForm(saved.type)
   return {
+    type: saved.type,
     name: saved.name,
     host: saved.host || defaults.host,
     port: saved.port || defaults.port,
     database: saved.database || defaults.database,
     user: saved.user || defaults.user,
     password: '',
+    httpPath: saved.httpPath || defaults.httpPath,
     savePwd: true,
     url: saved.url || defaults.url
   }
@@ -234,7 +247,7 @@ export function connectionNodeFromResult(
     id: '',
     kind: 'connection',
     key: saved.id,
-    label: (saved.name || 'PostgreSQL').trim() || 'PostgreSQL',
+    label: connectionLabel(saved),
     subtitle: connectionSubtitle(saved, saved.useUrl),
     status: 'online',
     children: names.map((name) =>
@@ -268,8 +281,10 @@ export function defaultExpansion(
   const db = conn.children?.find((child) => child.key === connectedDb)
   if (!db) return out
   out[db.id] = true
+  // Land on the engine's conventional starter schema when present.
   const schema =
-    db.children?.find((s) => s.label === 'public') ?? db.children?.[0]
+    db.children?.find((s) => s.label === 'public' || s.label === 'default') ??
+    db.children?.[0]
   if (!schema) return out
   out[schema.id] = true
   const tables = schema.children?.find((cat) => cat.key === 'tables')
@@ -277,15 +292,18 @@ export function defaultExpansion(
   return out
 }
 
-export function defaultForm(): ConnectionForm {
+export function defaultForm(type: ConnectionType = 'postgres'): ConnectionForm {
+  const { defaults } = dialectFor(type)
   return {
-    name: 'New PostgreSQL Connection',
-    host: 'localhost',
-    port: '5432',
-    database: 'postgres',
-    user: 'postgres',
+    type,
+    name: defaults.name,
+    host: defaults.host,
+    port: defaults.port,
+    database: defaults.database,
+    user: defaults.user,
     password: '',
+    httpPath: '',
     savePwd: true,
-    url: 'postgresql://postgres@localhost:5432/postgres'
+    url: defaults.url
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { ReactElement } from 'react'
 
+import { CONNECTION_TYPES, DIALECTS, dialectFor } from '../../../shared/dialect'
 import { CheckIcon, CloseIcon, DatabaseIcon, EyeIcon } from '../components/icons'
 import type { ConnectionState } from './useConnectionState'
 
@@ -21,8 +22,36 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
 
   if (!state.dialogOpen) return null
 
-  const isParams = state.dialogTab === 'params'
+  const dialect = dialectFor(state.form.type)
+  const layout = dialect.form
+  const isParams = state.dialogTab === 'params' || !dialect.supportsUrl
   const editing = state.editingId !== null
+
+  const secretField = (
+    <div style={{ flex: 1 }}>
+      <label className="field-label" htmlFor="conn-pwd">
+        {layout.secretLabel}
+      </label>
+      <div className="pwd-wrap">
+        <input
+          id="conn-pwd"
+          className="text-input"
+          type={state.showPwd ? 'text' : 'password'}
+          placeholder="••••••••"
+          value={state.form.password}
+          onChange={(event) => state.updateForm('password', event.target.value)}
+        />
+        <button
+          type="button"
+          className="pwd-toggle"
+          onClick={state.togglePwd}
+          title={state.showPwd ? 'Hide' : 'Show'}
+        >
+          <EyeIcon />
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     // Deliberately no click-to-close on the overlay: a stray click (e.g. when
@@ -35,7 +64,7 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
           </span>
           <div className="dialog__titles">
             <div className="dialog__title">{editing ? 'Edit Connection' : 'New Connection'}</div>
-            <div className="dialog__subtitle">Connect to a PostgreSQL database</div>
+            <div className="dialog__subtitle">{dialect.dialogSubtitle}</div>
           </div>
           <button className="dialog__close" onClick={closeDialog} title="Close" type="button">
             <CloseIcon />
@@ -43,6 +72,23 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
         </div>
 
         <div className="dialog__top">
+          <label className="field-label">DATABASE TYPE</label>
+          <div className="dtabs dtabs--type" role="radiogroup" aria-label="Database type">
+            {CONNECTION_TYPES.map((type) => (
+              <button
+                key={type}
+                type="button"
+                role="radio"
+                aria-checked={state.form.type === type}
+                className={`dtab${state.form.type === type ? ' is-active' : ''}`}
+                disabled={editing}
+                onClick={() => state.setDialogType(type)}
+              >
+                {DIALECTS[type].label}
+              </button>
+            ))}
+          </div>
+
           <label className="field-label" htmlFor="conn-name">
             CONNECTION NAME
           </label>
@@ -53,22 +99,24 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
             onChange={(event) => state.updateForm('name', event.target.value)}
           />
 
-          <div className="dtabs">
-            <button
-              type="button"
-              className={`dtab${isParams ? ' is-active' : ''}`}
-              onClick={() => state.setDialogTab('params')}
-            >
-              Parameters
-            </button>
-            <button
-              type="button"
-              className={`dtab${!isParams ? ' is-active' : ''}`}
-              onClick={() => state.setDialogTab('url')}
-            >
-              Connection URL
-            </button>
-          </div>
+          {dialect.supportsUrl && (
+            <div className="dtabs">
+              <button
+                type="button"
+                className={`dtab${isParams ? ' is-active' : ''}`}
+                onClick={() => state.setDialogTab('params')}
+              >
+                Parameters
+              </button>
+              <button
+                type="button"
+                className={`dtab${!isParams ? ' is-active' : ''}`}
+                onClick={() => state.setDialogTab('url')}
+              >
+                Connection URL
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="dialog__body">
@@ -77,30 +125,47 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
               <div className="field-row">
                 <div style={{ flex: 1 }}>
                   <label className="field-label" htmlFor="conn-host">
-                    HOST
+                    {layout.hostLabel}
                   </label>
                   <input
                     id="conn-host"
                     className="text-input"
+                    placeholder={layout.hostPlaceholder}
                     value={state.form.host}
                     onChange={(event) => state.updateForm('host', event.target.value)}
                   />
                 </div>
-                <div style={{ width: 96 }}>
-                  <label className="field-label" htmlFor="conn-port">
-                    PORT
+                {layout.showPort && (
+                  <div style={{ width: 96 }}>
+                    <label className="field-label" htmlFor="conn-port">
+                      PORT
+                    </label>
+                    <input
+                      id="conn-port"
+                      className="text-input"
+                      value={state.form.port}
+                      onChange={(event) => state.updateForm('port', event.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+              {layout.showHttpPath && (
+                <div style={{ marginTop: 11 }}>
+                  <label className="field-label" htmlFor="conn-http-path">
+                    HTTP PATH
                   </label>
                   <input
-                    id="conn-port"
-                    className="text-input"
-                    value={state.form.port}
-                    onChange={(event) => state.updateForm('port', event.target.value)}
+                    id="conn-http-path"
+                    className="text-input text-input--mono"
+                    placeholder={layout.httpPathPlaceholder}
+                    value={state.form.httpPath}
+                    onChange={(event) => state.updateForm('httpPath', event.target.value)}
                   />
                 </div>
-              </div>
+              )}
               <div style={{ marginTop: 11 }}>
                 <label className="field-label" htmlFor="conn-db">
-                  DATABASE
+                  {layout.databaseLabel}
                 </label>
                 <input
                   id="conn-db"
@@ -110,40 +175,20 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
                 />
               </div>
               <div className="field-row" style={{ marginTop: 11 }}>
-                <div style={{ flex: 1 }}>
-                  <label className="field-label" htmlFor="conn-user">
-                    USERNAME
-                  </label>
-                  <input
-                    id="conn-user"
-                    className="text-input"
-                    value={state.form.user}
-                    onChange={(event) => state.updateForm('user', event.target.value)}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label className="field-label" htmlFor="conn-pwd">
-                    PASSWORD
-                  </label>
-                  <div className="pwd-wrap">
+                {layout.showUser && (
+                  <div style={{ flex: 1 }}>
+                    <label className="field-label" htmlFor="conn-user">
+                      USERNAME
+                    </label>
                     <input
-                      id="conn-pwd"
+                      id="conn-user"
                       className="text-input"
-                      type={state.showPwd ? 'text' : 'password'}
-                      placeholder="••••••••"
-                      value={state.form.password}
-                      onChange={(event) => state.updateForm('password', event.target.value)}
+                      value={state.form.user}
+                      onChange={(event) => state.updateForm('user', event.target.value)}
                     />
-                    <button
-                      type="button"
-                      className="pwd-toggle"
-                      onClick={state.togglePwd}
-                      title={state.showPwd ? 'Hide password' : 'Show password'}
-                    >
-                      <EyeIcon />
-                    </button>
                   </div>
-                </div>
+                )}
+                {secretField}
               </div>
             </div>
           ) : (
@@ -158,7 +203,7 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
                 onChange={(event) => state.updateForm('url', event.target.value)}
               />
               <div className="url-hint">
-                Format: <span className="url-hint__mono">postgresql://user:password@host:port/database</span>
+                Format: <span className="url-hint__mono">{dialect.urlExample}</span>
               </div>
             </div>
           )}
@@ -169,7 +214,7 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
               checked={state.form.savePwd}
               onChange={state.toggleSavePwd}
             />
-            Save password
+            {layout.savePwdLabel}
           </label>
         </div>
 

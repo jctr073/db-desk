@@ -1,8 +1,9 @@
 /**
  * Lightweight SQL lexing shared by the renderer (statement-at-cursor
- * extraction) and the main process (auto-LIMIT detection). PostgreSQL
- * dialect: '' / E'\'' strings, "quoted idents", -- and nested block
- * comments, $tag$ dollar quoting.
+ * extraction) and the main process (auto-LIMIT detection, read/write
+ * classification). Understands the union of the supported dialects'
+ * quoting: '' / E'\'' strings, "quoted idents", `backtick idents`
+ * (Databricks), -- and nested block comments, $tag$ dollar quoting.
  */
 
 export interface StatementSpan {
@@ -71,11 +72,12 @@ function computeCodeMask(sql: string): boolean[] {
       }
       continue
     }
-    if (ch === '"') {
+    if (ch === '"' || ch === '`') {
+      const quote = ch
       i++
       while (i < n) {
-        if (sql[i] === '"') {
-          if (sql[i + 1] === '"') {
+        if (sql[i] === quote) {
+          if (sql[i + 1] === quote) {
             i += 2
             continue
           }
@@ -135,16 +137,17 @@ export function statementAtOffset(
 const STARTERS = new Set(['select', 'table', 'values', 'with'])
 const DML = new Set(['insert', 'update', 'delete', 'merge'])
 
-/**
- * Append `LIMIT n` to a statement when it is a bare row-returning query:
- * starts with SELECT/TABLE/VALUES/WITH and has no top-level LIMIT, FETCH,
- * or FOR locking clause. WITH statements whose top level is DML are left
- * alone, as is anything containing multiple statements.
- */
-export function applyAutoLimit(
-  sql: string,
-  limit: number
-): { text: string; applied: boolean } {
+interface TopLevelScan {
+  /** First keyword of the statement, lowercased. */
+  firstWord: string
+  /** Every keyword appearing outside parentheses, lowercased. */
+  topWords: Set<string>
+  /** True when a top-level semicolon is followed by more code. */
+  multi: boolean
+}
+
+/** Scan live-code words (outside strings/comments) at parenthesis depth 0. */
+function scanTopLevel(sql: string): TopLevelScan {
   const mask = computeCodeMask(sql)
   let depth = 0
   let word = ''
@@ -169,6 +172,47 @@ export function applyAutoLimit(
     else if (ch === ')') depth = Math.max(0, depth - 1)
     else if (ch === ';' && sql.slice(i + 1).trim()) multi = true
   }
+  return { firstWord, topWords, multi }
+}
+
+/** Statement keywords that only ever read (or inspect) data. */
+const READ_STARTERS = new Set([
+  'select',
+  'table',
+  'values',
+  'with',
+  'show',
+  'describe',
+  'desc',
+  'explain'
+])
+
+/**
+ * Best-effort classification of a statement as data/schema-modifying, for
+ * engines without a server-enforced read-only session mode (Databricks).
+ * Anything not provably a read counts as a write, so unknown statements err
+ * on the side of asking for approval.
+ */
+export function statementModifiesData(sql: string): boolean {
+  const { firstWord, topWords, multi } = scanTopLevel(sql)
+  if (!firstWord) return false
+  if (multi) return true
+  if (!READ_STARTERS.has(firstWord)) return true
+  // WITH ... INSERT/UPDATE/DELETE/MERGE writes despite the read-ish starter.
+  return firstWord === 'with' && [...DML].some((kw) => topWords.has(kw))
+}
+
+/**
+ * Append `LIMIT n` to a statement when it is a bare row-returning query:
+ * starts with SELECT/TABLE/VALUES/WITH and has no top-level LIMIT, FETCH,
+ * or FOR locking clause. WITH statements whose top level is DML are left
+ * alone, as is anything containing multiple statements.
+ */
+export function applyAutoLimit(
+  sql: string,
+  limit: number
+): { text: string; applied: boolean } {
+  const { firstWord, topWords, multi } = scanTopLevel(sql)
 
   if (multi || !STARTERS.has(firstWord)) return { text: sql, applied: false }
   if (topWords.has('limit') || topWords.has('fetch') || topWords.has('for')) {

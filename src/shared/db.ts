@@ -3,12 +3,20 @@
  * and the renderer. Everything here must be structured-clone friendly.
  */
 
+import type { ConnectionType } from './dialect'
+
 export interface ConnectParams {
+  /** Engine the connection targets; selects the main-process driver. */
+  type: ConnectionType
   host: string
   port: string
+  /** Database to open (catalog for Databricks). */
   database: string
   user: string
+  /** Password (personal access token for Databricks). */
   password: string
+  /** Warehouse HTTP path (Databricks only). */
+  httpPath: string
   /** Full connection URL; used instead of the discrete fields when useUrl is set. */
   url: string
   useUrl: boolean
@@ -111,10 +119,12 @@ export interface QueryResult {
 export interface SavedConnection {
   id: string
   name: string
+  type: ConnectionType
   host: string
   port: string
   database: string
   user: string
+  httpPath: string
   url: string
   useUrl: boolean
   hasPassword: boolean

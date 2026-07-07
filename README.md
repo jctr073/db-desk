@@ -7,11 +7,16 @@ layout with a schema browser tree (connections → databases → schemas → tab
 views, functions, and more), object filtering, two tree styles, and a New
 Connection dialog. The left connection pane and right agent pane are
 drag-resizable via the dividers on either side of the editor, and each pane
-remembers its width across restarts. Connections are real: creating one connects to a live
-PostgreSQL server (via discrete parameters or a connection URL, preferring
-SSL/TLS automatically and honoring any explicit `sslmode` in a URL, following
-libpq semantics), introspects the
-catalog, and populates the tree with actual databases, schemas, tables, columns,
+remembers its width across restarts. Connections are real, and the app speaks
+more than one engine: the New Connection dialog opens with a **Database Type**
+picker (PostgreSQL or Databricks), and the rest of the form — field labels,
+placeholders, the database/catalog term, the secret label, and the
+Parameters/Connection URL tabs — adapts to the selected engine. PostgreSQL
+connects via discrete parameters or a connection URL, preferring SSL/TLS
+automatically and honoring any explicit `sslmode` in a URL, following libpq
+semantics; Databricks connects to a SQL warehouse by server hostname, HTTP path,
+catalog, and personal access token. Creating a connection introspects the
+catalog and populates the tree with actual databases, schemas, tables, columns,
 views, materialized views, indexes, functions, sequences, types, and aggregates.
 Sibling databases are introspected lazily on first expand. Connections persist
 across sessions (passwords encrypted at rest via Electron `safeStorage`) and are
@@ -50,10 +55,14 @@ The agent can run queries against the selected database through a `run_sql`
 tool to validate its work — every run also lands in the results grid as a
 pinned tab so you can verify the output yourself. Agent statements execute in
 a read-only session with a 30-second statement timeout; anything that would
-modify data or schema is rejected server-side and surfaces as an approval card
-in the chat, so writes only run after an explicit Run it/Deny decision. Stop
-cancels the in-flight statement on the server (`pg_cancel_backend`), not just
-the response stream. Three more tools give the agent schema insight beyond the
+modify data or schema is rejected — server-side for PostgreSQL
+(`default_transaction_read_only`), client-side by statement classification for
+Databricks — and surfaces as an approval card in the chat, so writes only run
+after an explicit Run it/Deny decision. Where the engine supports it, Stop
+cancels the in-flight statement on the server (`pg_cancel_backend` for
+PostgreSQL), not just the response stream. Generated SQL is targeted at the
+selected connection's dialect (PostgreSQL vs. Databricks/Spark SQL), so the
+agent uses the right syntax, identifier quoting, and catalog conventions. Three more tools give the agent schema insight beyond the
 summary embedded in its prompt (which now includes foreign-key targets, index
 definitions, row estimates, and enum values, and degrades gracefully on very
 large catalogs): `describe_table` (columns, defaults, constraints, indexes,
@@ -96,7 +105,11 @@ npm run format    # Format project files with Prettier
 src/
   main/
     index.ts             # app bootstrap + db/store/files/agent IPC handlers
-    db.ts                # PostgreSQL pooling, introspection + query execution
+    db.ts                # engine-agnostic facade: routes calls to the driver for a connection's type
+    drivers/
+      types.ts           # Driver contract shared by all engines
+      postgres.ts        # PostgreSQL driver: pooling, introspection + query execution
+      databricks.ts      # Databricks SQL warehouse driver: introspection + query execution
     store.ts             # saved-connection persistence (safeStorage-encrypted)
     files.ts             # query-file persistence (.sql files + metadata.json)
     agent.ts             # Anthropic agent loop: key loading, schema summary, streaming tool use
@@ -104,6 +117,7 @@ src/
     index.ts             # typed window.dbDesk bridge (db + store + files + agent)
   shared/
     db.ts                # wire types shared by main, preload, and renderer
+    dialect.ts           # per-engine registry: form layout, defaults, agent SQL rules, EXPLAIN syntax
     sql.ts               # statement splitting + auto-LIMIT lexer (main + renderer)
     agent.ts             # AI agent wire types + model/effort catalog
   renderer/
