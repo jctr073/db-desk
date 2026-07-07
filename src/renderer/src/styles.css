@@ -200,7 +200,7 @@ textarea {
  * Connections panel                                                    *
  * ------------------------------------------------------------------ */
 .conn-panel {
-  width: 302px;
+  width: var(--conn-width, 302px);
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -555,6 +555,27 @@ textarea {
 .split-divider:hover {
   border-top-color: var(--accent);
 }
+
+/* Vertical dividers between the connection / editor / agent columns.
+   They overlap the panels' own 1px border with a negative margin so the
+   hit area is comfortable without introducing a double line. */
+.col-divider {
+  flex: 0 0 3px;
+  margin: 0 -2px;
+  z-index: 1;
+  cursor: col-resize;
+  background: transparent;
+}
+.col-divider:hover,
+.col-divider:active {
+  background: var(--accent);
+}
+/* While dragging, keep the resize cursor everywhere and stop the editor /
+   text from being selected as the pointer sweeps across panels. */
+body.is-col-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
 .results-host {
   min-height: 0;
   display: flex;
@@ -803,7 +824,7 @@ textarea {
  * Right agent panel                                                    *
  * ------------------------------------------------------------------ */
 .agent-panel {
-  width: 322px;
+  width: var(--agent-width, 322px);
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
