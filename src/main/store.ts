@@ -3,22 +3,26 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { normalizeConnectionUrl } from '../shared/connectionUrl'
+import type { ConnectionType } from '../shared/dialect'
 import type { ConnectParams, SavedConnection } from '../shared/db'
 
 /**
- * On-disk shape of a saved connection. `secret` is the password encrypted
- * with Electron's safeStorage (OS keychain-backed), base64-encoded; it is
- * absent when the user chose not to save the password or when encryption is
- * unavailable on this system. The `url` field is stored with any password
- * component removed.
+ * On-disk shape of a saved connection. `secret` is the password (or access
+ * token, for engines that use one) encrypted with Electron's safeStorage
+ * (OS keychain-backed), base64-encoded; it is absent when the user chose
+ * not to save it or when encryption is unavailable on this system. The
+ * `url` field is stored with any password component removed. `type` is
+ * absent on records written before connection types existed (PostgreSQL).
  */
 interface StoredRecord {
   id: string
   name: string
+  type?: ConnectionType
   host: string
   port: string
   database: string
   user: string
+  httpPath?: string
   url: string
   useUrl: boolean
   secret?: string
@@ -62,10 +66,12 @@ function toPublic(record: StoredRecord): SavedConnection {
   return {
     id: record.id,
     name: record.name,
+    type: record.type ?? 'postgres',
     host: record.host,
     port: record.port,
     database: record.database,
     user: record.user,
+    httpPath: record.httpPath ?? '',
     url: record.url,
     useUrl: record.useUrl,
     hasPassword: !!record.secret
@@ -124,10 +130,12 @@ export function saveConnection(
   const record: StoredRecord = {
     id,
     name,
+    type: params.type ?? 'postgres',
     host: params.host,
     port: params.port,
     database: params.database,
     user: params.user,
+    httpPath: params.httpPath,
     url,
     useUrl: params.useUrl,
     secret: savePassword ? encrypt(password) : undefined
@@ -160,11 +168,13 @@ export function savedParams(id: string): ConnectParams | null {
     }
   }
   return {
+    type: record.type ?? 'postgres',
     host: record.host,
     port: record.port,
     database: record.database,
     user: record.user,
     password,
+    httpPath: record.httpPath ?? '',
     url,
     useUrl: record.useUrl
   }

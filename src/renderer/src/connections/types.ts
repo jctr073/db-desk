@@ -1,3 +1,5 @@
+import type { ConnectionType } from '../../../shared/dialect'
+
 export type ConnectionStatus = 'online' | 'idle' | 'error' | 'offline'
 
 export type ColumnBadge = 'pk' | 'fk' | null
@@ -66,12 +68,14 @@ export interface FlatRow {
 }
 
 export interface ConnectionForm {
+  type: ConnectionType
   name: string
   host: string
   port: string
   database: string
   user: string
   password: string
+  httpPath: string
   savePwd: boolean
   url: string
 }

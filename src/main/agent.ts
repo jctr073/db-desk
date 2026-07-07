@@ -3,10 +3,11 @@
  * history, and the streaming tool-use loop. The renderer talks to it through
  * `agent:*` IPC handles and receives progress as `agent:event` pushes.
  *
- * Execution safety model: agent statements run in a read-only session
- * (default_transaction_read_only) with a statement timeout. When the server
- * rejects a statement as needing write access, the agent pauses and asks the
- * user for approval before re-running it writable.
+ * Execution safety model: agent statements run in read-only mode (a
+ * server-enforced read-only session where the engine supports one,
+ * client-side statement classification otherwise) with a statement timeout.
+ * When a statement is rejected as needing write access, the agent pauses
+ * and asks the user for approval before re-running it writable.
  */
 
 import { readFileSync } from 'node:fs'
@@ -18,11 +19,11 @@ import { ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 
 import {
-  cancelBackend,
   describeTable,
+  getConnectionType,
   getServerVersion,
   introspectDatabase,
-  READ_ONLY_VIOLATION_CODES,
+  isReadOnlyViolation,
   runQuery,
   searchSchema
 } from './db'
@@ -34,6 +35,8 @@ import type {
 } from '../shared/agent'
 import { AGENT_MODELS } from '../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../shared/db'
+import { dialectFor } from '../shared/dialect'
+import type { DialectInfo } from '../shared/dialect'
 
 /** Rows of a tool-run result forwarded to the model (grid shows the full set). */
 const TOOL_RESULT_MAX_ROWS = 50
@@ -83,8 +86,8 @@ interface ChatState {
     toolId: string
     resolve: (approved: boolean) => void
   } | null
-  /** Backend running the agent's current statement, for cancellation. */
-  runningQuery: { connId: string; pid: number } | null
+  /** Cancels the agent's currently running statement, when one is running. */
+  cancelRunningQuery: (() => void) | null
 }
 
 const chats = new Map<string, ChatState>()
@@ -96,7 +99,7 @@ function getChat(chatId: string): ChatState {
       messages: [],
       controller: null,
       pendingApproval: null,
-      runningQuery: null
+      cancelRunningQuery: null
     }
     chats.set(chatId, chat)
   }
@@ -223,26 +226,32 @@ async function schemaSummaryFor(target: AgentTargetRef): Promise<string> {
 
 function buildSystemPrompt(
   req: AgentSendRequest,
-  schemaSummary: string | null
+  schemaSummary: string | null,
+  dialect: DialectInfo
 ): string {
   const parts: string[] = [
-    'You are the AI assistant inside DB Desk, a PostgreSQL desktop client.',
-    'Your job is to turn user requests into correct, working PostgreSQL statements.',
+    'You are the AI assistant inside DB Desk, a desktop database client.',
+    `Your job is to turn user requests into correct, working ${dialect.engine} statements.`,
     '',
     'Rules:',
     '- Always put final, runnable SQL inside ```sql fenced code blocks; the user can insert those blocks into their editor with one click.',
     '- When you have settled on the final query, call the write_to_editor tool with it so it lands in the SQL editor. Do this once per answer, at the end, with the single final statement — not with intermediate or exploratory queries.',
-    '- Target PostgreSQL syntax only.',
-    '- Prefer schema-qualified names when the table is outside the public schema.',
+    ...dialect.agent.rules,
     '- Keep prose brief; lead with the SQL, then a short explanation if needed.'
   ]
   if (req.target) {
+    const readOnlyRule =
+      dialect.agent.readOnlyEnforcement === 'server'
+        ? '- Statements run inside a READ ONLY transaction. A statement that modifies data or schema pauses and asks the user for approval first; only attempt such statements when the user explicitly asked for the change, and expect that they may deny it.'
+        : '- Statements are screened before execution. A statement that modifies data or schema pauses and asks the user for approval first; only attempt such statements when the user explicitly asked for the change, and expect that they may deny it.'
     parts.push(
       '- You may execute statements with the run_sql tool. Use it to validate your SQL and inspect real data before presenting a final answer. Each run is shown to the user in the results grid.',
-      '- Statements run inside a READ ONLY transaction. A statement that modifies data or schema pauses and asks the user for approval first; only attempt such statements when the user explicitly asked for the change, and expect that they may deny it.',
+      readOnlyRule,
       `- Statements are cancelled after ${AGENT_STATEMENT_TIMEOUT_MS / 1000} seconds.`,
-      '- Use describe_table for full detail on one relation (constraints, indexes, defaults, comments, row estimate) and search_schema to find tables, columns, or functions by name — prefer them over querying pg_catalog yourself.',
-      '- Use explain_query to inspect query plans before recommending a query on large tables; set analyze to true only when actually executing a read is acceptable.'
+      `- Use describe_table for full detail on one relation and search_schema to find tables, columns, or functions by name — ${dialect.agent.catalogHint}.`,
+      dialect.agent.supportsExplainAnalyze
+        ? '- Use explain_query to inspect query plans before recommending a query on large tables; set analyze to true only when actually executing a read is acceptable.'
+        : '- Use explain_query to inspect query plans before recommending a query on large tables.'
     )
   } else {
     parts.push(
@@ -253,7 +262,7 @@ function buildSystemPrompt(
     const version = getServerVersion(req.target.connId)
     parts.push(
       '',
-      `Connected target: connection "${req.target.connName}", database "${req.target.database}"${version ? ` (PostgreSQL ${version})` : ''}.`
+      `Connected target: connection "${req.target.connName}", ${dialect.databaseTerm} "${req.target.database}"${version ? ` (${dialect.engine} ${version})` : ` (${dialect.engine})`}.`
     )
   } else {
     parts.push(
@@ -297,73 +306,89 @@ function buildSystemPrompt(
   return parts.join('\n')
 }
 
-const RUN_SQL_TOOL: Anthropic.Tool = {
-  name: 'run_sql',
-  description:
-    'Execute a SQL statement against the connected PostgreSQL database and return the result. Statements run in a READ ONLY transaction; a statement that modifies data or schema pauses and asks the user for approval before running. SELECT results are limited to 500 rows and the first 50 rows are returned to you; the full result is shown to the user in the results grid. Use this to validate queries and check real data.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      sql: {
-        type: 'string',
-        description: 'A single PostgreSQL statement to execute.'
-      }
-    },
-    required: ['sql']
-  }
-}
-
-const EXPLAIN_QUERY_TOOL: Anthropic.Tool = {
-  name: 'explain_query',
-  description:
-    'Run EXPLAIN on a SQL statement and return the query plan as text. Set analyze to true to execute the statement and get actual timings and row counts (EXPLAIN ANALYZE runs read-only here, so analyze fails on statements that modify data). Use this to check whether a query uses indexes before recommending it.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      sql: {
-        type: 'string',
-        description: 'A single PostgreSQL statement to explain.'
+function runSqlTool(dialect: DialectInfo): Anthropic.Tool {
+  const enforcement =
+    dialect.agent.readOnlyEnforcement === 'server'
+      ? 'Statements run in a READ ONLY transaction; a statement that modifies data or schema pauses and asks the user for approval before running.'
+      : 'Statements are screened before execution; a statement that modifies data or schema pauses and asks the user for approval before running.'
+  return {
+    name: 'run_sql',
+    description: `Execute a SQL statement against the connected ${dialect.engine} ${dialect.databaseTerm} and return the result. ${enforcement} SELECT results are limited to 500 rows and the first 50 rows are returned to you; the full result is shown to the user in the results grid. Use this to validate queries and check real data.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        sql: {
+          type: 'string',
+          description: `A single ${dialect.engine} statement to execute.`
+        }
       },
-      analyze: {
-        type: 'boolean',
-        description:
-          'Execute the statement to collect real timings (EXPLAIN ANALYZE). Reads only.'
-      }
-    },
-    required: ['sql']
+      required: ['sql']
+    }
   }
 }
 
-const DESCRIBE_TABLE_TOOL: Anthropic.Tool = {
-  name: 'describe_table',
-  description:
-    'Return full detail for one table, view, or materialized view: columns with types, nullability, defaults and comments, all constraints (primary key, foreign keys, unique, check), index definitions, inbound foreign keys from other tables, and the approximate row count. Prefer this over querying pg_catalog yourself.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      name: {
-        type: 'string',
-        description:
-          'Relation name, optionally schema-qualified (e.g. "orders" or "sales.orders").'
+function explainQueryTool(dialect: DialectInfo): Anthropic.Tool {
+  const analyzeProps: Record<string, unknown> = dialect.agent
+    .supportsExplainAnalyze
+    ? {
+        analyze: {
+          type: 'boolean',
+          description:
+            'Execute the statement to collect real timings (EXPLAIN ANALYZE). Reads only.'
+        }
       }
-    },
-    required: ['name']
+    : {}
+  return {
+    name: 'explain_query',
+    description: dialect.agent.supportsExplainAnalyze
+      ? 'Run EXPLAIN on a SQL statement and return the query plan as text. Set analyze to true to execute the statement and get actual timings and row counts (EXPLAIN ANALYZE runs read-only here, so analyze fails on statements that modify data). Use this to check whether a query uses indexes before recommending it.'
+      : 'Run EXPLAIN on a SQL statement and return the query plan as text, without executing the statement. Use this to sanity-check how a query will be executed before recommending it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sql: {
+          type: 'string',
+          description: `A single ${dialect.engine} statement to explain.`
+        },
+        ...analyzeProps
+      },
+      required: ['sql']
+    }
   }
 }
 
-const SEARCH_SCHEMA_TOOL: Anthropic.Tool = {
-  name: 'search_schema',
-  description:
-    'Case-insensitive substring search over table, view, column, and function names in the connected database. Use this to locate where a piece of data lives when the schema summary is abridged or a name is unknown.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      pattern: {
-        type: 'string',
-        description: 'Substring to search for, e.g. "order_total".'
-      }
-    },
-    required: ['pattern']
+function describeTableTool(dialect: DialectInfo): Anthropic.Tool {
+  return {
+    name: 'describe_table',
+    description: `Return full detail for one table, view, or materialized view: columns with types and comments, plus whatever the engine tracks — constraints, indexes, defaults, row estimates, storage detail. ${dialect.agent.catalogHint.replace(/^prefer/, 'Prefer')}.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description:
+            'Relation name, optionally schema-qualified (e.g. "orders" or "sales.orders").'
+        }
+      },
+      required: ['name']
+    }
+  }
+}
+
+function searchSchemaTool(dialect: DialectInfo): Anthropic.Tool {
+  return {
+    name: 'search_schema',
+    description: `Case-insensitive substring search over table, view, column, and function names in the connected ${dialect.databaseTerm}. Use this to locate where a piece of data lives when the schema summary is abridged or a name is unknown.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'Substring to search for, e.g. "order_total".'
+        }
+      },
+      required: ['pattern']
+    }
   }
 }
 
@@ -510,8 +535,8 @@ async function execRunSql(
     sql
   })
 
-  const trackPid = (pid: number): void => {
-    chat.runningQuery = { connId: target.connId, pid }
+  const trackCancel = (cancel: () => void): void => {
+    chat.cancelRunningQuery = cancel
   }
   let res = await runQuery(
     target.connId,
@@ -521,13 +546,13 @@ async function execRunSql(
     {
       readOnly: true,
       timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
-      onBackendPid: trackPid
+      onCancel: trackCancel
     }
   )
-  chat.runningQuery = null
+  chat.cancelRunningQuery = null
 
-  // The server classified the statement as a write; ask the user first.
-  if (!res.ok && res.code && READ_ONLY_VIOLATION_CODES.has(res.code)) {
+  // The statement was classified as a write; ask the user first.
+  if (!res.ok && isReadOnlyViolation(res.code)) {
     const approved = await requestApproval(req, chat, block.id, sql, send)
     if (!approved) {
       return toolError(
@@ -541,9 +566,9 @@ async function execRunSql(
     }
     res = await runQuery(target.connId, target.database, sql, TOOL_RUN_LIMIT, {
       timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
-      onBackendPid: trackPid
+      onCancel: trackCancel
     })
-    chat.runningQuery = null
+    chat.cancelRunningQuery = null
     if (res.ok && DDL_COMMAND.test(res.data.command)) {
       schemaCache.delete(schemaCacheKey(target))
     }
@@ -585,11 +610,12 @@ async function execExplain(
   req: AgentSendRequest,
   chat: ChatState,
   block: Anthropic.ToolUseBlock,
-  send: Sender
+  send: Sender,
+  dialect: DialectInfo
 ): Promise<Anthropic.ToolResultBlockParam> {
   const input = block.input as { sql?: unknown; analyze?: unknown }
   const sql = String(input.sql ?? '').trim()
-  const analyze = input.analyze === true
+  const analyze = input.analyze === true && dialect.agent.supportsExplainAnalyze
   const base: Anthropic.ToolResultBlockParam = {
     type: 'tool_result',
     tool_use_id: block.id,
@@ -606,7 +632,7 @@ async function execExplain(
       'No database target is connected.'
     )
   }
-  const explainSql = `EXPLAIN (FORMAT TEXT${analyze ? ', ANALYZE, BUFFERS' : ''}) ${sql}`
+  const explainSql = dialect.explainSql(sql, analyze)
   send({
     type: 'tool_start',
     chatId: req.chatId,
@@ -617,16 +643,15 @@ async function execExplain(
   const res = await runQuery(target.connId, target.database, explainSql, null, {
     readOnly: true,
     timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
-    onBackendPid: (pid) => {
-      chat.runningQuery = { connId: target.connId, pid }
+    onCancel: (cancel) => {
+      chat.cancelRunningQuery = cancel
     }
   })
-  chat.runningQuery = null
+  chat.cancelRunningQuery = null
   if (!res.ok) {
-    const hint =
-      res.code && READ_ONLY_VIOLATION_CODES.has(res.code)
-        ? ' (EXPLAIN runs read-only here; analyze is not available for statements that modify data — retry with analyze false)'
-        : ''
+    const hint = isReadOnlyViolation(res.code)
+      ? ' (EXPLAIN runs read-only here; analyze is not available for statements that modify data — retry with analyze false)'
+      : ''
     return toolError(
       base,
       req,
@@ -836,23 +861,28 @@ async function runAgentTurn(
   chat.controller = controller
 
   const client = new Anthropic({ apiKey: key })
+  // Dialect follows the target connection's engine; chats without a target
+  // default to PostgreSQL guidance.
+  const dialect = dialectFor(
+    req.target ? getConnectionType(req.target.connId) : null
+  )
   const schemaSummary = req.target ? await schemaSummaryFor(req.target) : null
   // The system prompt (with the schema summary) is by far the largest stable
   // prefix; cache it so follow-up turns and tool round-trips reuse it.
   const system: Anthropic.TextBlockParam[] = [
     {
       type: 'text',
-      text: buildSystemPrompt(req, schemaSummary),
+      text: buildSystemPrompt(req, schemaSummary, dialect),
       cache_control: { type: 'ephemeral' }
     }
   ]
   const tools = req.target
     ? [
         WRITE_EDITOR_TOOL,
-        RUN_SQL_TOOL,
-        EXPLAIN_QUERY_TOOL,
-        DESCRIBE_TABLE_TOOL,
-        SEARCH_SCHEMA_TOOL
+        runSqlTool(dialect),
+        explainQueryTool(dialect),
+        describeTableTool(dialect),
+        searchSchemaTool(dialect)
       ]
     : [WRITE_EDITOR_TOOL]
 
@@ -907,7 +937,7 @@ async function runAgentTurn(
           if (block.name === 'run_sql') {
             results.push(await execRunSql(req, chat, block, send))
           } else if (block.name === 'explain_query') {
-            results.push(await execExplain(req, chat, block, send))
+            results.push(await execExplain(req, chat, block, send, dialect))
           } else if (block.name === 'describe_table') {
             results.push(await execDescribeTable(req, block, send))
           } else if (block.name === 'search_schema') {
@@ -960,10 +990,10 @@ function stopChat(chatId: string): void {
   if (!chat) return
   chat.pendingApproval?.resolve(false)
   chat.controller?.abort()
-  const running = chat.runningQuery
-  if (running) {
-    chat.runningQuery = null
-    void cancelBackend(running.connId, running.pid)
+  const cancel = chat.cancelRunningQuery
+  if (cancel) {
+    chat.cancelRunningQuery = null
+    cancel()
   }
 }
 
