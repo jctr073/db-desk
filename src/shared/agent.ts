@@ -68,8 +68,6 @@ export interface AgentSendRequest {
   prompt: string
   model: string
   effort: AgentEffort | null
-  /** When true the run_sql tool is exposed and results mirror to the grid. */
-  allowRun: boolean
   target: AgentTargetRef | null
   /** Snapshot of the active SQL editor at send time. */
   editor: { fileName: string | null; sql: string } | null
@@ -99,6 +97,13 @@ export type AgentEvent =
       summary: string
     }
   | {
+      /** A statement needs data-modification approval; answer via agent.approve. */
+      type: 'approval_request'
+      chatId: string
+      toolId: string
+      sql: string
+    }
+  | {
       type: 'ran_query'
       chatId: string
       sql: string
@@ -106,5 +111,6 @@ export type AgentEvent =
       result: QueryResult | null
       error: string | null
     }
+  | { type: 'editor_insert'; chatId: string; sql: string }
   | { type: 'done'; chatId: string; stopReason: string | null }
   | { type: 'error'; chatId: string; message: string }

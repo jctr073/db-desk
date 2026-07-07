@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, MutableRefObject, ReactElement } from 'react'
 
-import {
-  AGENT_MODELS,
-  DEFAULT_AGENT_MODEL
+import { AGENT_MODELS, DEFAULT_AGENT_MODEL } from '../../../shared/agent'
+import type {
+  AgentEffort,
+  AgentEvent,
+  AgentKeyStatus
 } from '../../../shared/agent'
-import type { AgentEffort, AgentEvent, AgentKeyStatus } from '../../../shared/agent'
 import type { QueryResult } from '../../../shared/db'
 import type { FileState } from '../files/useFileState'
 import type { EditorBridge } from './editorBridge'
@@ -36,6 +37,12 @@ type ChatPart =
       sql: string
       status: 'running' | 'ok' | 'error'
       summary: string
+    }
+  | {
+      kind: 'approval'
+      toolId: string
+      sql: string
+      status: 'pending' | 'approved' | 'denied'
     }
   | { kind: 'error'; text: string }
 
@@ -89,6 +96,22 @@ function updateTool(
       ...msg,
       parts: msg.parts.map((p) =>
         p.kind === 'tool' && p.toolId === toolId ? { ...p, ...patch } : p
+      )
+    }
+  })
+}
+
+function updateApproval(
+  messages: ChatMessage[],
+  match: (part: Extract<ChatPart, { kind: 'approval' }>) => boolean,
+  status: 'approved' | 'denied'
+): ChatMessage[] {
+  return messages.map((msg) => {
+    if (!msg.parts.some((p) => p.kind === 'approval' && match(p))) return msg
+    return {
+      ...msg,
+      parts: msg.parts.map((p) =>
+        p.kind === 'approval' && match(p) ? { ...p, status } : p
       )
     }
   })
@@ -160,8 +183,9 @@ export function AgentPanel({
   const [effort, setEffort] = useState<AgentEffort | null>(
     DEFAULT_AGENT_MODEL.defaultEffort
   )
-  const [allowRun, setAllowRun] = useState(false)
-  const [selectedTargetKey, setSelectedTargetKey] = useState<string | null>(null)
+  const [selectedTargetKey, setSelectedTargetKey] = useState<string | null>(
+    null
+  )
   const [keyStatus, setKeyStatus] = useState<AgentKeyStatus | null>(null)
   const [input, setInput] = useState('')
 
@@ -173,8 +197,7 @@ export function AgentPanel({
 
   const model =
     AGENT_MODELS.find((m) => m.id === modelId) ?? DEFAULT_AGENT_MODEL
-  const target =
-    targets.find((t) => targetKey(t) === selectedTargetKey) ?? null
+  const target = targets.find((t) => targetKey(t) === selectedTargetKey) ?? null
 
   // Keep the target selection valid as connections come and go.
   useEffect(() => {
@@ -225,6 +248,17 @@ export function AgentPanel({
             })
           )
           break
+        case 'approval_request':
+          setThinking(false)
+          setMessages((prev) =>
+            appendPart(prev, {
+              kind: 'approval',
+              toolId: evt.toolId,
+              sql: evt.sql,
+              status: 'pending'
+            })
+          )
+          break
         case 'ran_query': {
           const t = evt.target
           onAgentQueryRef.current(
@@ -240,9 +274,16 @@ export function AgentPanel({
           )
           break
         }
+        case 'editor_insert':
+          editorBridge.current?.insertSql(evt.sql)
+          break
         case 'done':
           setBusy(false)
           setThinking(false)
+          // A pending approval can no longer be answered once the turn ends.
+          setMessages((prev) =>
+            updateApproval(prev, (p) => p.status === 'pending', 'denied')
+          )
           if (evt.stopReason === 'refusal') {
             setMessages((prev) =>
               appendPart(prev, {
@@ -256,7 +297,10 @@ export function AgentPanel({
           setBusy(false)
           setThinking(false)
           setMessages((prev) =>
-            appendPart(prev, { kind: 'error', text: evt.message })
+            appendPart(
+              updateApproval(prev, (p) => p.status === 'pending', 'denied'),
+              { kind: 'error', text: evt.message }
+            )
           )
           break
       }
@@ -284,7 +328,11 @@ export function AgentPanel({
     setBusy(true)
     setMessages((prev) => [
       ...prev,
-      { id: nextId('m'), role: 'user', parts: [{ kind: 'text', text: prompt }] },
+      {
+        id: nextId('m'),
+        role: 'user',
+        parts: [{ kind: 'text', text: prompt }]
+      },
       { id: nextId('m'), role: 'assistant', parts: [] }
     ])
     const editor = editorBridge.current?.getActiveSql() ?? null
@@ -293,7 +341,6 @@ export function AgentPanel({
       prompt,
       model: model.id,
       effort: effort && model.efforts.includes(effort) ? effort : null,
-      allowRun,
       target: target
         ? {
             connId: target.connId,
@@ -303,7 +350,21 @@ export function AgentPanel({
         : null,
       editor
     })
-  }, [input, busy, chatId, model, effort, allowRun, target, editorBridge])
+  }, [input, busy, chatId, model, effort, target, editorBridge])
+
+  const answerApproval = useCallback(
+    (toolId: string, approved: boolean) => {
+      setMessages((prev) =>
+        updateApproval(
+          prev,
+          (p) => p.toolId === toolId,
+          approved ? 'approved' : 'denied'
+        )
+      )
+      void window.dbDesk.agent.approve(chatId, toolId, approved)
+    },
+    [chatId]
+  )
 
   const stop = useCallback(() => {
     void window.dbDesk.agent.stop(chatId)
@@ -434,8 +495,9 @@ export function AgentPanel({
                 <SparkleIcon size={18} />
                 <p>
                   Describe the data you need and I&apos;ll write the SQL. I can
-                  see the schema of the selected database and your active
-                  editor file{allowRun ? ', and I can run queries to verify results' : ''}.
+                  see the schema of the selected database and your active editor
+                  file, and I can run read-only queries to verify results —
+                  changes to your data always ask for approval first.
                 </p>
               </div>
             )}
@@ -444,7 +506,11 @@ export function AgentPanel({
                 {msg.parts.map((part, i) => {
                   if (part.kind === 'text') {
                     return msg.role === 'assistant' ? (
-                      <AssistantText key={i} text={part.text} onInsert={insertSql} />
+                      <AssistantText
+                        key={i}
+                        text={part.text}
+                        onInsert={insertSql}
+                      />
                     ) : (
                       <div key={i} className="chat-prose">
                         {part.text}
@@ -459,10 +525,48 @@ export function AgentPanel({
                         title={part.sql}
                       >
                         <PlayIcon size={9} />
-                        <code>{part.sql.replace(/\s+/g, ' ').slice(0, 60)}</code>
+                        <code>
+                          {part.sql.replace(/\s+/g, ' ').slice(0, 60)}
+                        </code>
                         <span className="chat-tool__summary">
-                          {part.status === 'running' ? 'running…' : part.summary}
+                          {part.status === 'running'
+                            ? 'running…'
+                            : part.summary}
                         </span>
+                      </div>
+                    )
+                  }
+                  if (part.kind === 'approval') {
+                    return (
+                      <div
+                        key={i}
+                        className={`chat-approval chat-approval--${part.status}`}
+                      >
+                        <div className="chat-approval__title">
+                          This statement modifies the database
+                        </div>
+                        <pre>{part.sql}</pre>
+                        {part.status === 'pending' ? (
+                          <div className="chat-approval__actions">
+                            <button
+                              type="button"
+                              className="btn-run"
+                              onClick={() => answerApproval(part.toolId, true)}
+                            >
+                              Run it
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => answerApproval(part.toolId, false)}
+                            >
+                              Deny
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="chat-approval__status">
+                            {part.status === 'approved' ? 'Approved' : 'Denied'}
+                          </div>
+                        )}
                       </div>
                     )
                   }
@@ -474,17 +578,11 @@ export function AgentPanel({
                 })}
               </div>
             ))}
-            {thinking && busy && <div className="chat__thinking">Thinking…</div>}
+            {thinking && busy && (
+              <div className="chat__thinking">Thinking…</div>
+            )}
           </div>
           <div className="chat__composer">
-            <label className="chat__allow" title="When enabled, the agent may execute queries against the selected database; each run appears in the results grid so you can verify the output.">
-              <input
-                type="checkbox"
-                checked={allowRun}
-                onChange={(e) => setAllowRun(e.target.checked)}
-              />
-              Allow running queries &amp; validating results in the grid
-            </label>
             <textarea
               className="chat__input"
               placeholder={

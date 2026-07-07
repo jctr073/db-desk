@@ -200,7 +200,7 @@ textarea {
  * Connections panel                                                    *
  * ------------------------------------------------------------------ */
 .conn-panel {
-  width: 302px;
+  width: var(--conn-width, 302px);
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -555,6 +555,27 @@ textarea {
 .split-divider:hover {
   border-top-color: var(--accent);
 }
+
+/* Vertical dividers between the connection / editor / agent columns.
+   They overlap the panels' own 1px border with a negative margin so the
+   hit area is comfortable without introducing a double line. */
+.col-divider {
+  flex: 0 0 3px;
+  margin: 0 -2px;
+  z-index: 1;
+  cursor: col-resize;
+  background: transparent;
+}
+.col-divider:hover,
+.col-divider:active {
+  background: var(--accent);
+}
+/* While dragging, keep the resize cursor everywhere and stop the editor /
+   text from being selected as the pointer sweeps across panels. */
+body.is-col-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
 .results-host {
   min-height: 0;
   display: flex;
@@ -803,7 +824,7 @@ textarea {
  * Right agent panel                                                    *
  * ------------------------------------------------------------------ */
 .agent-panel {
-  width: 322px;
+  width: var(--agent-width, 322px);
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -1452,6 +1473,61 @@ textarea {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.chat-approval {
+  border: 1px solid rgba(255, 179, 71, 0.5);
+  border-radius: 7px;
+  background: rgba(255, 179, 71, 0.08);
+  overflow: hidden;
+}
+.chat-approval__title {
+  padding: 6px 10px 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+.chat-approval pre {
+  margin: 0;
+  padding: 6px 10px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre;
+}
+.chat-approval__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 5px 8px;
+  border-top: 1px solid var(--border-soft);
+}
+.chat-approval__actions button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: 5px;
+}
+.chat-approval__actions button:hover {
+  background: var(--panel-hi);
+}
+.chat-approval__actions .btn-run {
+  border: none;
+}
+.chat-approval__status {
+  padding: 5px 10px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: right;
+}
+.chat-approval--denied {
+  border-color: var(--border);
+  background: transparent;
+}
 .chat__thinking {
   color: var(--text-faint);
   font-size: 11px;
@@ -1474,19 +1550,6 @@ textarea {
   gap: 6px;
   padding: 8px;
   border-top: 1px solid var(--border);
-}
-.chat__allow {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11px;
-  color: var(--text-dim);
-  cursor: pointer;
-  user-select: none;
-}
-.chat__allow input {
-  accent-color: var(--accent);
-  margin: 0;
 }
 .chat__input {
   resize: none;

@@ -5,7 +5,9 @@ Electron + TypeScript + React + Vite + Monaco Editor foundation for a Mac deskto
 The shell implements the DB Desk connection panel: a light/dark themed three-pane
 layout with a schema browser tree (connections → databases → schemas → tables,
 views, functions, and more), object filtering, two tree styles, and a New
-Connection dialog. Connections are real: creating one connects to a live
+Connection dialog. The left connection pane and right agent pane are
+drag-resizable via the dividers on either side of the editor, and each pane
+remembers its width across restarts. Connections are real: creating one connects to a live
 PostgreSQL server (via discrete parameters or a connection URL, preferring
 SSL/TLS automatically and honoring any explicit `sslmode` in a URL, following
 libpq semantics), introspects the
@@ -37,10 +39,25 @@ a live "thinking" indicator and a Stop button to cancel mid-response. Each turn
 sees the schema of the connection/database selected in its own target picker
 and the contents of the active SQL editor file, so generated SQL can reference
 real tables and columns; SQL code blocks in a reply get an Insert button that
-drops them into the editor at the cursor. An opt-in checkbox lets the agent run
-its own queries against the selected database through a `run_sql` tool to
-validate its work — every run it makes also lands in the results grid as a
-pinned tab so you can verify the output yourself.
+drops them into the editor at the cursor, and the agent itself writes its final
+query into the editor through a `write_to_editor` tool when it finishes an
+answer.
+
+The agent can run queries against the selected database through a `run_sql`
+tool to validate its work — every run also lands in the results grid as a
+pinned tab so you can verify the output yourself. Agent statements execute in
+a read-only session with a 30-second statement timeout; anything that would
+modify data or schema is rejected server-side and surfaces as an approval card
+in the chat, so writes only run after an explicit Run it/Deny decision. Stop
+cancels the in-flight statement on the server (`pg_cancel_backend`), not just
+the response stream. Three more tools give the agent schema insight beyond the
+summary embedded in its prompt (which now includes foreign-key targets, index
+definitions, row estimates, and enum values, and degrades gracefully on very
+large catalogs): `describe_table` (columns, defaults, constraints, indexes,
+inbound FKs, comments, row estimate), `search_schema` (find tables/columns/
+functions by name), and `explain_query` (query plans, optionally with
+`ANALYZE` for reads). The system prompt and conversation prefix are cached
+with Anthropic prompt caching to cut per-turn cost and latency.
 
 Queries are saved as files. Each tab is a `.sql` file persisted under the app's
 user-data directory, with metadata (name, owning connection/database) tracked in
