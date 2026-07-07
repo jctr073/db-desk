@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { MouseEvent, ReactElement } from 'react'
 
+import type { AgentContextItem } from '../../../shared/agent'
 import {
   ChevronUpIcon,
   CloseIcon,
   DatabaseIcon,
   MinusIcon,
   PlusIcon,
-  SearchIcon
+  SearchIcon,
+  SparkleIcon
 } from '../components/icons'
 import { ConnectionTree } from './ConnectionTree'
 import { flattenTree } from './flatten'
+import { findNode } from './treeData'
 import type { NodeKind, TreeNode } from './types'
 import type { ConnectionState } from './useConnectionState'
 
@@ -37,31 +40,59 @@ const KIND_NAMES: Partial<Record<NodeKind, string>> = {
 interface ConnectionPanelProps {
   state: ConnectionState
   onNewQueryFile?: (connId: string, database: string) => void
+  /** Attach a schema/table/view to the AI agent thread as a context chip. */
+  onAddToAgentThread?: (item: AgentContextItem) => void
+  /** Report the selected node + object count up to the app status bar. */
+  onStatus?: (sel: string, count: string) => void
 }
+
+/** Tree kinds that can ride along to the agent thread as context chips. */
+const AGENT_CONTEXT_KINDS = new Set<NodeKind>(['schema', 'table', 'view', 'matview'])
+
+type MenuKind = 'connection' | 'database' | 'schema' | 'table' | 'view' | 'matview'
 
 interface MenuState {
   x: number
   y: number
   nodeId: string
-  nodeKind: 'connection' | 'database'
+  nodeKind: MenuKind
 }
 
-export function ConnectionPanel({ state, onNewQueryFile }: ConnectionPanelProps): ReactElement {
+/** Build the chip payload for a schema/table/view node from its path-based id. */
+function contextItemFor(node: TreeNode): AgentContextItem | null {
+  if (!AGENT_CONTEXT_KINDS.has(node.kind)) return null
+  // Ids look like "connId/database/schema/category/relation" (see assignIds);
+  // database and schema segments use the raw names as keys.
+  const segs = node.id.split('/')
+  const connId = segs[0] ?? ''
+  const database = segs[1] ?? ''
+  if (!connId || !database) return null
+  if (node.kind === 'schema') {
+    return { kind: 'schema', name: node.label, schema: null, database, connId }
+  }
+  return {
+    kind: node.kind as 'table' | 'view' | 'matview',
+    name: node.label,
+    schema: segs[2] ?? null,
+    database,
+    connId
+  }
+}
+
+export function ConnectionPanel({
+  state,
+  onNewQueryFile,
+  onAddToAgentThread,
+  onStatus
+}: ConnectionPanelProps): ReactElement {
   const rows = useMemo(
     () => flattenTree(state.tree, { expanded: state.expanded, filter: state.filter }),
     [state.tree, state.expanded, state.filter]
   )
 
   const [menu, setMenu] = useState<MenuState | null>(null)
-  const menuNode = menu ? state.tree.find((node) => node.id === menu.nodeId) : undefined
-
-  // Find database node if menu is on database
-  let menuDatabaseNode: TreeNode | undefined
-  if (menu && menu.nodeKind === 'database') {
-    const connId = menu.nodeId.split('/')[0]
-    const conn = state.tree.find((n) => n.id === connId)
-    menuDatabaseNode = conn?.children?.find((n) => n.id === menu.nodeId)
-  }
+  const menuNode = menu ? findNode(menu.nodeId, state.tree) : null
+  const menuContextItem = menuNode ? contextItemFor(menuNode) : null
 
   useEffect(() => {
     if (!menu) return
@@ -73,10 +104,19 @@ export function ConnectionPanel({ state, onNewQueryFile }: ConnectionPanelProps)
   }, [menu])
 
   const onRowContextMenu = (node: TreeNode, event: MouseEvent<HTMLDivElement>): void => {
-    if (node.kind !== 'connection' && node.kind !== 'database') return
+    const isMenuKind =
+      node.kind === 'connection' ||
+      node.kind === 'database' ||
+      AGENT_CONTEXT_KINDS.has(node.kind)
+    if (!isMenuKind) return
     event.preventDefault()
     state.toggleRow(node.id, false)
-    setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id, nodeKind: node.kind })
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      nodeId: node.id,
+      nodeKind: node.kind as MenuKind
+    })
   }
 
   let selText = 'No selection'
@@ -87,6 +127,10 @@ export function ConnectionPanel({ state, onNewQueryFile }: ConnectionPanelProps)
       : state.selectedNode.label
   }
   const rowCountText = `${rows.length} ${rows.length === 1 ? 'item' : 'items'}`
+
+  useEffect(() => {
+    onStatus?.(selText, rowCountText)
+  }, [selText, rowCountText, onStatus])
 
   return (
     <section className="conn-panel">
@@ -193,14 +237,43 @@ export function ConnectionPanel({ state, onNewQueryFile }: ConnectionPanelProps)
             style={{ left: menu.x, top: menu.y }}
             onMouseDown={(event) => event.stopPropagation()}
           >
-            {menu.nodeKind === 'database' && menuDatabaseNode && (
+            {menuContextItem && (
+              <>
+                <button
+                  className="ctx-menu__item ctx-menu__item--accent"
+                  role="menuitem"
+                  onClick={() => {
+                    onAddToAgentThread?.(menuContextItem)
+                    setMenu(null)
+                  }}
+                >
+                  <SparkleIcon size={14} />
+                  Add to Agent Thread
+                </button>
+                <div className="ctx-menu__sep" />
+                <button
+                  className="ctx-menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    const qualified = menuContextItem.schema
+                      ? `${menuContextItem.schema}.${menuContextItem.name}`
+                      : menuContextItem.name
+                    void navigator.clipboard.writeText(qualified)
+                    setMenu(null)
+                  }}
+                >
+                  Copy name
+                </button>
+              </>
+            )}
+            {menu.nodeKind === 'database' && (
               <>
                 <button
                   className="ctx-menu__item"
                   role="menuitem"
                   onClick={() => {
                     const connId = menu.nodeId.split('/')[0]
-                    onNewQueryFile?.(connId, menuDatabaseNode!.label)
+                    onNewQueryFile?.(connId, menuNode.label)
                     setMenu(null)
                   }}
                 >
@@ -267,10 +340,6 @@ export function ConnectionPanel({ state, onNewQueryFile }: ConnectionPanelProps)
         </div>
       )}
 
-      <div className="tree-footer">
-        <span className="tree-footer__sel">{selText}</span>
-        <span className="tree-footer__count">{rowCountText}</span>
-      </div>
     </section>
   )
 }

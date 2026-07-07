@@ -261,6 +261,27 @@ function buildSystemPrompt(
       'No database is connected; write SQL from the request alone.'
     )
   }
+  if (req.context.length > 0) {
+    parts.push(
+      '',
+      'The user attached these database objects to the thread as context — treat them as the primary subjects of the request:'
+    )
+    for (const item of req.context) {
+      const qualified = item.schema ? `${item.schema}.${item.name}` : item.name
+      const elsewhere =
+        !req.target ||
+        item.connId !== req.target.connId ||
+        item.database !== req.target.database
+          ? ` (in database "${item.database}", not the connected target)`
+          : ''
+      parts.push(`- ${item.kind} ${qualified}${elsewhere}`)
+    }
+    if (req.target) {
+      parts.push(
+        'Use describe_table on the attached tables and views when column-level detail matters.'
+      )
+    }
+  }
   if (schemaSummary) {
     parts.push('', 'Database schema:', schemaSummary)
   }

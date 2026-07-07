@@ -11,14 +11,25 @@ import type { DatabaseIntrospection } from '../../../shared/db'
 import { statementAtOffset } from '../../../shared/sql'
 import { ensureSqlLanguageFeatures } from '../sql/completions'
 import type { Theme } from '../theme'
-import { PlayIcon, PlusThinIcon, SqlFileIcon, CloseIcon } from './icons'
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  CubeIcon,
+  DatabaseIcon,
+  FormatIcon,
+  KebabIcon,
+  PlayIcon,
+  PlusThinIcon,
+  SaveIcon,
+  SqlFileIcon,
+  CloseIcon
+} from './icons'
 import { ResultsPanel } from './ResultsPanel'
 import { SqlEditor } from './SqlEditor'
 import type { QueryRunner, QueryTarget } from './useQueryRunner'
 import type { EditorBridge } from './editorBridge'
 import type { FileState } from '../files/useFileState'
 
-const LIMIT_CHOICES = [100, 500, 1000, 5000]
 const DEFAULT_LIMIT = 500
 
 interface EditorPanelProps {
@@ -31,10 +42,21 @@ interface EditorPanelProps {
   runner: QueryRunner
   /** Registered on mount so the AI agent can read/insert editor SQL. */
   bridge: MutableRefObject<EditorBridge | null>
+  /** Report the active result's summary + target up to the app status bar. */
+  onQueryStatus?: (text: string, target: string) => void
 }
 
 function targetKey(target: QueryTarget): string {
   return JSON.stringify([target.connId, target.database])
+}
+
+/** Fixed-position style dropping a menu below its button, right-aligned. */
+function menuPosition(button: HTMLButtonElement): {
+  top: number
+  right: number
+} {
+  const rect = button.getBoundingClientRect()
+  return { top: rect.bottom + 6, right: window.innerWidth - rect.right }
 }
 
 export function EditorPanel({
@@ -44,14 +66,19 @@ export function EditorPanel({
   ensureSchema,
   files,
   runner,
-  bridge
+  bridge,
+  onQueryStatus
 }: EditorPanelProps): ReactElement {
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [limit, setLimit] = useState<number | null>(DEFAULT_LIMIT)
   const [resultsPct, setResultsPct] = useState(50)
   const [dirtyIds, setDirtyIds] = useState<ReadonlySet<string>>(new Set())
+  /** Which toolbar popover is open: the connection target or the kebab. */
+  const [menu, setMenu] = useState<'target' | 'actions' | null>(null)
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const splitRef = useRef<HTMLDivElement | null>(null)
+  const targetBtnRef = useRef<HTMLButtonElement | null>(null)
+  const actionsBtnRef = useRef<HTMLButtonElement | null>(null)
 
   // Per-file buffers so switching tabs preserves unsaved edits.
   const buffersRef = useRef(new Map<string, string>())
@@ -124,6 +151,15 @@ export function EditorPanel({
       cancelled = true
     }
   }, [files.selectedFileId, setEditorValue])
+
+  useEffect(() => {
+    if (!menu) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menu])
 
   // Keep the selection valid as connections come and go; prefer the database
   // the first connection was actually opened against.
@@ -277,6 +313,7 @@ export function EditorPanel({
   return (
     <section className="editor-panel">
       <div className="editor-tabbar">
+        <div className="editor-tabbar__tabs">
         {[...filesByGroup.entries()].map(([groupKey, groupFiles]) => (
           <div key={groupKey} className="editor-tabs-group">
             {groupFiles.map((file) => (
@@ -307,7 +344,7 @@ export function EditorPanel({
           </div>
         ))}
         <button
-          className="icon-btn icon-btn--sm"
+          className="icon-btn icon-btn--sm editor-tabbar__new"
           title="New query"
           type="button"
           onClick={() => {
@@ -318,44 +355,37 @@ export function EditorPanel({
         >
           <PlusThinIcon />
         </button>
-      </div>
-      <div className="editor-toolbar">
-        <div className="editor-tabbar__spacer" />
-        <select
-          className="toolbar-select toolbar-select--target"
-          title="Connection and database queries run against"
-          value={selectedKey ?? ''}
-          onChange={(e) => setSelectedKey(e.target.value || null)}
-          disabled={targets.length === 0}
-        >
-          {targets.length === 0 && <option value="">No connection</option>}
-          {[...byConnection.values()].map((group) => (
-            <optgroup key={group[0].connId} label={group[0].connName}>
-              {group.map((t) => (
-                <option key={targetKey(t)} value={targetKey(t)}>
-                  {t.connName} / {t.database}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-        <select
-          className="toolbar-select"
-          title="Automatic row limit for SELECT queries"
-          value={limit === null ? 'none' : String(limit)}
-          onChange={(e) =>
-            setLimit(e.target.value === 'none' ? null : Number(e.target.value))
-          }
-        >
-          {LIMIT_CHOICES.map((n) => (
-            <option key={n} value={String(n)}>
-              LIMIT {n}
-            </option>
-          ))}
-          <option value="none">No limit</option>
-        </select>
+        </div>
         <button
-          className="btn-run"
+          ref={targetBtnRef}
+          className={`target-pill${menu === 'target' ? ' is-open' : ''}`}
+          type="button"
+          title="Connection and database queries run against"
+          disabled={targets.length === 0}
+          onClick={() => setMenu((m) => (m === 'target' ? null : 'target'))}
+        >
+          <span
+            className={`target-pill__dot${target ? '' : ' is-off'}`}
+            aria-hidden
+          />
+          <span className="target-pill__icon">
+            <DatabaseIcon size={13} />
+          </span>
+          {target ? (
+            <>
+              <span className="target-pill__conn">{target.connName}</span>
+              <span className="target-pill__sep">/</span>
+              <span>{target.database}</span>
+            </>
+          ) : (
+            'No connection'
+          )}
+          <span className="pill-chev">
+            <ChevronDownIcon size={10} />
+          </span>
+        </button>
+        <button
+          className="btn-run btn-run--bar"
           type="button"
           disabled={!target}
           title={
@@ -367,26 +397,99 @@ export function EditorPanel({
         >
           <PlayIcon />
           Run
-        </button>
-        <button className="btn-format" type="button">
-          Format
+          <span className="btn-run__kbd">⌘⏎</span>
         </button>
         <button
-          className="btn-save"
+          ref={actionsBtnRef}
+          className={`btn-kebab${menu === 'actions' ? ' is-open' : ''}`}
           type="button"
-          disabled={
-            !files.selectedFileId || !dirtyIds.has(files.selectedFileId)
-          }
-          title={
-            files.selectedFileId && dirtyIds.has(files.selectedFileId)
-              ? 'Save file (⌘S)'
-              : 'No unsaved changes'
-          }
-          onClick={() => saveFileById(files.selectedFileId)}
+          title="More actions"
+          onClick={() => setMenu((m) => (m === 'actions' ? null : 'actions'))}
         >
-          Save
+          <KebabIcon />
         </button>
       </div>
+      {menu === 'target' && targetBtnRef.current && (
+        <>
+          <div className="ctx-overlay" onClick={() => setMenu(null)} />
+          <div
+            className="ctx-menu toolbar-menu target-menu"
+            style={menuPosition(targetBtnRef.current)}
+            role="menu"
+          >
+            {[...byConnection.values()].map((group) => (
+              <div key={group[0].connId}>
+                <div className="target-menu__group">
+                  <span className="target-menu__dot" aria-hidden />
+                  {group[0].connName}
+                </div>
+                {group.map((t) => {
+                  const key = targetKey(t)
+                  const active = key === selectedKey
+                  return (
+                    <button
+                      key={key}
+                      className={`target-menu__item${active ? ' is-active' : ''}`}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={active}
+                      onClick={() => {
+                        setSelectedKey(key)
+                        setMenu(null)
+                      }}
+                    >
+                      <CubeIcon />
+                      <span>{t.database}</span>
+                      {active && (
+                        <span className="menu-check">
+                          <CheckIcon size={13} />
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {menu === 'actions' && actionsBtnRef.current && (
+        <>
+          <div className="ctx-overlay" onClick={() => setMenu(null)} />
+          <div
+            className="ctx-menu toolbar-menu"
+            style={menuPosition(actionsBtnRef.current)}
+            role="menu"
+          >
+            <button
+              className="toolbar-menu__item"
+              type="button"
+              role="menuitem"
+              onClick={() => setMenu(null)}
+            >
+              <FormatIcon />
+              <span>Format SQL</span>
+              <span className="toolbar-menu__kbd">⇧⌘F</span>
+            </button>
+            <button
+              className="toolbar-menu__item"
+              type="button"
+              role="menuitem"
+              disabled={
+                !files.selectedFileId || !dirtyIds.has(files.selectedFileId)
+              }
+              onClick={() => {
+                saveFileById(files.selectedFileId)
+                setMenu(null)
+              }}
+            >
+              <SaveIcon />
+              <span>Save file</span>
+              <span className="toolbar-menu__kbd">⌘S</span>
+            </button>
+          </div>
+        </>
+      )}
       <div className="editor-split" ref={splitRef}>
         <div className="editor-host">
           <SqlEditor theme={theme} onMount={handleMount} />
@@ -405,11 +508,15 @@ export function EditorPanel({
               <ResultsPanel
                 tabs={runner.tabs}
                 activeTabId={runner.activeTabId}
+                limit={limit}
+                onLimitChange={setLimit}
                 onSelect={runner.setActiveTab}
                 onClose={runner.closeTab}
+                onCloseMany={runner.closeTabs}
                 onCloseAll={runner.closeAll}
                 onPin={runner.pin}
                 onRerun={(id) => runner.rerun(id, limit)}
+                onStatus={onQueryStatus}
               />
             </div>
           </>
