@@ -1,17 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, MutableRefObject, ReactElement } from 'react'
 
-import { AGENT_MODELS, DEFAULT_AGENT_MODEL } from '../../../shared/agent'
+import {
+  AGENT_MODELS,
+  DEFAULT_AGENT_MODEL,
+  agentContextKey
+} from '../../../shared/agent'
 import type {
+  AgentContextItem,
   AgentEffort,
   AgentEvent,
-  AgentKeyStatus
+  AgentKeyStatus,
+  AgentModelOption
 } from '../../../shared/agent'
-import type { QueryResult } from '../../../shared/db'
+import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
+import { NodeIcon } from '../connections/NodeIcon'
 import type { FileState } from '../files/useFileState'
 import type { EditorBridge } from './editorBridge'
 import type { QueryTarget } from './useQueryRunner'
-import { PlayIcon, PlusThinIcon, SparkleIcon } from './icons'
+import {
+  ArrowUpIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  CloseIcon,
+  PlayIcon,
+  PlusThinIcon,
+  SearchIcon,
+  SparkleIcon,
+  StopIcon
+} from './icons'
 import { FilesPanel } from './FilesPanel'
 
 interface AgentPanelProps {
@@ -27,6 +44,36 @@ interface AgentPanelProps {
     result: QueryResult | null,
     error: string | null
   ) => void
+  /** Objects attached to the thread as context chips. */
+  context: AgentContextItem[]
+  onAddContext: (item: AgentContextItem) => void
+  onRemoveContext: (key: string) => void
+  /** Raw introspection per connection id → database name, for the picker. */
+  schemas: Record<string, Record<string, DatabaseIntrospection>>
+  ensureSchema: (connId: string, database: string) => void
+}
+
+const EFFORT_LABEL: Record<AgentEffort, string> = {
+  low: 'Low',
+  medium: 'Med',
+  high: 'High',
+  xhigh: 'XHigh',
+  max: 'Max'
+}
+
+const EFFORT_SHORT: Record<AgentEffort, string> = {
+  low: 'low',
+  medium: 'med',
+  high: 'high',
+  xhigh: 'xhi',
+  max: 'max'
+}
+
+const CHIP_KIND_LABEL: Record<AgentContextItem['kind'], string> = {
+  schema: 'schema',
+  table: 'table',
+  view: 'view',
+  matview: 'mat view'
 }
 
 type ChatPart =
@@ -172,7 +219,12 @@ export function AgentPanel({
   connNames,
   targets,
   editorBridge,
-  onAgentQuery
+  onAgentQuery,
+  context,
+  onAddContext,
+  onRemoveContext,
+  schemas,
+  ensureSchema
 }: AgentPanelProps): ReactElement {
   const [activeTab, setActiveTab] = useState<'files' | 'agent'>('agent')
   const [chatId, setChatId] = useState(() => nextId('chat'))
@@ -188,6 +240,9 @@ export function AgentPanel({
   )
   const [keyStatus, setKeyStatus] = useState<AgentKeyStatus | null>(null)
   const [input, setInput] = useState('')
+  const [modelOpen, setModelOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerFilter, setPickerFilter] = useState('')
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const chatIdRef = useRef(chatId)
@@ -314,6 +369,66 @@ export function AgentPanel({
     if (host) host.scrollTop = host.scrollHeight
   }, [messages, thinking, busy])
 
+  // "Add to Agent Thread" from the connections tree should reveal the chips.
+  const prevContextLen = useRef(context.length)
+  useEffect(() => {
+    if (context.length > prevContextLen.current) setActiveTab('agent')
+    prevContextLen.current = context.length
+  }, [context.length])
+
+  // Escape dismisses whichever popover is open.
+  useEffect(() => {
+    if (!modelOpen && !pickerOpen) return
+    const onKey = (e: globalThis.KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        setModelOpen(false)
+        setPickerOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [modelOpen, pickerOpen])
+
+  const openPicker = useCallback(() => {
+    setPickerFilter('')
+    setPickerOpen(true)
+    if (target) ensureSchema(target.connId, target.database)
+  }, [target, ensureSchema])
+
+  const pickModel = useCallback((next: AgentModelOption) => {
+    setModelId(next.id)
+    setEffort((cur) =>
+      cur && next.efforts.includes(cur) ? cur : next.defaultEffort
+    )
+    setModelOpen(false)
+  }, [])
+
+  /** Everything in the target database the picker can attach, filtered. */
+  const intro = target ? schemas[target.connId]?.[target.database] : undefined
+  const pickerItems = useMemo(() => {
+    if (!intro || !target) return []
+    const q = pickerFilter.trim().toLowerCase()
+    const existing = new Set(context.map(agentContextKey))
+    const out: AgentContextItem[] = []
+    const push = (item: AgentContextItem): void => {
+      if (existing.has(agentContextKey(item))) return
+      const qualified = item.schema ? `${item.schema}.${item.name}` : item.name
+      if (q && !qualified.toLowerCase().includes(q)) return
+      out.push(item)
+    }
+    for (const s of intro.schemas) {
+      const base = { database: target.database, connId: target.connId }
+      push({ kind: 'schema', name: s.name, schema: null, ...base })
+      for (const t of s.tables)
+        push({ kind: 'table', name: t.name, schema: s.name, ...base })
+      for (const v of s.views)
+        push({ kind: 'view', name: v.name, schema: s.name, ...base })
+      for (const m of s.matviews)
+        push({ kind: 'matview', name: m.name, schema: s.name, ...base })
+    }
+    return out.slice(0, 200)
+  }, [intro, target, pickerFilter, context])
+
   const insertSql = useCallback(
     (sql: string) => {
       editorBridge.current?.insertSql(sql)
@@ -348,9 +463,10 @@ export function AgentPanel({
             database: target.database
           }
         : null,
-      editor
+      editor,
+      context
     })
-  }, [input, busy, chatId, model, effort, target, editorBridge])
+  }, [input, busy, chatId, model, effort, target, editorBridge, context])
 
   const answerApproval = useCallback(
     (toolId: string, approved: boolean) => {
@@ -431,58 +547,6 @@ export function AgentPanel({
         <FilesPanel files={files} connNames={connNames} />
       ) : (
         <div className="chat">
-          <div className="chat__settings">
-            <select
-              className="toolbar-select"
-              title="Model"
-              value={model.id}
-              onChange={(e) => {
-                const next =
-                  AGENT_MODELS.find((m) => m.id === e.target.value) ??
-                  DEFAULT_AGENT_MODEL
-                setModelId(next.id)
-                setEffort((cur) =>
-                  cur && next.efforts.includes(cur) ? cur : next.defaultEffort
-                )
-              }}
-            >
-              {AGENT_MODELS.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="toolbar-select"
-              title="Reasoning effort"
-              value={effort ?? ''}
-              disabled={effortOptions.length === 0}
-              onChange={(e) =>
-                setEffort((e.target.value || null) as AgentEffort | null)
-              }
-            >
-              {effortOptions.length === 0 && <option value="">—</option>}
-              {effortOptions.map((lvl) => (
-                <option key={lvl} value={lvl}>
-                  {lvl}
-                </option>
-              ))}
-            </select>
-            <select
-              className="toolbar-select chat__target"
-              title="Connection and database the agent works against"
-              value={selectedTargetKey ?? ''}
-              onChange={(e) => setSelectedTargetKey(e.target.value || null)}
-              disabled={targets.length === 0}
-            >
-              {targets.length === 0 && <option value="">No connection</option>}
-              {targets.map((t) => (
-                <option key={targetKey(t)} value={targetKey(t)}>
-                  {t.connName} / {t.database}
-                </option>
-              ))}
-            </select>
-          </div>
           {keyMissing && (
             <div className="chat__notice">
               No API key found — add <code>export ANTHROPIC_API_KEY=…</code> to{' '}
@@ -583,33 +647,224 @@ export function AgentPanel({
             )}
           </div>
           <div className="chat__composer">
-            <textarea
-              className="chat__input"
-              placeholder={
-                target
-                  ? `Ask for SQL against ${target.connName}/${target.database}…`
-                  : 'Ask for SQL… (no database connected)'
-              }
-              rows={3}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={onComposerKeyDown}
-            />
-            <div className="chat__actions">
-              <span className="chat__hint">⏎ send · ⇧⏎ newline</span>
-              {busy ? (
-                <button className="btn-run" type="button" onClick={stop}>
-                  Stop
-                </button>
-              ) : (
+            <div className="composer__box">
+              <div className="composer__chips">
+                {context.map((item) => {
+                  const key = agentContextKey(item)
+                  const qualified = item.schema
+                    ? `${item.schema}.${item.name}`
+                    : item.name
+                  return (
+                    <span
+                      key={key}
+                      className="chip"
+                      title={`${CHIP_KIND_LABEL[item.kind]} ${qualified} · ${item.database}`}
+                    >
+                      <NodeIcon
+                        node={{ id: '', kind: item.kind, label: item.name }}
+                        color="var(--accent-strong)"
+                      />
+                      <span className="chip__label">{item.name}</span>
+                      <span className="chip__sub">
+                        {CHIP_KIND_LABEL[item.kind]}
+                      </span>
+                      <button
+                        type="button"
+                        className="chip__x"
+                        title="Remove from thread"
+                        onClick={() => onRemoveContext(key)}
+                      >
+                        <CloseIcon size={10} />
+                      </button>
+                    </span>
+                  )
+                })}
                 <button
-                  className="btn-run"
                   type="button"
-                  disabled={!input.trim()}
-                  onClick={send}
+                  className="chip-add"
+                  onClick={openPicker}
+                  disabled={!target}
+                  title={
+                    target
+                      ? 'Attach tables, views, or schemas as context'
+                      : 'Connect to a database to add context'
+                  }
                 >
-                  Send
+                  <PlusThinIcon size={12} />
+                  Add context
                 </button>
+              </div>
+              <textarea
+                className="composer__input"
+                placeholder={
+                  target
+                    ? `Ask for SQL against ${target.connName}/${target.database}…`
+                    : 'Ask for SQL… (no database connected)'
+                }
+                rows={2}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onComposerKeyDown}
+              />
+              <div className="composer__toolbar">
+                <button
+                  type="button"
+                  className="composer__at"
+                  title="Add context"
+                  onClick={openPicker}
+                  disabled={!target}
+                >
+                  @
+                </button>
+                <div className="model-ctl">
+                  <button
+                    type="button"
+                    className="model-pill"
+                    title="Model and reasoning effort"
+                    onClick={() => setModelOpen((open) => !open)}
+                  >
+                    <SparkleIcon size={12} />
+                    <span className="model-pill__name">{model.label}</span>
+                    {effort && model.efforts.includes(effort) && (
+                      <>
+                        <span className="model-pill__dot" />
+                        <span className="model-pill__effort">
+                          {EFFORT_LABEL[effort]}
+                        </span>
+                      </>
+                    )}
+                    <ChevronDownIcon size={10} />
+                  </button>
+                  {modelOpen && (
+                    <>
+                      <div
+                        className="ctx-overlay"
+                        onMouseDown={() => setModelOpen(false)}
+                      />
+                      <div className="model-pop">
+                        <div className="model-pop__heading">Model</div>
+                        {AGENT_MODELS.map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            className={`model-pop__row${m.id === model.id ? ' is-active' : ''}`}
+                            onClick={() => pickModel(m)}
+                          >
+                            <span>{m.label}</span>
+                            {m.id === model.id && <CheckIcon size={13} />}
+                          </button>
+                        ))}
+                        {effortOptions.length > 0 && (
+                          <>
+                            <div className="model-pop__sep" />
+                            <div className="model-pop__heading">
+                              Reasoning effort
+                            </div>
+                            <div className="model-pop__segs">
+                              {effortOptions.map((lvl) => (
+                                <button
+                                  key={lvl}
+                                  type="button"
+                                  className={`model-pop__seg${lvl === effort ? ' is-active' : ''}`}
+                                  onClick={() => setEffort(lvl)}
+                                >
+                                  {EFFORT_SHORT[lvl]}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <select
+                  className="toolbar-select composer__target"
+                  title="Connection and database the agent works against"
+                  value={selectedTargetKey ?? ''}
+                  onChange={(e) => setSelectedTargetKey(e.target.value || null)}
+                  disabled={targets.length === 0}
+                >
+                  {targets.length === 0 && (
+                    <option value="">No connection</option>
+                  )}
+                  {targets.map((t) => (
+                    <option key={targetKey(t)} value={targetKey(t)}>
+                      {t.connName} / {t.database}
+                    </option>
+                  ))}
+                </select>
+                <div className="composer__spacer" />
+                {busy ? (
+                  <button
+                    type="button"
+                    className="composer__send"
+                    title="Stop"
+                    onClick={stop}
+                  >
+                    <StopIcon />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="composer__send"
+                    title="Send (⏎)"
+                    disabled={!input.trim()}
+                    onClick={send}
+                  >
+                    <ArrowUpIcon />
+                  </button>
+                )}
+              </div>
+              {pickerOpen && (
+                <>
+                  <div
+                    className="ctx-overlay"
+                    onMouseDown={() => setPickerOpen(false)}
+                  />
+                  <div className="picker-pop">
+                    <div className="picker-pop__search">
+                      <SearchIcon />
+                      <input
+                        autoFocus
+                        value={pickerFilter}
+                        onChange={(e) => setPickerFilter(e.target.value)}
+                        placeholder="Filter tables, views, schemas…"
+                        aria-label="Filter context objects"
+                      />
+                    </div>
+                    <div className="picker-pop__list">
+                      {pickerItems.length === 0 && (
+                        <div className="picker-pop__empty">
+                          {intro
+                            ? 'Nothing left to add'
+                            : 'Loading schema objects…'}
+                        </div>
+                      )}
+                      {pickerItems.map((item) => (
+                        <button
+                          key={agentContextKey(item)}
+                          type="button"
+                          className="picker-pop__item"
+                          onClick={() => onAddContext(item)}
+                        >
+                          <NodeIcon
+                            node={{ id: '', kind: item.kind, label: item.name }}
+                            color="var(--text-dim)"
+                          />
+                          <span className="picker-pop__name">
+                            {item.schema
+                              ? `${item.schema}.${item.name}`
+                              : item.name}
+                          </span>
+                          <span className="picker-pop__kind">
+                            {CHIP_KIND_LABEL[item.kind]}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </div>

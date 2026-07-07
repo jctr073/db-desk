@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 
+import { agentContextKey } from '../../shared/agent'
+import type { AgentContextItem } from '../../shared/agent'
 import { AgentPanel } from './components/AgentPanel'
 import { EditorPanel } from './components/EditorPanel'
 import { StatusBar } from './components/StatusBar'
@@ -39,6 +41,20 @@ export function App(): ReactElement {
   const [agentWidth, setAgentWidth] = useState(() =>
     storedWidth('panel.agentWidth', 322, AGENT_MIN, AGENT_MAX)
   )
+
+  // Objects attached to the agent thread as context chips. Added from the
+  // connections tree ("Add to Agent Thread") or the composer's picker.
+  const [agentContext, setAgentContext] = useState<AgentContextItem[]>([])
+  const addAgentContext = useCallback((item: AgentContextItem) => {
+    setAgentContext((prev) =>
+      prev.some((c) => agentContextKey(c) === agentContextKey(item))
+        ? prev
+        : [...prev, item]
+    )
+  }, [])
+  const removeAgentContext = useCallback((key: string) => {
+    setAgentContext((prev) => prev.filter((c) => agentContextKey(c) !== key))
+  }, [])
 
   useEffect(() => {
     localStorage.setItem('panel.connWidth', String(Math.round(connWidth)))
@@ -132,6 +148,7 @@ export function App(): ReactElement {
           onNewQueryFile={(connId, database) => {
             files.createFile(connId, database)
           }}
+          onAddToAgentThread={addAgentContext}
         />
         <div
           className="col-divider"
@@ -160,6 +177,11 @@ export function App(): ReactElement {
           targets={targets}
           editorBridge={editorBridge}
           onAgentQuery={runner.showResult}
+          context={agentContext}
+          onAddContext={addAgentContext}
+          onRemoveContext={removeAgentContext}
+          schemas={connections.schemas}
+          ensureSchema={connections.ensureSchema}
         />
       </div>
       <StatusBar theme={theme} onToggleTheme={toggle} />

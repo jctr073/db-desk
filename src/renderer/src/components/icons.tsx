@@ -264,6 +264,28 @@ export function RefreshIcon({ size = 12 }: IconProps): ReactElement {
   )
 }
 
+export function ArrowUpIcon({ size = 16 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.7}
+    >
+      <path d="M8 13V4M4.5 7.5 8 3.8l3.5 3.7" />
+    </svg>
+  )
+}
+
+export function StopIcon({ size = 12 }: IconProps): ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor">
+      <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
+    </svg>
+  )
+}
+
 export function DatabaseIcon({ size = 18 }: IconProps): ReactElement {
   return (
     <svg

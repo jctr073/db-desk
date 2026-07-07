@@ -1292,6 +1292,14 @@ body.is-col-resizing {
 .ctx-menu__item--danger {
   color: var(--red);
 }
+.ctx-menu__item--accent {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
 .ctx-menu__sep {
   height: 1px;
   margin: 4px 6px;
@@ -1317,19 +1325,6 @@ body.is-col-resizing {
   display: flex;
   flex-direction: column;
   min-height: 0;
-}
-.chat__settings {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 6px;
-  padding: 8px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.chat__settings .toolbar-select {
-  min-width: 0;
-}
-.chat__target {
-  flex: 1;
 }
 .chat__notice {
   flex: 0 0 auto;
@@ -1545,32 +1540,361 @@ body.is-col-resizing {
 }
 .chat__composer {
   flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   padding: 8px;
   border-top: 1px solid var(--border);
 }
-.chat__input {
-  resize: none;
+
+/* The composer hub: chips row, input, and toolbar in one bordered box. */
+.composer__box {
+  position: relative;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 12px;
   background: var(--panel-hi);
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 8px 10px;
-  outline: none;
 }
-.chat__input:focus {
+.composer__box:focus-within {
   border-color: var(--accent);
 }
-.chat__actions {
+
+.composer__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px 8px 2px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 4px 0 6px;
+  border-radius: 7px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text);
+  min-width: 0;
+}
+.chip__label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+.chip__sub {
+  color: var(--text-faint);
+  font-size: 10px;
+  flex: 0 0 auto;
+}
+.chip__x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 1px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.chip__x:hover {
+  background: var(--row-hover);
+  color: var(--text);
+}
+.chip-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 7px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.chip-add:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.chip-add:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.composer__input {
+  display: block;
+  width: 100%;
+  resize: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 6px 10px 4px;
+  outline: none;
+}
+
+.composer__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px 8px;
+}
+.composer__at {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+.composer__at:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.composer__at:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.composer__target {
+  height: 28px;
+  flex: 3 1 120px;
+  min-width: 0;
+  max-width: 200px;
+  margin-right: 0;
+  background: var(--panel);
+}
+.composer__spacer {
+  flex: 1;
+}
+.composer__send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.92;
+}
+.composer__send:not(:disabled):hover {
+  opacity: 1;
+}
+.composer__send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Compact model + effort pill and its popover (design 1b). */
+.model-ctl {
+  position: relative;
+  flex: 0 0 auto;
+}
+.model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.model-pill:hover {
+  border-color: var(--accent);
+}
+.model-pill > svg:first-child {
+  color: var(--accent-strong);
+}
+.model-pill__name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.model-pill__dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.model-pill__effort {
+  color: var(--accent-strong);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.model-pop {
+  position: absolute;
+  bottom: 36px;
+  left: 0;
+  z-index: 61;
+  width: 230px;
+  padding: 7px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow: 0 18px 44px var(--shadow);
+  animation: dbfade 0.14s ease;
+}
+.model-pop__heading {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 4px 8px 6px;
+}
+.model-pop__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
 }
-.chat__hint {
+.model-pop__row:hover {
+  background: var(--row-hover);
+}
+.model-pop__row.is-active {
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+.model-pop__row.is-active svg {
+  color: var(--accent-strong);
+}
+.model-pop__sep {
+  height: 1px;
+  margin: 6px;
+  background: var(--border-soft);
+}
+.model-pop__segs {
+  display: flex;
+  gap: 3px;
+  background: var(--panel-hi);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 3px;
+  margin: 0 4px 4px;
+}
+.model-pop__seg {
+  flex: 1;
+  padding: 4px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.model-pop__seg:hover {
+  color: var(--text);
+}
+.model-pop__seg.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* "Add context" picker: schema objects of the selected target. */
+.picker-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 8px;
+  z-index: 61;
+  width: 260px;
+  max-width: calc(100% - 16px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow: 0 18px 44px var(--shadow);
+  animation: dbfade 0.14s ease;
+  overflow: hidden;
+}
+.picker-pop__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-faint);
+}
+.picker-pop__search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+  padding: 0;
+  min-width: 0;
+}
+.picker-pop__list {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 5px;
+}
+.picker-pop__empty {
+  padding: 14px 10px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.picker-pop__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 7px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.picker-pop__item:hover {
+  background: var(--accent-soft);
+}
+.picker-pop__name {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker-pop__kind {
+  flex: 0 0 auto;
   font-size: 10px;
   color: var(--text-faint);
 }
