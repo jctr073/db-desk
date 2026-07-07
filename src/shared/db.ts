@@ -18,11 +18,17 @@ export interface ColumnInfo {
   name: string
   dataType: string
   badge: 'pk' | 'fk' | null
+  /** Referenced column when this column is part of a foreign key, e.g. "public.customers.id". */
+  fkRef?: string | null
 }
 
 export interface RelationInfo {
   name: string
   columns: ColumnInfo[]
+  /** Planner row estimate (pg_class.reltuples); -1 or absent when unknown. */
+  rowEstimate?: number | null
+  /** Compact index descriptions, e.g. "orders_pkey unique btree (id)". */
+  indexes?: string[]
 }
 
 export interface RoutineInfo {
@@ -35,6 +41,8 @@ export interface TypeInfo {
   name: string
   /** Human-readable type class: enum, composite, domain, range, multirange. */
   kind: string
+  /** Labels in sort order when the type is an enum. */
+  values?: string[]
 }
 
 export interface SchemaIntrospection {
@@ -70,7 +78,8 @@ export interface ConnectResult {
 }
 
 /** All db IPC calls resolve to this shape; errors travel as values, not throws. */
-export type DbResult<T> = { ok: true; data: T } | { ok: false; error: string }
+export type DbResult<T> =
+  { ok: true; data: T } | { ok: false; error: string; code?: string }
 
 /** Grid cell payload; every driver value is folded into one of these. */
 export type CellValue = string | number | boolean | null

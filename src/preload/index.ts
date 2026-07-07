@@ -56,17 +56,36 @@ const api = Object.freeze({
       ipcRenderer.invoke('store:delete', id)
   }),
   files: Object.freeze({
-    list: (): Promise<Array<{ id: string; name: string; connId: string | null; database: string | null; createdAt: number; updatedAt: number }>> =>
-      ipcRenderer.invoke('files:list'),
-    create: (connId: string | null, database: string | null): Promise<{ id: string; name: string; connId: string | null; database: string | null; createdAt: number; updatedAt: number }> =>
-      ipcRenderer.invoke('files:create', connId, database),
-    read: (id: string): Promise<string> =>
-      ipcRenderer.invoke('files:read', id),
+    list: (): Promise<
+      Array<{
+        id: string
+        name: string
+        connId: string | null
+        database: string | null
+        createdAt: number
+        updatedAt: number
+      }>
+    > => ipcRenderer.invoke('files:list'),
+    create: (
+      connId: string | null,
+      database: string | null
+    ): Promise<{
+      id: string
+      name: string
+      connId: string | null
+      database: string | null
+      createdAt: number
+      updatedAt: number
+    }> => ipcRenderer.invoke('files:create', connId, database),
+    read: (id: string): Promise<string> => ipcRenderer.invoke('files:read', id),
     save: (id: string, content: string): Promise<void> =>
       ipcRenderer.invoke('files:save', id, content),
     delete: (id: string): Promise<void> =>
       ipcRenderer.invoke('files:delete', id),
-    getNextName: (connId: string | null, database: string | null): Promise<string> =>
+    getNextName: (
+      connId: string | null,
+      database: string | null
+    ): Promise<string> =>
       ipcRenderer.invoke('files:getNextName', connId, database),
     deleteForConnection: (connId: string): Promise<void> =>
       ipcRenderer.invoke('files:deleteForConnection', connId)
@@ -76,6 +95,13 @@ const api = Object.freeze({
       ipcRenderer.invoke('agent:keyStatus'),
     send: (req: AgentSendRequest): Promise<void> =>
       ipcRenderer.invoke('agent:send', req),
+    /** Answer a pending approval_request for a data-modifying statement. */
+    approve: (
+      chatId: string,
+      toolId: string,
+      approved: boolean
+    ): Promise<void> =>
+      ipcRenderer.invoke('agent:approve', chatId, toolId, approved),
     stop: (chatId: string): Promise<void> =>
       ipcRenderer.invoke('agent:stop', chatId),
     reset: (chatId: string): Promise<void> =>

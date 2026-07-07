@@ -39,10 +39,23 @@ and the contents of the active SQL editor file, so generated SQL can reference
 real tables and columns; SQL code blocks in a reply get an Insert button that
 drops them into the editor at the cursor, and the agent itself writes its final
 query into the editor through a `write_to_editor` tool when it finishes an
-answer. An opt-in checkbox lets the agent run
-its own queries against the selected database through a `run_sql` tool to
-validate its work — every run it makes also lands in the results grid as a
-pinned tab so you can verify the output yourself.
+answer.
+
+The agent can run queries against the selected database through a `run_sql`
+tool to validate its work — every run also lands in the results grid as a
+pinned tab so you can verify the output yourself. Agent statements execute in
+a read-only session with a 30-second statement timeout; anything that would
+modify data or schema is rejected server-side and surfaces as an approval card
+in the chat, so writes only run after an explicit Run it/Deny decision. Stop
+cancels the in-flight statement on the server (`pg_cancel_backend`), not just
+the response stream. Three more tools give the agent schema insight beyond the
+summary embedded in its prompt (which now includes foreign-key targets, index
+definitions, row estimates, and enum values, and degrades gracefully on very
+large catalogs): `describe_table` (columns, defaults, constraints, indexes,
+inbound FKs, comments, row estimate), `search_schema` (find tables/columns/
+functions by name), and `explain_query` (query plans, optionally with
+`ANALYZE` for reads). The system prompt and conversation prefix are cached
+with Anthropic prompt caching to cut per-turn cost and latency.
 
 Queries are saved as files. Each tab is a `.sql` file persisted under the app's
 user-data directory, with metadata (name, owning connection/database) tracked in
