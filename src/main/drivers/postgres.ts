@@ -1,3 +1,5 @@
+/** PostgreSQL driver, built on node-postgres pools. */
+
 import { Client, Pool } from 'pg'
 import type { ClientBase, ClientConfig, PoolClient } from 'pg'
 
@@ -15,9 +17,10 @@ import type {
   SchemaIntrospection,
   TestResult,
   TypeInfo
-} from '../shared/db'
-import { normalizeConnectionUrl } from '../shared/connectionUrl'
-import { applyAutoLimit } from '../shared/sql'
+} from '../../shared/db'
+import { normalizeConnectionUrl } from '../../shared/connectionUrl'
+import { applyAutoLimit } from '../../shared/sql'
+import type { Driver, RunQueryOptions } from './types'
 
 const CONNECT_TIMEOUT_MS = 8000
 
@@ -699,31 +702,20 @@ async function resolveFields(
   }))
 }
 
-export interface RunQueryOptions {
-  /**
-   * Run with default_transaction_read_only=on for the duration of the call,
-   * so every transaction the statement starts — implicit, explicit, or after
-   * an embedded COMMIT — is read-only. Statements that modify data fail
-   * server-side with SQLSTATE 25006/25001 without taking effect; callers use
-   * those codes to detect writes.
-   */
-  readOnly?: boolean
-  /** statement_timeout applied for the duration of this call. */
-  timeoutMs?: number
-  /** Receives the session's backend PID before execution, for pg_cancel_backend. */
-  onBackendPid?: (pid: number) => void
-}
-
-/** SQLSTATE codes meaning "this statement needs write/DDL privileges". */
-export const READ_ONLY_VIOLATION_CODES = new Set(['25006', '25001'])
+/**
+ * SQLSTATE codes meaning "this statement needs write/DDL privileges".
+ * readOnly mode runs with default_transaction_read_only=on, so every
+ * transaction the statement starts — implicit, explicit, or after an
+ * embedded COMMIT — is read-only; violations fail server-side with these
+ * codes without taking effect.
+ */
+export const PG_READ_ONLY_VIOLATION_CODES = new Set(['25006', '25001'])
 
 /** Cancel a running statement on this server from a separate session. */
-export async function cancelBackend(
-  connId: string,
+async function cancelBackend(
+  managed: ManagedConnection,
   pid: number
 ): Promise<void> {
-  const managed = connections.get(connId)
-  if (!managed) return
   let client: PoolClient | undefined
   try {
     client = await managed.pool.connect()
@@ -735,7 +727,7 @@ export async function cancelBackend(
   }
 }
 
-export async function runQuery(
+async function runQuery(
   connId: string,
   database: string,
   sql: string,
@@ -754,7 +746,9 @@ export async function runQuery(
   try {
     client = await poolFor(managed, database).connect()
     const pid = (client as unknown as { processID?: number }).processID
-    if (pid && options.onBackendPid) options.onBackendPid(pid)
+    if (pid && options.onCancel) {
+      options.onCancel(() => void cancelBackend(managed, pid))
+    }
     if (options.readOnly) {
       await client.query('SET default_transaction_read_only = on')
     }
@@ -1075,4 +1069,16 @@ export async function searchSchema(
       ? lines.join('\n')
       : `No relations, columns, or functions match "${pattern}".`
   })
+}
+
+export const postgresDriver: Driver = {
+  test: testConnection,
+  connect,
+  disconnect,
+  disconnectAll,
+  getServerVersion,
+  introspectDatabase,
+  runQuery,
+  describeTable,
+  searchSchema
 }
