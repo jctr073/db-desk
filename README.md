@@ -4,7 +4,7 @@ Electron + TypeScript + React + Vite + Monaco Editor foundation for a Mac deskto
 
 The shell implements the DB Desk connection panel: a light/dark themed three-pane
 layout with a schema browser tree (connections → databases → schemas → tables,
-views, functions, and more), object filtering, two tree styles, and a New
+views, functions, and more), object filtering, and a New
 Connection dialog. The left connection pane and right agent pane are
 drag-resizable via the dividers on either side of the editor, and each pane
 remembers its width across restarts. Connections are real, and the app speaks

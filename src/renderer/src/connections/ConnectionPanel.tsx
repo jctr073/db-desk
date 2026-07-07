@@ -137,22 +137,6 @@ export function ConnectionPanel({
       <div className="panel-header">
         <span className="panel-header__title">CONNECTIONS</span>
         <div className="panel-header__spacer" />
-        <div className="seg" title="Tree style">
-          <button
-            className={`seg__btn${state.mode === 'A' ? ' is-active' : ''}`}
-            onClick={() => state.setMode('A')}
-            title="Style A — classic with guides"
-          >
-            A
-          </button>
-          <button
-            className={`seg__btn${state.mode === 'B' ? ' is-active' : ''}`}
-            onClick={() => state.setMode('B')}
-            title="Style B — grouped rails"
-          >
-            B
-          </button>
-        </div>
         <button className="icon-btn" onClick={state.openDialog} title="New connection">
           <PlusIcon />
         </button>
