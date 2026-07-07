@@ -240,6 +240,9 @@ export function AgentPanel({
           )
           break
         }
+        case 'editor_insert':
+          editorBridge.current?.insertSql(evt.sql)
+          break
         case 'done':
           setBusy(false)
           setThinking(false)

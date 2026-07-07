@@ -129,6 +129,7 @@ function buildSystemPrompt(
     '',
     'Rules:',
     '- Always put final, runnable SQL inside ```sql fenced code blocks; the user can insert those blocks into their editor with one click.',
+    '- When you have settled on the final query, call the write_to_editor tool with it so it lands in the SQL editor. Do this once per answer, at the end, with the single final statement — not with intermediate or exploratory queries.',
     '- Target PostgreSQL syntax only.',
     '- Prefer schema-qualified names when the table is outside the public schema.',
     '- Keep prose brief; lead with the SQL, then a short explanation if needed.'
@@ -176,6 +177,22 @@ const RUN_SQL_TOOL: Anthropic.Tool = {
       sql: {
         type: 'string',
         description: 'A single PostgreSQL statement to execute.'
+      }
+    },
+    required: ['sql']
+  }
+}
+
+const WRITE_EDITOR_TOOL: Anthropic.Tool = {
+  name: 'write_to_editor',
+  description:
+    'Insert SQL into the user\'s active SQL editor at the cursor. Call this once at the end of your answer with the final, validated query so the user has it ready to run. Do not call it for intermediate or exploratory queries.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      sql: {
+        type: 'string',
+        description: 'The final SQL to place in the editor.'
       }
     },
     required: ['sql']
@@ -236,6 +253,26 @@ async function execRunSql(
   return { ...base, content: toolResultPayload(res.data) }
 }
 
+function execWriteEditor(
+  req: AgentSendRequest,
+  block: Anthropic.ToolUseBlock,
+  send: Sender
+): Anthropic.ToolResultBlockParam {
+  const sql = String((block.input as { sql?: unknown }).sql ?? '').trim()
+  const base: Anthropic.ToolResultBlockParam = {
+    type: 'tool_result',
+    tool_use_id: block.id,
+    content: ''
+  }
+  if (!sql) {
+    return { ...base, content: 'No SQL provided.', is_error: true }
+  }
+  send({ type: 'tool_start', chatId: req.chatId, toolId: block.id, name: block.name, sql })
+  send({ type: 'editor_insert', chatId: req.chatId, sql })
+  send({ type: 'tool_result', chatId: req.chatId, toolId: block.id, ok: true, summary: 'written to editor' })
+  return { ...base, content: 'The SQL was inserted into the active editor.' }
+}
+
 async function runAgentTurn(req: AgentSendRequest, send: Sender): Promise<void> {
   const { key } = loadKey()
   if (!key) {
@@ -259,7 +296,10 @@ async function runAgentTurn(req: AgentSendRequest, send: Sender): Promise<void> 
   const client = new Anthropic({ apiKey: key })
   const schemaSummary = req.target ? await schemaSummaryFor(req.target) : null
   const system = buildSystemPrompt(req, schemaSummary)
-  const tools = req.allowRun && req.target ? [RUN_SQL_TOOL] : []
+  const tools = [
+    WRITE_EDITOR_TOOL,
+    ...(req.allowRun && req.target ? [RUN_SQL_TOOL] : [])
+  ]
 
   const userParts: string[] = [req.prompt]
   chat.messages.push({ role: 'user', content: userParts.join('\n') })
@@ -311,6 +351,8 @@ async function runAgentTurn(req: AgentSendRequest, send: Sender): Promise<void> 
         for (const block of toolUses) {
           if (block.name === 'run_sql') {
             results.push(await execRunSql(req, block, send))
+          } else if (block.name === 'write_to_editor') {
+            results.push(execWriteEditor(req, block, send))
           } else {
             results.push({
               type: 'tool_result',

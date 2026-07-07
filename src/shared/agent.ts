@@ -106,5 +106,6 @@ export type AgentEvent =
       result: QueryResult | null
       error: string | null
     }
+  | { type: 'editor_insert'; chatId: string; sql: string }
   | { type: 'done'; chatId: string; stopReason: string | null }
   | { type: 'error'; chatId: string; message: string }

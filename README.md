@@ -37,7 +37,9 @@ a live "thinking" indicator and a Stop button to cancel mid-response. Each turn
 sees the schema of the connection/database selected in its own target picker
 and the contents of the active SQL editor file, so generated SQL can reference
 real tables and columns; SQL code blocks in a reply get an Insert button that
-drops them into the editor at the cursor. An opt-in checkbox lets the agent run
+drops them into the editor at the cursor, and the agent itself writes its final
+query into the editor through a `write_to_editor` tool when it finishes an
+answer. An opt-in checkbox lets the agent run
 its own queries against the selected database through a `run_sql` tool to
 validate its work — every run it makes also lands in the results grid as a
 pinned tab so you can verify the output yourself.
