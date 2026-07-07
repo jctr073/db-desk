@@ -1433,6 +1433,16 @@ body.is-col-resizing {
   color: var(--text);
   box-shadow: 0 1px 2px var(--shadow);
 }
+.dtab:disabled {
+  cursor: default;
+}
+.dtab:disabled:not(.is-active) {
+  opacity: 0.45;
+}
+/* Engine picker above the connection-name field (dialog defaults to margin for the tab row). */
+.dtabs--type {
+  margin: 0 0 13px;
+}
 
 .dialog__body {
   padding: 8px 18px 4px;
