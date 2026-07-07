@@ -286,6 +286,75 @@ export function StopIcon({ size = 12 }: IconProps): ReactElement {
   )
 }
 
+export function KebabIcon({ size = 15 }: IconProps): ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor">
+      <circle cx="8" cy="3.4" r="1.35" />
+      <circle cx="8" cy="8" r="1.35" />
+      <circle cx="8" cy="12.6" r="1.35" />
+    </svg>
+  )
+}
+
+export function CubeIcon({ size = 12 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.2}
+    >
+      <path d="M8 2.3 13.4 5.2v5.6L8 13.7 2.6 10.8V5.2z" />
+      <path d="M2.7 5.3 8 8.1l5.3-2.8" />
+      <path d="M8 8.1v5.5" />
+    </svg>
+  )
+}
+
+export function RowsIcon({ size = 12 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.3}
+    >
+      <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h7" />
+    </svg>
+  )
+}
+
+export function FormatIcon({ size = 14 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.3}
+    >
+      <path d="M3 4.5h10M3 8h7M3 11.5h10" />
+    </svg>
+  )
+}
+
+export function SaveIcon({ size = 14 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.3}
+    >
+      <path d="M3 3.8v8.4c0 .6.4 1 1 1h8c.6 0 1-.4 1-1V5.6L10.4 3H4c-.6 0-1 .4-1 1z" />
+      <path d="M5.5 3.2v3h4v-3M5.5 13v-3.4h5V13" />
+    </svg>
+  )
+}
+
 export function DatabaseIcon({ size = 18 }: IconProps): ReactElement {
   return (
     <svg

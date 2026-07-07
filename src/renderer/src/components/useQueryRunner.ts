@@ -16,6 +16,10 @@ export interface ResultTab {
   title: string
   pinned: boolean
   running: boolean
+  /** Who initiated the run; 'ai' tabs are grouped under one AI Agent tab. */
+  source: 'user' | 'ai'
+  /** Best-effort main table name, for compact run chips. */
+  hint: string
   /** Statement text as sent (before any auto-LIMIT). */
   sql: string
   target: QueryTarget
@@ -40,6 +44,8 @@ export interface QueryRunner {
   ) => void
   pin: (id: string) => void
   closeTab: (id: string) => void
+  /** Close several tabs at once (e.g. "Clear all" on the AI Agent group). */
+  closeTabs: (ids: string[]) => void
   closeAll: () => void
 }
 
@@ -107,6 +113,8 @@ export function useQueryRunner(): QueryRunner {
         title: 'Results',
         pinned: false,
         running: true,
+        source: 'user',
+        hint: tableHint(sql),
         sql,
         target,
         result: null,
@@ -149,6 +157,8 @@ export function useQueryRunner(): QueryRunner {
         title: resultTitle('AI Result', sql),
         pinned: true,
         running: false,
+        source: 'ai',
+        hint: tableHint(sql),
         sql,
         target,
         result,
@@ -188,6 +198,21 @@ export function useQueryRunner(): QueryRunner {
     [tabs]
   )
 
+  const closeTabs = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return
+      const closing = new Set(ids)
+      for (const id of ids) runTokens.current.delete(id)
+      const remaining = tabs.filter((tab) => !closing.has(tab.id))
+      setTabs(remaining)
+      setActiveTabId((prev) => {
+        if (prev === null || !closing.has(prev)) return prev
+        return remaining.length > 0 ? remaining[remaining.length - 1].id : null
+      })
+    },
+    [tabs]
+  )
+
   const closeAll = useCallback(() => {
     runTokens.current.clear()
     setTabs([])
@@ -203,6 +228,7 @@ export function useQueryRunner(): QueryRunner {
     showResult,
     pin,
     closeTab,
+    closeTabs,
     closeAll
   }
 }
