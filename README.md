@@ -38,7 +38,10 @@ defaulting to Opus 4.8 at `xhigh` effort. Chat history streams per-session with
 a live "thinking" indicator and a Stop button to cancel mid-response. Each turn
 sees the schema of the connection/database selected in its own target picker
 and the contents of the active SQL editor file, so generated SQL can reference
-real tables and columns; SQL code blocks in a reply get an Insert button that
+real tables and columns. Specific schemas, tables, or views can also be pinned
+to the thread as context chips — via **Add to Agent Thread** on a tree node's
+right-click menu or the composer's **Add context** picker — so the agent focuses
+on the objects you care about. SQL code blocks in a reply get an Insert button that
 drops them into the editor at the cursor, and the agent itself writes its final
 query into the editor through a `write_to_editor` tool when it finishes an
 answer.
