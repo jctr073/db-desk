@@ -36,7 +36,7 @@ import type {
   AgentSendRequest,
   AgentTargetRef
 } from '../shared/agent'
-import { AGENT_MODELS, resolveAgentMode } from '../shared/agent'
+import { AGENT_MODELS, API_KEY_VAR, resolveAgentMode } from '../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../shared/db'
 import { dialectFor } from '../shared/dialect'
 import type { DialectInfo } from '../shared/dialect'
@@ -63,7 +63,7 @@ interface KeyInfo {
 function readKeyFromZshrc(): string | null {
   try {
     const text = readFileSync(join(homedir(), '.zshrc'), 'utf8')
-    const re = /^\s*(?:export\s+)?ANTHROPIC_API_KEY\s*=\s*["']?([^"'\s#]+)/gm
+    const re = new RegExp(`^\\s*(?:export\\s+)?${API_KEY_VAR}\\s*=\\s*["']?([^"'\\s#]+)`, 'gm')
     let match: RegExpExecArray | null
     let last: string | null = null
     while ((match = re.exec(text)) !== null) last = match[1]
@@ -77,7 +77,7 @@ function readKeyFromZshrc(): string | null {
 function loadKey(): KeyInfo {
   const fromFile = readKeyFromZshrc()
   if (fromFile) return { key: fromFile, source: 'zshrc' }
-  const fromEnv = process.env.ANTHROPIC_API_KEY
+  const fromEnv = process.env[API_KEY_VAR]
   if (fromEnv) return { key: fromEnv, source: 'env' }
   return { key: null, source: null }
 }
@@ -864,8 +864,7 @@ async function runAgentTurn(
     send({
       type: 'error',
       chatId: req.chatId,
-      message:
-        'No API key found. Add `export ANTHROPIC_API_KEY=...` to ~/.zshrc and try again.'
+      message: `No API key found. Add \`export ${API_KEY_VAR}=...\` to ~/.zshrc and try again.`
     })
     return
   }

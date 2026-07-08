@@ -37,7 +37,7 @@ limit); statements that can't take an appended LIMIT are truncated to the same
 cap after execution.
 
 The right-hand panel's **AI Agent** tab turns prompts into SQL. It reads
-`ANTHROPIC_API_KEY` from `~/.zshrc` (re-read on every request, so no restart is
+`CLAUDE_API_KEY` from `~/.zshrc` (re-read on every request, so no restart is
 needed after editing it), and offers a model and reasoning-effort picker,
 defaulting to Opus 4.8 at `xhigh` effort. Chat history streams per-session with
 a live "thinking" indicator and a Stop button to cancel mid-response. Each turn

@@ -4,6 +4,7 @@ import type { KeyboardEvent, MutableRefObject, ReactElement } from 'react'
 import {
   AGENT_MODELS,
   AGENT_MODES,
+  API_KEY_VAR,
   DEFAULT_AGENT_MODEL,
   DEFAULT_AGENT_MODE,
   agentContextKey,
@@ -590,7 +591,7 @@ export function AgentPanel({
           </div>
           {keyMissing && (
             <div className="chat__notice">
-              No API key found — add <code>export ANTHROPIC_API_KEY=…</code> to{' '}
+              No API key found — add <code>export {API_KEY_VAR}=…</code> to{' '}
               <code>~/.zshrc</code>.
             </div>
           )}
