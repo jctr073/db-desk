@@ -4,11 +4,9 @@ import {
   readFileSync,
   writeFileSync,
   existsSync,
-  readdirSync,
-  unlinkSync,
-  rmSync
+  unlinkSync
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 
 export interface QueryFile {
   id: string

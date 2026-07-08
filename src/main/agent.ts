@@ -3,11 +3,12 @@
  * history, and the streaming tool-use loop. The renderer talks to it through
  * `agent:*` IPC handles and receives progress as `agent:event` pushes.
  *
- * Execution safety model: agent statements run in read-only mode (a
- * server-enforced read-only session where the engine supports one,
- * client-side statement classification otherwise) with a statement timeout.
- * When a statement is rejected as needing write access, the agent pauses
- * and asks the user for approval before re-running it writable.
+ * Execution safety model: the user picks an access mode per chat. Metadata
+ * Only offers no execution tools at all; Read-Only routes every statement
+ * through runAgentQuery — the guarded channel that admits exactly one
+ * provably-read statement per call, with the server-side read-only session
+ * as a second belt. There is no approval flow: statements that modify data
+ * or schema are blocked outright, in every mode.
  */
 
 import { readFileSync } from 'node:fs'
@@ -19,24 +20,27 @@ import { ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 
 import {
+  AGENT_BLOCKED_CODE,
   describeTable,
   getConnectionType,
   getServerVersion,
   introspectDatabase,
   isReadOnlyViolation,
-  runQuery,
+  runAgentQuery,
   searchSchema
 } from './db'
 import type {
   AgentEvent,
   AgentKeyStatus,
+  AgentMode,
   AgentSendRequest,
   AgentTargetRef
 } from '../shared/agent'
-import { AGENT_MODELS } from '../shared/agent'
+import { AGENT_MODELS, resolveAgentMode } from '../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../shared/db'
 import { dialectFor } from '../shared/dialect'
 import type { DialectInfo } from '../shared/dialect'
+import { classifyStatement } from '../shared/sql'
 
 /** Rows of a tool-run result forwarded to the model (grid shows the full set). */
 const TOOL_RESULT_MAX_ROWS = 50
@@ -81,11 +85,6 @@ function loadKey(): KeyInfo {
 interface ChatState {
   messages: Anthropic.MessageParam[]
   controller: AbortController | null
-  /** Resolver for a write-approval the UI has not answered yet. */
-  pendingApproval: {
-    toolId: string
-    resolve: (approved: boolean) => void
-  } | null
   /** Cancels the agent's currently running statement, when one is running. */
   cancelRunningQuery: (() => void) | null
 }
@@ -98,7 +97,6 @@ function getChat(chatId: string): ChatState {
     chat = {
       messages: [],
       controller: null,
-      pendingApproval: null,
       cancelRunningQuery: null
     }
     chats.set(chatId, chat)
@@ -226,6 +224,7 @@ async function schemaSummaryFor(target: AgentTargetRef): Promise<string> {
 
 function buildSystemPrompt(
   req: AgentSendRequest,
+  mode: AgentMode,
   schemaSummary: string | null,
   dialect: DialectInfo
 ): string {
@@ -239,19 +238,20 @@ function buildSystemPrompt(
     ...dialect.agent.rules,
     '- Keep prose brief; lead with the SQL, then a short explanation if needed.'
   ]
-  if (req.target) {
-    const readOnlyRule =
-      dialect.agent.readOnlyEnforcement === 'server'
-        ? '- Statements run inside a READ ONLY transaction. A statement that modifies data or schema pauses and asks the user for approval first; only attempt such statements when the user explicitly asked for the change, and expect that they may deny it.'
-        : '- Statements are screened before execution. A statement that modifies data or schema pauses and asks the user for approval first; only attempt such statements when the user explicitly asked for the change, and expect that they may deny it.'
+  if (req.target && mode === 'read-only') {
     parts.push(
       '- You may execute statements with the run_sql tool. Use it to validate your SQL and inspect real data before presenting a final answer. Each run is shown to the user in the results grid.',
-      readOnlyRule,
+      '- You are in Read-Only mode: one statement per run_sql call, and only read-only statements (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN of reads) will execute. Anything that would modify data or schema — including INSERT/UPDATE/DELETE/MERGE, DDL, SET, and transaction control — is blocked before it reaches the server and will fail. Do not attempt such statements. If the user asks for a change, write the SQL to the editor with write_to_editor and tell them to review and run it themselves.',
       `- Statements are cancelled after ${AGENT_STATEMENT_TIMEOUT_MS / 1000} seconds.`,
       `- Use describe_table for full detail on one relation and search_schema to find tables, columns, or functions by name — ${dialect.agent.catalogHint}.`,
-      dialect.agent.supportsExplainAnalyze
+      (dialect.agent.supportsExplainAnalyze
         ? '- Use explain_query to inspect query plans before recommending a query on large tables; set analyze to true only when actually executing a read is acceptable.'
-        : '- Use explain_query to inspect query plans before recommending a query on large tables.'
+        : '- Use explain_query to inspect query plans before recommending a query on large tables.') +
+        ' EXPLAIN is refused for statements that modify data or schema.'
+    )
+  } else if (req.target) {
+    parts.push(
+      '- You are in Metadata Only mode: you cannot execute anything against the database. Work from the schema summary below and the objects the user attached. Do not claim to have run or validated anything; present SQL for the user to run.'
     )
   } else {
     parts.push(
@@ -307,13 +307,9 @@ function buildSystemPrompt(
 }
 
 function runSqlTool(dialect: DialectInfo): Anthropic.Tool {
-  const enforcement =
-    dialect.agent.readOnlyEnforcement === 'server'
-      ? 'Statements run in a READ ONLY transaction; a statement that modifies data or schema pauses and asks the user for approval before running.'
-      : 'Statements are screened before execution; a statement that modifies data or schema pauses and asks the user for approval before running.'
   return {
     name: 'run_sql',
-    description: `Execute a SQL statement against the connected ${dialect.engine} ${dialect.databaseTerm} and return the result. ${enforcement} SELECT results are limited to 500 rows and the first 50 rows are returned to you; the full result is shown to the user in the results grid. Use this to validate queries and check real data.`,
+    description: `Execute a single read-only SQL statement against the connected ${dialect.engine} ${dialect.databaseTerm} and return the result. Exactly one statement per call. Statements that modify data or schema — or anything not provably a read — are blocked and fail. SELECT results are limited to 500 rows and the first 50 rows are returned to you; the full result is shown to the user in the results grid. Use this to validate queries and check real data.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -341,8 +337,8 @@ function explainQueryTool(dialect: DialectInfo): Anthropic.Tool {
   return {
     name: 'explain_query',
     description: dialect.agent.supportsExplainAnalyze
-      ? 'Run EXPLAIN on a SQL statement and return the query plan as text. Set analyze to true to execute the statement and get actual timings and row counts (EXPLAIN ANALYZE runs read-only here, so analyze fails on statements that modify data). Use this to check whether a query uses indexes before recommending it.'
-      : 'Run EXPLAIN on a SQL statement and return the query plan as text, without executing the statement. Use this to sanity-check how a query will be executed before recommending it.',
+      ? 'Run EXPLAIN on a SQL statement and return the query plan as text. Set analyze to true to execute the statement and get actual timings and row counts. Use this to check whether a query uses indexes before recommending it. Statements that modify data or schema cannot be explained.'
+      : 'Run EXPLAIN on a SQL statement and return the query plan as text, without executing the statement. Use this to sanity-check how a query will be executed before recommending it. Statements that modify data or schema cannot be explained.',
     input_schema: {
       type: 'object',
       properties: {
@@ -469,29 +465,6 @@ function toolResultPayload(result: QueryResult): string {
 
 type Sender = (evt: AgentEvent) => void
 
-/** Command tags whose success invalidates the cached schema summary. */
-const DDL_COMMAND = /^(CREATE|ALTER|DROP)\b/i
-
-function requestApproval(
-  req: AgentSendRequest,
-  chat: ChatState,
-  toolId: string,
-  sql: string,
-  send: Sender
-): Promise<boolean> {
-  if (chat.controller?.signal.aborted) return Promise.resolve(false)
-  send({ type: 'approval_request', chatId: req.chatId, toolId, sql })
-  return new Promise((resolve) => {
-    chat.pendingApproval = {
-      toolId,
-      resolve: (approved) => {
-        chat.pendingApproval = null
-        resolve(approved)
-      }
-    }
-  })
-}
-
 function toolError(
   base: Anthropic.ToolResultBlockParam,
   req: AgentSendRequest,
@@ -507,6 +480,7 @@ function toolError(
 async function execRunSql(
   req: AgentSendRequest,
   chat: ChatState,
+  mode: AgentMode,
   block: Anthropic.ToolUseBlock,
   send: Sender
 ): Promise<Anthropic.ToolResultBlockParam> {
@@ -515,6 +489,16 @@ async function execRunSql(
     type: 'tool_result',
     tool_use_id: block.id,
     content: ''
+  }
+  if (mode !== 'read-only') {
+    return toolError(
+      base,
+      req,
+      block.id,
+      send,
+      'not available',
+      'This tool is not available in Metadata Only mode.'
+    )
   }
   const target = req.target
   if (!target) {
@@ -535,43 +519,34 @@ async function execRunSql(
     sql
   })
 
-  const trackCancel = (cancel: () => void): void => {
-    chat.cancelRunningQuery = cancel
-  }
-  let res = await runQuery(
+  const res = await runAgentQuery(
     target.connId,
     target.database,
     sql,
     TOOL_RUN_LIMIT,
     {
-      readOnly: true,
       timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
-      onCancel: trackCancel
+      onCancel: (cancel) => {
+        chat.cancelRunningQuery = cancel
+      }
     }
   )
   chat.cancelRunningQuery = null
 
-  // The statement was classified as a write; ask the user first.
+  // Blocked by the guard (Layer 2) or the server-side belt (Layer 3): same
+  // friendly refusal either way, and never an approval request.
+  if (!res.ok && res.code === AGENT_BLOCKED_CODE) {
+    return toolError(base, req, block.id, send, 'blocked', res.error)
+  }
   if (!res.ok && isReadOnlyViolation(res.code)) {
-    const approved = await requestApproval(req, chat, block.id, sql, send)
-    if (!approved) {
-      return toolError(
-        base,
-        req,
-        block.id,
-        send,
-        'declined by user',
-        'The user declined to run this data-modifying statement. Do not retry it; present the SQL for the user to run themselves, or ask how to proceed.'
-      )
-    }
-    res = await runQuery(target.connId, target.database, sql, TOOL_RUN_LIMIT, {
-      timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
-      onCancel: trackCancel
-    })
-    chat.cancelRunningQuery = null
-    if (res.ok && DDL_COMMAND.test(res.data.command)) {
-      schemaCache.delete(schemaCacheKey(target))
-    }
+    return toolError(
+      base,
+      req,
+      block.id,
+      send,
+      'blocked',
+      'Blocked: this statement modifies data. The agent is read-only; write the SQL to the editor for the user to review and run.'
+    )
   }
 
   send({
@@ -609,6 +584,7 @@ async function execRunSql(
 async function execExplain(
   req: AgentSendRequest,
   chat: ChatState,
+  mode: AgentMode,
   block: Anthropic.ToolUseBlock,
   send: Sender,
   dialect: DialectInfo
@@ -621,6 +597,16 @@ async function execExplain(
     tool_use_id: block.id,
     content: ''
   }
+  if (mode !== 'read-only') {
+    return toolError(
+      base,
+      req,
+      block.id,
+      send,
+      'not available',
+      'This tool is not available in Metadata Only mode.'
+    )
+  }
   const target = req.target
   if (!target) {
     return toolError(
@@ -632,6 +618,18 @@ async function execExplain(
       'No database target is connected.'
     )
   }
+  // Writes are not explained at all (with or without ANALYZE); refuse the
+  // inner statement up front instead of relying on a downstream failure.
+  if (classifyStatement(sql) !== 'read') {
+    return toolError(
+      base,
+      req,
+      block.id,
+      send,
+      'blocked',
+      'Blocked: EXPLAIN is not available for statements that modify data or schema.'
+    )
+  }
   const explainSql = dialect.explainSql(sql, analyze)
   send({
     type: 'tool_start',
@@ -640,25 +638,27 @@ async function execExplain(
     name: block.name,
     sql: explainSql
   })
-  const res = await runQuery(target.connId, target.database, explainSql, null, {
-    readOnly: true,
-    timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
-    onCancel: (cancel) => {
-      chat.cancelRunningQuery = cancel
+  const res = await runAgentQuery(
+    target.connId,
+    target.database,
+    explainSql,
+    null,
+    {
+      timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
+      onCancel: (cancel) => {
+        chat.cancelRunningQuery = cancel
+      }
     }
-  })
+  )
   chat.cancelRunningQuery = null
   if (!res.ok) {
-    const hint = isReadOnlyViolation(res.code)
-      ? ' (EXPLAIN runs read-only here; analyze is not available for statements that modify data — retry with analyze false)'
-      : ''
     return toolError(
       base,
       req,
       block.id,
       send,
       res.error,
-      `EXPLAIN failed: ${res.error}${hint}`
+      `EXPLAIN failed: ${res.error}`
     )
   }
   const plan = res.data.rows.map((row) => row[0]).join('\n')
@@ -674,6 +674,7 @@ async function execExplain(
 
 async function execDescribeTable(
   req: AgentSendRequest,
+  mode: AgentMode,
   block: Anthropic.ToolUseBlock,
   send: Sender
 ): Promise<Anthropic.ToolResultBlockParam> {
@@ -682,6 +683,16 @@ async function execDescribeTable(
     type: 'tool_result',
     tool_use_id: block.id,
     content: ''
+  }
+  if (mode !== 'read-only') {
+    return toolError(
+      base,
+      req,
+      block.id,
+      send,
+      'not available',
+      'This tool is not available in Metadata Only mode.'
+    )
   }
   const target = req.target
   if (!target) {
@@ -724,6 +735,7 @@ async function execDescribeTable(
 
 async function execSearchSchema(
   req: AgentSendRequest,
+  mode: AgentMode,
   block: Anthropic.ToolUseBlock,
   send: Sender
 ): Promise<Anthropic.ToolResultBlockParam> {
@@ -734,6 +746,16 @@ async function execSearchSchema(
     type: 'tool_result',
     tool_use_id: block.id,
     content: ''
+  }
+  if (mode !== 'read-only') {
+    return toolError(
+      base,
+      req,
+      block.id,
+      send,
+      'not available',
+      'This tool is not available in Metadata Only mode.'
+    )
   }
   const target = req.target
   if (!target) {
@@ -860,6 +882,9 @@ async function runAgentTurn(
   const controller = new AbortController()
   chat.controller = controller
 
+  // Fail closed: a renderer bug or tampering that sends 'write-admin' or
+  // garbage silently degrades to Metadata Only.
+  const mode = resolveAgentMode(req.mode)
   const client = new Anthropic({ apiKey: key })
   // Dialect follows the target connection's engine; chats without a target
   // default to PostgreSQL guidance.
@@ -872,19 +897,22 @@ async function runAgentTurn(
   const system: Anthropic.TextBlockParam[] = [
     {
       type: 'text',
-      text: buildSystemPrompt(req, schemaSummary, dialect),
+      text: buildSystemPrompt(req, mode, schemaSummary, dialect),
       cache_control: { type: 'ephemeral' }
     }
   ]
-  const tools = req.target
-    ? [
-        WRITE_EDITOR_TOOL,
-        runSqlTool(dialect),
-        explainQueryTool(dialect),
-        describeTableTool(dialect),
-        searchSchemaTool(dialect)
-      ]
-    : [WRITE_EDITOR_TOOL]
+  // Metadata Only offers no execution tools at all (Layer 1); its schema
+  // knowledge is the system-prompt summary above.
+  const tools =
+    req.target && mode === 'read-only'
+      ? [
+          WRITE_EDITOR_TOOL,
+          runSqlTool(dialect),
+          explainQueryTool(dialect),
+          describeTableTool(dialect),
+          searchSchemaTool(dialect)
+        ]
+      : [WRITE_EDITOR_TOOL]
 
   chat.messages.push({ role: 'user', content: req.prompt })
 
@@ -935,13 +963,15 @@ async function runAgentTurn(
         const results: Anthropic.ToolResultBlockParam[] = []
         for (const block of toolUses) {
           if (block.name === 'run_sql') {
-            results.push(await execRunSql(req, chat, block, send))
+            results.push(await execRunSql(req, chat, mode, block, send))
           } else if (block.name === 'explain_query') {
-            results.push(await execExplain(req, chat, block, send, dialect))
+            results.push(
+              await execExplain(req, chat, mode, block, send, dialect)
+            )
           } else if (block.name === 'describe_table') {
-            results.push(await execDescribeTable(req, block, send))
+            results.push(await execDescribeTable(req, mode, block, send))
           } else if (block.name === 'search_schema') {
-            results.push(await execSearchSchema(req, block, send))
+            results.push(await execSearchSchema(req, mode, block, send))
           } else if (block.name === 'write_to_editor') {
             results.push(execWriteEditor(req, block, send))
           } else {
@@ -984,11 +1014,10 @@ async function runAgentTurn(
   }
 }
 
-/** Abort the stream, deny any pending approval, cancel the running statement. */
+/** Abort the stream and cancel the running statement. */
 function stopChat(chatId: string): void {
   const chat = chats.get(chatId)
   if (!chat) return
-  chat.pendingApproval?.resolve(false)
   chat.controller?.abort()
   const cancel = chat.cancelRunningQuery
   if (cancel) {
@@ -1013,16 +1042,6 @@ export function registerAgentHandlers(
   ipcMain.handle('agent:send', async (_event, req: AgentSendRequest) => {
     await runAgentTurn(req, send)
   })
-
-  ipcMain.handle(
-    'agent:approve',
-    (_event, chatId: string, toolId: string, approved: boolean) => {
-      const chat = chats.get(chatId)
-      if (chat?.pendingApproval?.toolId === toolId) {
-        chat.pendingApproval.resolve(approved)
-      }
-    }
-  )
 
   ipcMain.handle('agent:stop', (_event, chatId: string) => {
     stopChat(chatId)

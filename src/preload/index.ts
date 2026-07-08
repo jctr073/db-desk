@@ -95,13 +95,6 @@ const api = Object.freeze({
       ipcRenderer.invoke('agent:keyStatus'),
     send: (req: AgentSendRequest): Promise<void> =>
       ipcRenderer.invoke('agent:send', req),
-    /** Answer a pending approval_request for a data-modifying statement. */
-    approve: (
-      chatId: string,
-      toolId: string,
-      approved: boolean
-    ): Promise<void> =>
-      ipcRenderer.invoke('agent:approve', chatId, toolId, approved),
     stop: (chatId: string): Promise<void> =>
       ipcRenderer.invoke('agent:stop', chatId),
     reset: (chatId: string): Promise<void> =>

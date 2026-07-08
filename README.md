@@ -51,14 +51,26 @@ drops them into the editor at the cursor, and the agent itself writes its final
 query into the editor through a `write_to_editor` tool when it finishes an
 answer.
 
-The agent can run queries against the selected database through a `run_sql`
-tool to validate its work — every run also lands in the results grid as a
-pinned tab so you can verify the output yourself. Agent statements execute in
-a read-only session with a 30-second statement timeout; anything that would
-modify data or schema is rejected — server-side for PostgreSQL
-(`default_transaction_read_only`), client-side by statement classification for
-Databricks — and surfaces as an approval card in the chat, so writes only run
-after an explicit Run it/Deny decision. Where the engine supports it, Stop
+The agent panel's mode picker offers three access modes: **Metadata Only**
+(default) — "Writes SQL from the schema tree. Never executes anything on the
+database."; **Read-Only** — "Runs read-only queries to inspect schema and live
+data. Writes are blocked."; and **Write/Admin** — "Can change data and schema
+(DML/DDL). Disabled in this version." Write/Admin is shown in the picker but
+greyed out and unselectable in this release. In Read-Only mode the agent can
+run queries against the selected database through a `run_sql` tool to
+validate its work — every run also lands in the results grid as a pinned tab
+so you can verify the output yourself, and each statement runs with a
+30-second timeout. Agent SQL reaches the database only
+through a guarded channel that allows exactly one statement per call and
+refuses anything not provably read-only (an allowlist classifier over
+SELECT/WITH/SHOW/DESCRIBE and EXPLAIN-of-reads); PostgreSQL additionally runs
+agent statements under a server-side read-only session
+(`default_transaction_read_only`) as a second belt, catching cases the
+client-side classifier can't see (e.g. a `SELECT` that calls a volatile,
+data-writing function). There is no approval or escalation flow — if you want
+a change made, the agent writes the SQL to the editor via `write_to_editor`
+for you to review and run yourself. For maximum safety, connect with a
+read-only database role. Where the engine supports it, Stop
 cancels the in-flight statement on the server (`pg_cancel_backend` for
 PostgreSQL), not just the response stream. Generated SQL is targeted at the
 selected connection's dialect (PostgreSQL vs. Databricks/Spark SQL), so the

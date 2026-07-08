@@ -31,11 +31,6 @@ export interface DialectAgentInfo {
   catalogHint: string
   /** True when EXPLAIN can execute the statement for real timings. */
   supportsExplainAnalyze: boolean
-  /**
-   * 'server': statements run in a server-enforced read-only session.
-   * 'client': statements are classified client-side before execution.
-   */
-  readOnlyEnforcement: 'server' | 'client'
 }
 
 export interface DialectInfo {
@@ -98,8 +93,7 @@ const POSTGRES: DialectInfo = {
       '- Prefer schema-qualified names when the table is outside the public schema.'
     ],
     catalogHint: 'prefer them over querying pg_catalog yourself',
-    supportsExplainAnalyze: true,
-    readOnlyEnforcement: 'server'
+    supportsExplainAnalyze: true
   },
   explainSql: (sql, analyze) =>
     `EXPLAIN (FORMAT TEXT${analyze ? ', ANALYZE, BUFFERS' : ''}) ${sql}`
@@ -141,8 +135,7 @@ const DATABRICKS: DialectInfo = {
     ],
     catalogHint:
       'prefer them over querying information_schema or SHOW commands yourself',
-    supportsExplainAnalyze: false,
-    readOnlyEnforcement: 'client'
+    supportsExplainAnalyze: false
   },
   explainSql: (sql) => `EXPLAIN FORMATTED ${sql}`
 }

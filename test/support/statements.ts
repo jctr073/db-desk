@@ -21,7 +21,9 @@
  * several cases below are `permitted` by the read-only session yet still mutate.
  */
 
-export type StatementClass = 'read' | 'dml' | 'ddl' | 'unknown'
+import type { StatementClass } from '../../src/shared/sql'
+
+export type { StatementClass }
 
 export interface StatementCase {
   name: string
@@ -81,7 +83,7 @@ export const DML_CASES: StatementCase[] = [
     expected: 'dml',
     underReadOnly: 'rejected',
     mutates: false,
-    note: "statementModifiesData() calls this a read: the DML sits at paren depth 1 and scanTopLevel only looks at depth 0. Postgres's belt catches it; a classifier-only engine would not."
+    note: "The DML sits at paren depth 1, so the deleted statementModifiesData() (top-level scan only) called this a read; classifyStatement scans WITH bodies at every depth. Postgres's belt catches it either way; a classifier-only engine would not."
   },
   { name: 'EXPLAIN of an UPDATE', sql: "EXPLAIN UPDATE orders SET status = 'paid'", expected: 'dml', underReadOnly: 'permitted', mutates: false, note: 'Postgres plans it happily -- no execution, no mutation. We block it anyway (decision C): EXPLAIN ANALYZE of the same statement would execute it, and we do not want the distinction to rest on parsing option lists.' },
   { name: 'EXPLAIN ANALYZE of an UPDATE', sql: "EXPLAIN (ANALYZE) UPDATE orders SET status = 'paid'", expected: 'dml', underReadOnly: 'rejected', mutates: false, note: 'ANALYZE really executes it; only the read-only session stops the write.' },

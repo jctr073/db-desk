@@ -13,6 +13,7 @@ import type {
   QueryResult,
   TestResult
 } from '../shared/db'
+import { guardAgentStatement } from '../shared/sql'
 import { databricksDriver } from './drivers/databricks'
 import { postgresDriver, PG_READ_ONLY_VIOLATION_CODES } from './drivers/postgres'
 import type { Driver, RunQueryOptions } from './drivers/types'
@@ -100,6 +101,36 @@ export function runQuery(
   options: RunQueryOptions = {}
 ): Promise<DbResult<QueryResult>> {
   return driverFor(connId).runQuery(connId, database, sql, limit, options)
+}
+
+/** Options the agent channel accepts — deliberately no readOnly escape. */
+export interface AgentRunOptions {
+  timeoutMs?: number
+  onCancel?: (cancel: () => void) => void
+}
+
+export const AGENT_BLOCKED_CODE = 'AGENT_BLOCKED'
+
+/**
+ * The ONLY execution entry point for agent-originated SQL. Enforces
+ * guardAgentStatement (single, provably-read statement) before the driver
+ * runs it, and always runs the driver in readOnly mode as a second belt.
+ */
+export async function runAgentQuery(
+  connId: string,
+  database: string,
+  sql: string,
+  limit: number | null,
+  options: AgentRunOptions = {}
+): Promise<DbResult<QueryResult>> {
+  const guard = guardAgentStatement(sql)
+  if (!guard.ok) {
+    return { ok: false, error: guard.reason, code: AGENT_BLOCKED_CODE }
+  }
+  return driverFor(connId).runQuery(connId, database, sql, limit, {
+    ...options,
+    readOnly: true
+  })
 }
 
 export function describeTable(

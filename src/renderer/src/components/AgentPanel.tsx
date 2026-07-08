@@ -3,14 +3,19 @@ import type { KeyboardEvent, MutableRefObject, ReactElement } from 'react'
 
 import {
   AGENT_MODELS,
+  AGENT_MODES,
   DEFAULT_AGENT_MODEL,
-  agentContextKey
+  DEFAULT_AGENT_MODE,
+  agentContextKey,
+  resolveAgentMode
 } from '../../../shared/agent'
 import type {
   AgentContextItem,
   AgentEffort,
   AgentEvent,
   AgentKeyStatus,
+  AgentMode,
+  AgentModeOption,
   AgentModelOption
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
@@ -26,6 +31,7 @@ import {
   PlayIcon,
   PlusThinIcon,
   SearchIcon,
+  ShieldIcon,
   SparkleIcon,
   StopIcon
 } from './icons'
@@ -85,12 +91,6 @@ type ChatPart =
       status: 'running' | 'ok' | 'error'
       summary: string
     }
-  | {
-      kind: 'approval'
-      toolId: string
-      sql: string
-      status: 'pending' | 'approved' | 'denied'
-    }
   | { kind: 'error'; text: string }
 
 interface ChatMessage {
@@ -103,6 +103,8 @@ let idSeq = 0
 function nextId(prefix: string): string {
   return `${prefix}${++idSeq}`
 }
+
+const MODE_STORAGE_KEY = 'agent.mode'
 
 function targetKey(target: QueryTarget): string {
   return JSON.stringify([target.connId, target.database])
@@ -143,22 +145,6 @@ function updateTool(
       ...msg,
       parts: msg.parts.map((p) =>
         p.kind === 'tool' && p.toolId === toolId ? { ...p, ...patch } : p
-      )
-    }
-  })
-}
-
-function updateApproval(
-  messages: ChatMessage[],
-  match: (part: Extract<ChatPart, { kind: 'approval' }>) => boolean,
-  status: 'approved' | 'denied'
-): ChatMessage[] {
-  return messages.map((msg) => {
-    if (!msg.parts.some((p) => p.kind === 'approval' && match(p))) return msg
-    return {
-      ...msg,
-      parts: msg.parts.map((p) =>
-        p.kind === 'approval' && match(p) ? { ...p, status } : p
       )
     }
   })
@@ -243,6 +229,14 @@ export function AgentPanel({
   const [modelOpen, setModelOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerFilter, setPickerFilter] = useState('')
+  const [mode, setMode] = useState<AgentMode>(() => {
+    try {
+      return resolveAgentMode(localStorage.getItem(MODE_STORAGE_KEY))
+    } catch {
+      return DEFAULT_AGENT_MODE
+    }
+  })
+  const [modeOpen, setModeOpen] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const chatIdRef = useRef(chatId)
@@ -252,6 +246,8 @@ export function AgentPanel({
 
   const model =
     AGENT_MODELS.find((m) => m.id === modelId) ?? DEFAULT_AGENT_MODEL
+  const modeOption =
+    AGENT_MODES.find((m) => m.id === mode) ?? AGENT_MODES[0]
   const target = targets.find((t) => targetKey(t) === selectedTargetKey) ?? null
 
   // Keep the target selection valid as connections come and go.
@@ -303,17 +299,6 @@ export function AgentPanel({
             })
           )
           break
-        case 'approval_request':
-          setThinking(false)
-          setMessages((prev) =>
-            appendPart(prev, {
-              kind: 'approval',
-              toolId: evt.toolId,
-              sql: evt.sql,
-              status: 'pending'
-            })
-          )
-          break
         case 'ran_query': {
           const t = evt.target
           onAgentQueryRef.current(
@@ -335,10 +320,6 @@ export function AgentPanel({
         case 'done':
           setBusy(false)
           setThinking(false)
-          // A pending approval can no longer be answered once the turn ends.
-          setMessages((prev) =>
-            updateApproval(prev, (p) => p.status === 'pending', 'denied')
-          )
           if (evt.stopReason === 'refusal') {
             setMessages((prev) =>
               appendPart(prev, {
@@ -352,10 +333,7 @@ export function AgentPanel({
           setBusy(false)
           setThinking(false)
           setMessages((prev) =>
-            appendPart(
-              updateApproval(prev, (p) => p.status === 'pending', 'denied'),
-              { kind: 'error', text: evt.message }
-            )
+            appendPart(prev, { kind: 'error', text: evt.message })
           )
           break
       }
@@ -378,16 +356,17 @@ export function AgentPanel({
 
   // Escape dismisses whichever popover is open.
   useEffect(() => {
-    if (!modelOpen && !pickerOpen) return
+    if (!modelOpen && !pickerOpen && !modeOpen) return
     const onKey = (e: globalThis.KeyboardEvent): void => {
       if (e.key === 'Escape') {
         setModelOpen(false)
         setPickerOpen(false)
+        setModeOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [modelOpen, pickerOpen])
+  }, [modelOpen, pickerOpen, modeOpen])
 
   const openPicker = useCallback(() => {
     setPickerFilter('')
@@ -401,6 +380,17 @@ export function AgentPanel({
       cur && next.efforts.includes(cur) ? cur : next.defaultEffort
     )
     setModelOpen(false)
+  }, [])
+
+  const pickMode = useCallback((next: AgentModeOption) => {
+    if (!next.enabled) return
+    setMode(next.id)
+    try {
+      localStorage.setItem(MODE_STORAGE_KEY, next.id)
+    } catch {
+      // Persistence is best-effort.
+    }
+    setModeOpen(false)
   }, [])
 
   /** Everything in the target database the picker can attach, filtered. */
@@ -456,6 +446,7 @@ export function AgentPanel({
       prompt,
       model: model.id,
       effort: effort && model.efforts.includes(effort) ? effort : null,
+      mode,
       target: target
         ? {
             connId: target.connId,
@@ -466,21 +457,7 @@ export function AgentPanel({
       editor,
       context
     })
-  }, [input, busy, chatId, model, effort, target, editorBridge, context])
-
-  const answerApproval = useCallback(
-    (toolId: string, approved: boolean) => {
-      setMessages((prev) =>
-        updateApproval(
-          prev,
-          (p) => p.toolId === toolId,
-          approved ? 'approved' : 'denied'
-        )
-      )
-      void window.dbDesk.agent.approve(chatId, toolId, approved)
-    },
-    [chatId]
-  )
+  }, [input, busy, chatId, model, effort, mode, target, editorBridge, context])
 
   const stop = useCallback(() => {
     void window.dbDesk.agent.stop(chatId)
@@ -562,6 +539,54 @@ export function AgentPanel({
                 </option>
               ))}
             </select>
+            <div className="mode-ctl">
+              <button
+                type="button"
+                className="model-pill"
+                title="Agent access mode"
+                onClick={() => setModeOpen((open) => !open)}
+              >
+                <ShieldIcon size={12} />
+                <span className="model-pill__name">{modeOption.label}</span>
+                <ChevronDownIcon size={10} />
+              </button>
+              {modeOpen && (
+                <>
+                  <div
+                    className="ctx-overlay"
+                    onMouseDown={() => setModeOpen(false)}
+                  />
+                  <div className="model-pop mode-pop">
+                    {AGENT_MODES.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className={`model-pop__row mode-pop__row${m.id === mode ? ' is-active' : ''}`}
+                        disabled={!m.enabled}
+                        title={
+                          m.id === 'write-admin'
+                            ? 'Structure and data changes by the agent are disabled in this version.'
+                            : undefined
+                        }
+                        onClick={() => pickMode(m)}
+                      >
+                        <span className="mode-pop__text">
+                          <span className="mode-pop__label">{m.label}</span>
+                          <span className="mode-pop__desc">
+                            {m.description}
+                          </span>
+                        </span>
+                        {m.id === mode && <CheckIcon size={13} />}
+                      </button>
+                    ))}
+                    <div className="mode-pop__note">
+                      For maximum safety, connect with a read-only database
+                      role.
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           {keyMissing && (
             <div className="chat__notice">
@@ -574,10 +599,9 @@ export function AgentPanel({
               <div className="chat__empty">
                 <SparkleIcon size={18} />
                 <p>
-                  Describe the data you need and I&apos;ll write the SQL. I can
-                  see the schema of the selected database and your active editor
-                  file, and I can run read-only queries to verify results —
-                  changes to your data always ask for approval first.
+                  {mode === 'read-only'
+                    ? "Describe the data you need and I'll write the SQL. I can see the schema and run read-only queries to verify results. Changing data or schema is blocked."
+                    : "Describe the data you need and I'll write the SQL. I can see the schema of the selected database and your active editor file. I never execute anything — you run the SQL."}
                 </p>
               </div>
             )}
@@ -613,40 +637,6 @@ export function AgentPanel({
                             ? 'running…'
                             : part.summary}
                         </span>
-                      </div>
-                    )
-                  }
-                  if (part.kind === 'approval') {
-                    return (
-                      <div
-                        key={i}
-                        className={`chat-approval chat-approval--${part.status}`}
-                      >
-                        <div className="chat-approval__title">
-                          This statement modifies the database
-                        </div>
-                        <pre>{part.sql}</pre>
-                        {part.status === 'pending' ? (
-                          <div className="chat-approval__actions">
-                            <button
-                              type="button"
-                              className="btn-run"
-                              onClick={() => answerApproval(part.toolId, true)}
-                            >
-                              Run it
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => answerApproval(part.toolId, false)}
-                            >
-                              Deny
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="chat-approval__status">
-                            {part.status === 'approved' ? 'Approved' : 'Denied'}
-                          </div>
-                        )}
                       </div>
                     )
                   }
