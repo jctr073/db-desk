@@ -1,0 +1,32 @@
+# Disposable PostgreSQL for DB Desk's integration tests.
+#
+#   npm run db:up      start (waits for the seed to finish)
+#   npm run db:down    stop and discard
+#
+# The data directory is a tmpfs, so every `up` starts from the seed in
+# ./seed and no state survives a `down`. Nothing here is reachable from
+# the app unless you add a connection pointing at port 55432.
+name: db-desk-test
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: db-desk-test-pg
+    environment:
+      POSTGRES_USER: dbdesk
+      POSTGRES_PASSWORD: dbdesk
+      POSTGRES_DB: dbdesk_test
+    ports:
+      - '${DBDESK_TEST_PG_PORT:-55432}:5432'
+    volumes:
+      - ./seed:/docker-entrypoint-initdb.d:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      # -h forces TCP: during init the server listens only on the unix
+      # socket, so a socket-based pg_isready would pass before the seed
+      # scripts have run.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U dbdesk -d dbdesk_test']
+      interval: 1s
+      timeout: 3s
+      retries: 40

@@ -30,7 +30,7 @@ import type {
   SchemaIntrospection,
   TestResult
 } from '../../shared/db'
-import { applyAutoLimit, splitStatements, statementModifiesData } from '../../shared/sql'
+import { applyAutoLimit, classifyStatement, splitStatements } from '../../shared/sql'
 import type { Driver, RunQueryOptions } from './types'
 import { WRITE_REQUIRED_CODE } from './types'
 
@@ -591,7 +591,9 @@ async function runQuery(
     return { ok: false, error: 'No statement to execute' }
   }
   if (options.readOnly) {
-    const write = statements.find((span) => statementModifiesData(span.text))
+    const write = statements.find(
+      (span) => classifyStatement(span.text) !== 'read'
+    )
     if (write) {
       return {
         ok: false,

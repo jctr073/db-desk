@@ -1792,61 +1792,6 @@ body.is-col-resizing {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.chat-approval {
-  border: 1px solid rgba(255, 179, 71, 0.5);
-  border-radius: 7px;
-  background: rgba(255, 179, 71, 0.08);
-  overflow: hidden;
-}
-.chat-approval__title {
-  padding: 6px 10px 0;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text);
-}
-.chat-approval pre {
-  margin: 0;
-  padding: 6px 10px 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  line-height: 1.55;
-  overflow-x: auto;
-  white-space: pre;
-}
-.chat-approval__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  padding: 5px 8px;
-  border-top: 1px solid var(--border-soft);
-}
-.chat-approval__actions button {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 3px 10px;
-  border-radius: 5px;
-}
-.chat-approval__actions button:hover {
-  background: var(--panel-hi);
-}
-.chat-approval__actions .btn-run {
-  border: none;
-}
-.chat-approval__status {
-  padding: 5px 10px;
-  border-top: 1px solid var(--border-soft);
-  font-size: 11px;
-  color: var(--text-faint);
-  text-align: right;
-}
-.chat-approval--denied {
-  border-color: var(--border);
-  background: transparent;
-}
 .chat__thinking {
   color: var(--text-faint);
   font-size: 11px;
@@ -2000,6 +1945,7 @@ body.is-col-resizing {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
 }
@@ -2151,6 +2097,53 @@ body.is-col-resizing {
 .model-pop__seg.is-active {
   background: var(--accent);
   color: #fff;
+}
+
+/* Agent access-mode pill and popover, in the target bar (design 1b, mirrored). */
+.mode-ctl {
+  position: relative;
+  flex: 0 0 auto;
+}
+.mode-pop {
+  top: 34px;
+  bottom: auto;
+  left: auto;
+  right: 0;
+  width: 260px;
+}
+.mode-pop__row {
+  gap: 10px;
+}
+.mode-pop__row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.mode-pop__row:disabled:hover {
+  background: transparent;
+}
+.mode-pop__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mode-pop__label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.mode-pop__desc {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+.mode-pop__note {
+  margin-top: 4px;
+  padding: 8px 9px 2px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 10px;
+  color: var(--text-faint);
+  line-height: 1.4;
 }
 
 /* "Add context" picker: schema objects of the selected target. */

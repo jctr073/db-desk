@@ -142,6 +142,8 @@ interface TopLevelScan {
   firstWord: string
   /** Every keyword appearing outside parentheses, lowercased. */
   topWords: Set<string>
+  /** Every keyword at any parenthesis depth, lowercased. */
+  allWords: Set<string>
   /** True when a top-level semicolon is followed by more code. */
   multi: boolean
 }
@@ -153,6 +155,7 @@ function scanTopLevel(sql: string): TopLevelScan {
   let word = ''
   let firstWord = ''
   const topWords = new Set<string>()
+  const allWords = new Set<string>()
   let multi = false
   for (let i = 0; i <= sql.length; i++) {
     const isCode = i < sql.length && mask[i]
@@ -165,6 +168,7 @@ function scanTopLevel(sql: string): TopLevelScan {
       const lower = word.toLowerCase()
       word = ''
       if (!firstWord) firstWord = lower
+      allWords.add(lower)
       if (depth === 0) topWords.add(lower)
     }
     if (!isCode) continue
@@ -172,34 +176,154 @@ function scanTopLevel(sql: string): TopLevelScan {
     else if (ch === ')') depth = Math.max(0, depth - 1)
     else if (ch === ';' && sql.slice(i + 1).trim()) multi = true
   }
-  return { firstWord, topWords, multi }
+  return { firstWord, topWords, allWords, multi }
 }
 
-/** Statement keywords that only ever read (or inspect) data. */
-const READ_STARTERS = new Set([
-  'select',
-  'table',
-  'values',
-  'with',
-  'show',
-  'describe',
-  'desc',
-  'explain'
+export type StatementClass =
+  | 'read' // provably read-only; the ONLY class the agent channel executes
+  | 'dml' // INSERT / UPDATE / DELETE / MERGE / TRUNCATE / COPY
+  | 'ddl' // CREATE / ALTER / DROP / GRANT / REVOKE / COMMENT / RENAME / ...
+  | 'unknown' // everything else: SET, BEGIN, CALL, USE, multi-statement, ...
+
+const DML_STARTERS = new Set([
+  'insert',
+  'update',
+  'delete',
+  'merge',
+  'truncate',
+  'copy'
+])
+
+const DDL_STARTERS = new Set([
+  'create',
+  'alter',
+  'drop',
+  'grant',
+  'revoke',
+  'comment',
+  'rename',
+  'refresh',
+  'vacuum',
+  'reindex',
+  'cluster',
+  'optimize',
+  'msck',
+  'import'
+])
+
+/** Bare option keywords that may sit between EXPLAIN and its statement. */
+const EXPLAIN_OPTIONS = new Set([
+  'analyze',
+  'verbose',
+  'costs',
+  'settings',
+  'buffers',
+  'wal',
+  'timing',
+  'summary',
+  'formatted',
+  'extended',
+  'codegen',
+  'cost'
 ])
 
 /**
- * Best-effort classification of a statement as data/schema-modifying, for
- * engines without a server-enforced read-only session mode (Databricks).
- * Anything not provably a read counts as a write, so unknown statements err
- * on the side of asking for approval.
+ * The statement following an EXPLAIN prefix: strips the keyword itself, an
+ * optional balanced `( ... )` options group, and any run of bare option
+ * keywords. Returns '' when nothing follows.
  */
-export function statementModifiesData(sql: string): boolean {
-  const { firstWord, topWords, multi } = scanTopLevel(sql)
-  if (!firstWord) return false
-  if (multi) return true
-  if (!READ_STARTERS.has(firstWord)) return true
-  // WITH ... INSERT/UPDATE/DELETE/MERGE writes despite the read-ish starter.
-  return firstWord === 'with' && [...DML].some((kw) => topWords.has(kw))
+function stripExplainPrefix(sql: string): string {
+  const mask = computeCodeMask(sql)
+  const n = sql.length
+  let i = 0
+  const skipToCode = (): void => {
+    while (i < n && (!mask[i] || /\s/.test(sql[i]))) i++
+  }
+  const readWord = (): string => {
+    let w = ''
+    while (i < n && mask[i] && isWordChar(sql[i])) w += sql[i++]
+    return w
+  }
+  skipToCode()
+  readWord() // the EXPLAIN keyword itself
+  skipToCode()
+  if (i < n && sql[i] === '(') {
+    let depth = 0
+    while (i < n) {
+      if (mask[i] && sql[i] === '(') depth++
+      else if (mask[i] && sql[i] === ')' && --depth === 0) {
+        i++
+        break
+      }
+      i++
+    }
+  }
+  for (;;) {
+    skipToCode()
+    const wordStart = i
+    const word = readWord()
+    if (!word) return sql.slice(i)
+    if (!EXPLAIN_OPTIONS.has(word.toLowerCase())) return sql.slice(wordStart)
+  }
+}
+
+/**
+ * Allowlist classification of a single statement. `read` is the only class
+ * the agent execution channel will run; `dml`/`ddl`/`unknown` are all equally
+ * blocked and differ only in the error message. Misclassifying a write as
+ * `read` is a security bug; the reverse merely makes the agent rephrase.
+ */
+export function classifyStatement(sql: string): StatementClass {
+  const { firstWord, topWords, allWords, multi } = scanTopLevel(sql)
+  // Empty or comment-only input executes nothing; let the driver no-op.
+  if (!firstWord) return 'read'
+  if (multi) return 'unknown'
+  if (DML_STARTERS.has(firstWord)) return 'dml'
+  if (DDL_STARTERS.has(firstWord)) return 'ddl'
+  if (STARTERS.has(firstWord)) {
+    // Data-modifying CTEs may sit inside the parenthesized CTE body, so the
+    // WITH scan must cover every depth, not just the top level.
+    if (firstWord === 'with' && [...DML].some((kw) => allWords.has(kw))) {
+      return 'dml'
+    }
+    if (topWords.has('into')) return 'ddl' // SELECT ... INTO t creates a table
+    if (topWords.has('for')) return 'unknown' // FOR UPDATE/SHARE take row locks
+    return 'read'
+  }
+  if (firstWord === 'show' || firstWord === 'describe' || firstWord === 'desc') {
+    return 'read'
+  }
+  if (firstWord === 'explain') return classifyStatement(stripExplainPrefix(sql))
+  return 'unknown'
+}
+
+export type AgentGuardResult =
+  | { ok: true }
+  | { ok: false; reason: string; cls: StatementClass | 'multi' | 'empty' }
+
+/** Model-facing refusal copy, keyed by why the statement was blocked. */
+const BLOCKED_REASONS: Record<'dml' | 'ddl' | 'unknown' | 'multi', string> = {
+  dml: 'Blocked: this statement modifies data. The agent is read-only; write the SQL to the editor for the user to review and run.',
+  ddl: 'Blocked: this statement changes database structure. The agent cannot run DDL; write the SQL to the editor for the user to review and run.',
+  unknown:
+    'Blocked: only read-only statements (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) can be executed. Write other SQL to the editor for the user to run.',
+  multi: 'Blocked: send exactly one statement per run_sql call.'
+}
+
+/** The wall: exactly one statement, and it must classify as 'read'. */
+export function guardAgentStatement(sql: string): AgentGuardResult {
+  const statements = splitStatements(sql)
+  if (statements.length === 0) {
+    return { ok: false, cls: 'empty', reason: 'No statement to execute.' }
+  }
+  if (statements.length > 1) {
+    return { ok: false, cls: 'multi', reason: BLOCKED_REASONS.multi }
+  }
+  const cls = classifyStatement(statements[0].text)
+  if (cls !== 'read') {
+    return { ok: false, cls, reason: BLOCKED_REASONS[cls] }
+  }
+  return { ok: true }
 }
 
 /**

@@ -37,7 +37,7 @@ limit); statements that can't take an appended LIMIT are truncated to the same
 cap after execution.
 
 The right-hand panel's **AI Agent** tab turns prompts into SQL. It reads
-`ANTHROPIC_API_KEY` from `~/.zshrc` (re-read on every request, so no restart is
+`CLAUDE_API_KEY` from `~/.zshrc` (re-read on every request, so no restart is
 needed after editing it), and offers a model and reasoning-effort picker,
 defaulting to Opus 4.8 at `xhigh` effort. Chat history streams per-session with
 a live "thinking" indicator and a Stop button to cancel mid-response. Each turn
@@ -51,14 +51,26 @@ drops them into the editor at the cursor, and the agent itself writes its final
 query into the editor through a `write_to_editor` tool when it finishes an
 answer.
 
-The agent can run queries against the selected database through a `run_sql`
-tool to validate its work — every run also lands in the results grid as a
-pinned tab so you can verify the output yourself. Agent statements execute in
-a read-only session with a 30-second statement timeout; anything that would
-modify data or schema is rejected — server-side for PostgreSQL
-(`default_transaction_read_only`), client-side by statement classification for
-Databricks — and surfaces as an approval card in the chat, so writes only run
-after an explicit Run it/Deny decision. Where the engine supports it, Stop
+The agent panel's mode picker offers three access modes: **Metadata Only**
+(default) — "Writes SQL from the schema tree. Never executes anything on the
+database."; **Read-Only** — "Runs read-only queries to inspect schema and live
+data. Writes are blocked."; and **Write/Admin** — "Can change data and schema
+(DML/DDL). Disabled in this version." Write/Admin is shown in the picker but
+greyed out and unselectable in this release. In Read-Only mode the agent can
+run queries against the selected database through a `run_sql` tool to
+validate its work — every run also lands in the results grid as a pinned tab
+so you can verify the output yourself, and each statement runs with a
+30-second timeout. Agent SQL reaches the database only
+through a guarded channel that allows exactly one statement per call and
+refuses anything not provably read-only (an allowlist classifier over
+SELECT/WITH/SHOW/DESCRIBE and EXPLAIN-of-reads); PostgreSQL additionally runs
+agent statements under a server-side read-only session
+(`default_transaction_read_only`) as a second belt, catching cases the
+client-side classifier can't see (e.g. a `SELECT` that calls a volatile,
+data-writing function). There is no approval or escalation flow — if you want
+a change made, the agent writes the SQL to the editor via `write_to_editor`
+for you to review and run yourself. For maximum safety, connect with a
+read-only database role. Where the engine supports it, Stop
 cancels the in-flight statement on the server (`pg_cancel_backend` for
 PostgreSQL), not just the response stream. Generated SQL is targeted at the
 selected connection's dialect (PostgreSQL vs. Databricks/Spark SQL), so the
@@ -97,7 +109,31 @@ npm run build     # Typecheck and build production assets
 npm run preview   # Run the built Electron app
 npm run lint      # Run ESLint
 npm run format    # Format project files with Prettier
+npm test          # Run all tests (unit + integration; starts the test DB)
+npm run test:unit # Fast unit tests only (no Docker required)
 ```
+
+## Testing
+
+Unit tests are plain [vitest](https://vitest.dev) and need nothing running.
+
+Integration tests exercise the real database drivers against a disposable
+PostgreSQL in Docker (`test/docker-compose.yml`), used chiefly to prove the AI
+agent's read-only safety rules against a live engine. `npm test` (and
+`npm run test:integration`) start and seed the container automatically via
+vitest's global setup; you can also manage it directly:
+
+```bash
+npm run db:up     # start postgres:17-alpine on localhost:55432 (seeded)
+npm run db:psql   # open psql against the test database
+npm run db:down   # stop and discard it (data is tmpfs — nothing persists)
+```
+
+The container is isolated from the app: it is reachable only if you add a
+connection pointing at port 55432. Override the port with
+`DBDESK_TEST_PG_PORT`; set `DBDESK_TEST_NO_DOCKER=1` to run the integration
+suite against a Postgres you manage yourself. See `docs/agent-modes.md` §8 for
+what the suite verifies.
 
 ## Project Structure
 
@@ -149,6 +185,14 @@ src/
         TreeRow.tsx
         NodeIcon.tsx
         NewConnectionDialog.tsx
+test/
+  docker-compose.yml       # disposable postgres:17-alpine for integration tests
+  seed/                    # schema + idempotent data seed (storefront: customers/orders/order_items)
+  support/statements.ts    # shared statement corpus: expected class + observed engine behaviour
+  unit/                    # vitest unit tests (no Docker)
+  integration/
+    support/               # test DB harness: config, global setup, driver wrappers
+    postgres/              # driver behaviour vs. a real read-only session + read-only role
 ```
 
 ## Monaco Notes

@@ -19,7 +19,9 @@ export interface RunQueryOptions {
    * server-side (default_transaction_read_only); Databricks classifies the
    * statement client-side before execution. Violations come back as a
    * DbResult error whose code satisfies isReadOnlyViolation, without the
-   * statement taking effect.
+   * statement taking effect. For agent-originated SQL this is a second belt
+   * behind runAgentQuery's allowlist guard — the primary wall — and is no
+   * longer associated with any approval flow.
    */
   readOnly?: boolean
   /** Statement timeout applied for the duration of this call. */

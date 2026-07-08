@@ -11,8 +11,10 @@ export default tseslint.config(
   {
     files: [
       'electron.vite.config.ts',
+      'vitest.config.ts',
       'src/main/**/*.ts',
-      'src/preload/**/*.ts'
+      'src/preload/**/*.ts',
+      'test/**/*.ts'
     ],
     languageOptions: {
       globals: {
@@ -35,6 +37,24 @@ export default tseslint.config(
         {
           argsIgnorePattern: '^_',
           varsIgnorePattern: '^_'
+        }
+      ]
+    }
+  },
+  {
+    files: ['src/main/agent.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: './db',
+              importNames: ['runQuery'],
+              message:
+                'Agent code must use runAgentQuery — the guarded read-only channel.'
+            }
+          ]
         }
       ]
     }
