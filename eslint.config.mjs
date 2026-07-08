@@ -11,8 +11,10 @@ export default tseslint.config(
   {
     files: [
       'electron.vite.config.ts',
+      'vitest.config.ts',
       'src/main/**/*.ts',
-      'src/preload/**/*.ts'
+      'src/preload/**/*.ts',
+      'test/**/*.ts'
     ],
     languageOptions: {
       globals: {

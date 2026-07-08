@@ -97,7 +97,31 @@ npm run build     # Typecheck and build production assets
 npm run preview   # Run the built Electron app
 npm run lint      # Run ESLint
 npm run format    # Format project files with Prettier
+npm test          # Run all tests (unit + integration; starts the test DB)
+npm run test:unit # Fast unit tests only (no Docker required)
 ```
+
+## Testing
+
+Unit tests are plain [vitest](https://vitest.dev) and need nothing running.
+
+Integration tests exercise the real database drivers against a disposable
+PostgreSQL in Docker (`test/docker-compose.yml`), used chiefly to prove the AI
+agent's read-only safety rules against a live engine. `npm test` (and
+`npm run test:integration`) start and seed the container automatically via
+vitest's global setup; you can also manage it directly:
+
+```bash
+npm run db:up     # start postgres:17-alpine on localhost:55432 (seeded)
+npm run db:psql   # open psql against the test database
+npm run db:down   # stop and discard it (data is tmpfs — nothing persists)
+```
+
+The container is isolated from the app: it is reachable only if you add a
+connection pointing at port 55432. Override the port with
+`DBDESK_TEST_PG_PORT`; set `DBDESK_TEST_NO_DOCKER=1` to run the integration
+suite against a Postgres you manage yourself. See `docs/agent-modes.md` §8 for
+what the suite verifies.
 
 ## Project Structure
 
@@ -149,6 +173,14 @@ src/
         TreeRow.tsx
         NodeIcon.tsx
         NewConnectionDialog.tsx
+test/
+  docker-compose.yml       # disposable postgres:17-alpine for integration tests
+  seed/                    # schema + idempotent data seed (storefront: customers/orders/order_items)
+  support/statements.ts    # shared statement corpus: expected class + observed engine behaviour
+  unit/                    # vitest unit tests (no Docker)
+  integration/
+    support/               # test DB harness: config, global setup, driver wrappers
+    postgres/              # driver behaviour vs. a real read-only session + read-only role
 ```
 
 ## Monaco Notes

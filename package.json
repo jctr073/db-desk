@@ -10,7 +10,13 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p src/renderer/tsconfig.json",
     "preview": "electron-vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "db:up": "docker compose -f test/docker-compose.yml up -d --wait",
+    "db:down": "docker compose -f test/docker-compose.yml down -v",
+    "db:psql": "docker exec -it db-desk-test-pg psql -U dbdesk -d dbdesk_test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
@@ -35,6 +41,7 @@
     "prettier": "^3.9.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.62.1",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
   }
 }
