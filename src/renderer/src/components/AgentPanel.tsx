@@ -22,6 +22,7 @@ import type {
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import { NodeIcon } from '../connections/NodeIcon'
+import { highlightSql, stripSqlComments } from '../sql/highlight'
 import type { FileState } from '../files/useFileState'
 import type { EditorBridge } from './editorBridge'
 import type { QueryTarget } from './useQueryRunner'
@@ -168,6 +169,24 @@ function splitFences(text: string): { code: boolean; body: string }[] {
   })
 }
 
+/** SQL text with editor-palette token coloring (see --sql-* tokens). */
+function SqlCode({ sql }: { sql: string }): ReactElement {
+  const segments = useMemo(() => highlightSql(sql), [sql])
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.cls ? (
+          <span key={i} className={`sql-${seg.cls}`}>
+            {seg.text}
+          </span>
+        ) : (
+          seg.text
+        )
+      )}
+    </>
+  )
+}
+
 function AssistantText({
   text,
   onInsert
@@ -180,7 +199,9 @@ function AssistantText({
       {splitFences(text).map((seg, i) =>
         seg.code ? (
           <div key={i} className="chat-sql">
-            <pre>{seg.body.trimEnd()}</pre>
+            <pre>
+              <SqlCode sql={seg.body.trimEnd()} />
+            </pre>
             <div className="chat-sql__actions">
               <button
                 type="button"
@@ -760,7 +781,12 @@ export function AgentPanel({
                       >
                         <PlayIcon size={9} />
                         <code>
-                          {part.sql.replace(/\s+/g, ' ').slice(0, 60)}
+                          <SqlCode
+                            sql={stripSqlComments(part.sql)
+                              .replace(/\s+/g, ' ')
+                              .trim()
+                              .slice(0, 60)}
+                          />
                         </code>
                         <span className="chat-tool__summary">
                           {part.status === 'running'
