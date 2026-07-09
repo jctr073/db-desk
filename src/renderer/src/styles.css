@@ -2017,6 +2017,63 @@ body.is-col-resizing {
   background: color-mix(in srgb, var(--accent) 14%, var(--panel));
   color: var(--accent-strong);
 }
+/* MCP split control: plug opens settings, chevron lists connected servers. */
+.mcp-ctl {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.mcp-ctl__plug {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.mcp-ctl__chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 0 8px 8px 0;
+  border: 1px solid var(--border);
+  border-left: none;
+  background: var(--panel);
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 0;
+}
+.mcp-ctl__chev:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.mcp-pop {
+  left: auto;
+  right: 0;
+  width: 240px;
+}
+.mcp-pop__row {
+  justify-content: flex-start;
+  gap: 8px;
+}
+.mcp-pop__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-pop__state {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.mcp-pop__empty {
+  padding: 2px 9px 8px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
 .chat__target-bar {
   flex: 0 0 auto;
   display: flex;
