@@ -989,16 +989,24 @@ async function runAgentTurn(
           })
         }
         if (block.type === 'web_search_tool_result') {
-          const ok = Array.isArray(block.content)
-          send({
-            type: 'tool_result',
-            chatId: req.chatId,
-            toolId: block.tool_use_id,
-            ok,
-            summary: ok
-              ? `${block.content.length} result${block.content.length === 1 ? '' : 's'}`
-              : `search failed: ${block.content.error_code}`
-          })
+          const content = block.content
+          send(
+            Array.isArray(content)
+              ? {
+                  type: 'tool_result',
+                  chatId: req.chatId,
+                  toolId: block.tool_use_id,
+                  ok: true,
+                  summary: `${content.length} result${content.length === 1 ? '' : 's'}`
+                }
+              : {
+                  type: 'tool_result',
+                  chatId: req.chatId,
+                  toolId: block.tool_use_id,
+                  ok: false,
+                  summary: `search failed: ${content.error_code}`
+                }
+          )
         }
       })
       stream.on('streamEvent', (evt) => {
