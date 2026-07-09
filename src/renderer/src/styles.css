@@ -1980,6 +1980,49 @@ body.is-col-resizing {
   cursor: default;
 }
 
+/* Ring gauge showing context-window usage. */
+.context-gauge {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+}
+.context-gauge svg {
+  display: block;
+}
+.context-gauge__track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2;
+}
+.context-gauge__fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset 0.4s ease,
+    stroke 0.4s ease;
+}
+.context-gauge.is-warn .context-gauge__fill {
+  stroke: var(--amber);
+}
+.context-gauge.is-danger .context-gauge__fill {
+  stroke: var(--red);
+}
+.context-gauge__label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text-dim);
+  user-select: none;
+}
+
 /* Compact model + effort pill and its popover (design 1b). */
 .model-ctl {
   position: relative;

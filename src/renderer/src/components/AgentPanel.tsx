@@ -201,6 +201,41 @@ function AssistantText({
   )
 }
 
+const GAUGE_RADIUS = 11
+const GAUGE_CIRCUMFERENCE = 2 * Math.PI * GAUGE_RADIUS
+
+/** Ring gauge showing how full the model's context window is. */
+function ContextGauge({
+  tokens,
+  windowSize
+}: {
+  tokens: number
+  windowSize: number
+}): ReactElement {
+  const percent = Math.min(100, Math.round((tokens / windowSize) * 100))
+  const level = percent >= 90 ? ' is-danger' : percent >= 70 ? ' is-warn' : ''
+  return (
+    <div
+      className={`context-gauge${level}`}
+      title={`Context: ${tokens.toLocaleString()} of ${windowSize.toLocaleString()} tokens (${percent}%)`}
+    >
+      <svg viewBox="0 0 26 26" width={26} height={26}>
+        <circle className="context-gauge__track" cx="13" cy="13" r={GAUGE_RADIUS} />
+        <circle
+          className="context-gauge__fill"
+          cx="13"
+          cy="13"
+          r={GAUGE_RADIUS}
+          strokeDasharray={GAUGE_CIRCUMFERENCE}
+          strokeDashoffset={GAUGE_CIRCUMFERENCE * (1 - percent / 100)}
+          transform="rotate(-90 13 13)"
+        />
+      </svg>
+      <span className="context-gauge__label">{percent}%</span>
+    </div>
+  )
+}
+
 export function AgentPanel({
   files,
   connNames,
@@ -218,6 +253,7 @@ export function AgentPanel({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
   const [thinking, setThinking] = useState(false)
+  const [contextTokens, setContextTokens] = useState(0)
   const [modelId, setModelId] = useState(DEFAULT_AGENT_MODEL.id)
   const [effort, setEffort] = useState<AgentEffort | null>(
     DEFAULT_AGENT_MODEL.defaultEffort
@@ -321,6 +357,7 @@ export function AgentPanel({
         case 'done':
           setBusy(false)
           setThinking(false)
+          if (evt.contextTokens !== null) setContextTokens(evt.contextTokens)
           if (evt.stopReason === 'refusal') {
             setMessages((prev) =>
               appendPart(prev, {
@@ -470,6 +507,7 @@ export function AgentPanel({
     setMessages([])
     setBusy(false)
     setThinking(false)
+    setContextTokens(0)
   }, [chatId])
 
   const onComposerKeyDown = useCallback(
@@ -785,6 +823,10 @@ export function AgentPanel({
                     </>
                   )}
                 </div>
+                <ContextGauge
+                  tokens={contextTokens}
+                  windowSize={model.contextWindow}
+                />
                 <div className="composer__spacer" />
                 {busy ? (
                   <button

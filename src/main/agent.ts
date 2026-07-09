@@ -915,6 +915,10 @@ async function runAgentTurn(
 
   chat.messages.push({ role: 'user', content: req.prompt })
 
+  // Latest known context occupancy, updated after every API call so the
+  // renderer's gauge stays accurate even when the turn aborts mid-loop.
+  let contextTokens: number | null = null
+
   try {
     for (;;) {
       setCacheBreakpoint(chat.messages)
@@ -951,6 +955,12 @@ async function runAgentTurn(
       })
 
       const message = await stream.finalMessage()
+      const usage = message.usage
+      contextTokens =
+        usage.input_tokens +
+        (usage.cache_read_input_tokens ?? 0) +
+        (usage.cache_creation_input_tokens ?? 0) +
+        usage.output_tokens
       chat.messages.push({ role: 'assistant', content: message.content })
 
       if (message.stop_reason === 'pause_turn') continue
@@ -989,7 +999,8 @@ async function runAgentTurn(
       send({
         type: 'done',
         chatId: req.chatId,
-        stopReason: message.stop_reason
+        stopReason: message.stop_reason,
+        contextTokens
       })
       return
     }
@@ -998,7 +1009,12 @@ async function runAgentTurn(
       err instanceof Anthropic.APIUserAbortError ||
       controller.signal.aborted
     ) {
-      send({ type: 'done', chatId: req.chatId, stopReason: 'aborted' })
+      send({
+        type: 'done',
+        chatId: req.chatId,
+        stopReason: 'aborted',
+        contextTokens
+      })
       return
     }
     const message =
