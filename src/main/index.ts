@@ -10,6 +10,7 @@ import {
   testConnection
 } from './db'
 import { registerAgentHandlers } from './agent'
+import { registerMcpHandlers, stopAllMcpServers } from './mcp'
 import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
 import {
   listQueries,
@@ -147,6 +148,7 @@ app.whenReady().then(() => {
   registerDbHandlers()
   registerFileHandlers()
   registerAgentHandlers(() => mainWindow)
+  registerMcpHandlers(() => mainWindow)
   createWindow()
 
   app.on('activate', () => {
@@ -164,4 +166,5 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   void disconnectAll()
+  void stopAllMcpServers()
 })

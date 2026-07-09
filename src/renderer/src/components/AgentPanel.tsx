@@ -21,6 +21,7 @@ import type {
   AgentModelOption
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
+import type { McpServerStatus } from '../../../shared/mcp'
 import { NodeIcon } from '../connections/NodeIcon'
 import { highlightSql, stripSqlComments } from '../sql/highlight'
 import type { FileState } from '../files/useFileState'
@@ -33,6 +34,7 @@ import {
   CloseIcon,
   GlobeIcon,
   PlayIcon,
+  PlugIcon,
   PlusThinIcon,
   SearchIcon,
   ShieldIcon,
@@ -40,6 +42,7 @@ import {
   StopIcon
 } from './icons'
 import { FilesPanel } from './FilesPanel'
+import { McpSettingsDialog } from './McpSettingsDialog'
 
 interface AgentPanelProps {
   files: FileState
@@ -300,6 +303,9 @@ export function AgentPanel({
     }
   })
   const [modeOpen, setModeOpen] = useState(false)
+  const [mcpOpen, setMcpOpen] = useState(false)
+  const [mcpMenuOpen, setMcpMenuOpen] = useState(false)
+  const [mcpStatuses, setMcpStatuses] = useState<McpServerStatus[]>([])
   // Off by default: web browsing is opt-in per session.
   const [webSearch, setWebSearch] = useState(false)
 
@@ -329,6 +335,11 @@ export function AgentPanel({
 
   useEffect(() => {
     void window.dbDesk.agent.keyStatus().then(setKeyStatus)
+  }, [])
+
+  useEffect(() => {
+    void window.dbDesk.mcp.list().then(setMcpStatuses)
+    return window.dbDesk.mcp.onChanged(setMcpStatuses)
   }, [])
 
   useEffect(() => {
@@ -744,6 +755,7 @@ export function AgentPanel({
               )}
             </div>
           </div>
+          {mcpOpen && <McpSettingsDialog onClose={() => setMcpOpen(false)} />}
           {keyMissing && (
             <div className="chat__notice">
               No API key found — add <code>export {API_KEY_VAR}=…</code> to{' '}
@@ -991,6 +1003,93 @@ export function AgentPanel({
                 >
                   <GlobeIcon size={14} />
                 </button>
+                <div className="mcp-ctl">
+                  <button
+                    type="button"
+                    className={`composer__web mcp-ctl__plug${
+                      mcpStatuses.some((s) => s.state === 'running')
+                        ? ' is-on'
+                        : ''
+                    }`}
+                    title="MCP servers — configure external tools for the agent"
+                    onClick={() => {
+                      setMcpMenuOpen(false)
+                      setMcpOpen(true)
+                    }}
+                  >
+                    <PlugIcon size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="mcp-ctl__chev"
+                    title="Connected MCP servers"
+                    aria-label="Connected MCP servers"
+                    onClick={() => setMcpMenuOpen((open) => !open)}
+                  >
+                    <ChevronDownIcon size={10} />
+                  </button>
+                  {mcpMenuOpen && (
+                    <>
+                      <div
+                        className="ctx-overlay"
+                        onMouseDown={() => setMcpMenuOpen(false)}
+                      />
+                      <div className="model-pop mcp-pop">
+                        <div className="model-pop__heading">MCP servers</div>
+                        {mcpStatuses.length === 0 && (
+                          <div className="mcp-pop__empty">
+                            No MCP servers configured.
+                          </div>
+                        )}
+                        {mcpStatuses.map((status) => (
+                          <button
+                            key={status.config.id}
+                            type="button"
+                            className="model-pop__row mcp-pop__row"
+                            title={
+                              status.state === 'error'
+                                ? (status.error ?? 'failed')
+                                : status.tools.map((t) => t.name).join(', ')
+                            }
+                            onClick={() => {
+                              setMcpMenuOpen(false)
+                              setMcpOpen(true)
+                            }}
+                          >
+                            <span
+                              className={`mcp-dot mcp-dot--${status.state}`}
+                            />
+                            <span className="mcp-pop__name">
+                              {status.config.name}
+                            </span>
+                            <span className="mcp-pop__state">
+                              {!status.config.enabled
+                                ? 'disabled'
+                                : status.state === 'running'
+                                  ? `${status.tools.length} tool${status.tools.length === 1 ? '' : 's'}`
+                                  : status.state === 'starting'
+                                    ? 'starting…'
+                                    : status.state === 'error'
+                                      ? 'failed'
+                                      : 'stopped'}
+                            </span>
+                          </button>
+                        ))}
+                        <div className="model-pop__sep" />
+                        <button
+                          type="button"
+                          className="model-pop__row"
+                          onClick={() => {
+                            setMcpMenuOpen(false)
+                            setMcpOpen(true)
+                          }}
+                        >
+                          Manage servers…
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <div className="composer__spacer" />
                 {busy ? (
                   <button
