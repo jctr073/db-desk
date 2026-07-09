@@ -31,6 +31,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CloseIcon,
+  GlobeIcon,
   PlayIcon,
   PlusThinIcon,
   SearchIcon,
@@ -299,6 +300,8 @@ export function AgentPanel({
     }
   })
   const [modeOpen, setModeOpen] = useState(false)
+  // Off by default: web browsing is opt-in per session.
+  const [webSearch, setWebSearch] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const chatIdRef = useRef(chatId)
@@ -510,6 +513,7 @@ export function AgentPanel({
       model: model.id,
       effort: effort && model.efforts.includes(effort) ? effort : null,
       mode,
+      webSearch,
       target: target
         ? {
             connId: target.connId,
@@ -528,6 +532,7 @@ export function AgentPanel({
     model,
     effort,
     mode,
+    webSearch,
     target,
     editorBridge,
     context
@@ -973,6 +978,19 @@ export function AgentPanel({
                   tokens={contextTokens}
                   windowSize={model.contextWindow}
                 />
+                <button
+                  type="button"
+                  className={`composer__web${webSearch ? ' is-on' : ''}`}
+                  aria-pressed={webSearch}
+                  title={
+                    webSearch
+                      ? 'Web browsing on — the agent may search the web when the task calls for it'
+                      : 'Web browsing off — click to let the agent search the web'
+                  }
+                  onClick={() => setWebSearch((on) => !on)}
+                >
+                  <GlobeIcon size={14} />
+                </button>
                 <div className="composer__spacer" />
                 {busy ? (
                   <button

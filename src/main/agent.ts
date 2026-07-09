@@ -55,6 +55,8 @@ const TOOL_RUN_LIMIT = 500
 const AGENT_STATEMENT_TIMEOUT_MS = 30_000
 /** Cap on the schema summary embedded in the system prompt. */
 const SCHEMA_SUMMARY_MAX_CHARS = 48_000
+/** Cap on web searches the model may run in a single turn. */
+const WEB_SEARCH_MAX_USES = 5
 
 interface KeyInfo {
   key: string | null
@@ -259,6 +261,11 @@ function buildSystemPrompt(
       '- Query execution is disabled for this chat; do not claim to have run anything.'
     )
   }
+  if (req.webSearch) {
+    parts.push(
+      '- Web search is enabled for this chat. You may search the web when outside information would genuinely help — engine documentation, SQL syntax and function references, unfamiliar error messages, or examples the user asked for. Most requests are answerable from the schema and your own knowledge; do not search for those.'
+    )
+  }
   if (req.target) {
     const version = getServerVersion(req.target.connId)
     parts.push(
@@ -386,6 +393,25 @@ function searchSchemaTool(dialect: DialectInfo): Anthropic.Tool {
       },
       required: ['pattern']
     }
+  }
+}
+
+/**
+ * Server-side web search tool, executed on Anthropic's infrastructure.
+ * Haiku 4.5 predates the dynamic-filtering variant and needs the basic one.
+ */
+function webSearchTool(modelId: string): Anthropic.Messages.ToolUnion {
+  if (modelId === 'claude-haiku-4-5') {
+    return {
+      type: 'web_search_20250305',
+      name: 'web_search',
+      max_uses: WEB_SEARCH_MAX_USES
+    }
+  }
+  return {
+    type: 'web_search_20260209',
+    name: 'web_search',
+    max_uses: WEB_SEARCH_MAX_USES
   }
 }
 
@@ -903,7 +929,7 @@ async function runAgentTurn(
   ]
   // Metadata Only offers no execution tools at all (Layer 1); its schema
   // knowledge is the system-prompt summary above.
-  const tools =
+  const tools: Anthropic.Messages.ToolUnion[] =
     req.target && mode === 'read-only'
       ? [
           WRITE_EDITOR_TOOL,
@@ -913,6 +939,9 @@ async function runAgentTurn(
           searchSchemaTool(dialect)
         ]
       : [WRITE_EDITOR_TOOL]
+  // Web search runs server-side; results come back as content blocks, so
+  // there is no execution branch in the tool-use loop below.
+  if (req.webSearch) tools.push(webSearchTool(model.id))
 
   chat.messages.push({ role: 'user', content: req.prompt })
 
@@ -944,6 +973,32 @@ async function runAgentTurn(
       stream.on('contentBlock', (block) => {
         if (block.type === 'thinking') {
           send({ type: 'thinking', chatId: req.chatId, active: false })
+        }
+        // Web search executes server-side mid-stream; mirror it into the
+        // transcript the same way client tools are shown.
+        if (block.type === 'server_tool_use' && block.name === 'web_search') {
+          const query = String(
+            (block.input as { query?: unknown })?.query ?? ''
+          )
+          send({
+            type: 'tool_start',
+            chatId: req.chatId,
+            toolId: block.id,
+            name: block.name,
+            sql: `web search "${query}"`
+          })
+        }
+        if (block.type === 'web_search_tool_result') {
+          const ok = Array.isArray(block.content)
+          send({
+            type: 'tool_result',
+            chatId: req.chatId,
+            toolId: block.tool_use_id,
+            ok,
+            summary: ok
+              ? `${block.content.length} result${block.content.length === 1 ? '' : 's'}`
+              : `search failed: ${block.content.error_code}`
+          })
         }
       })
       stream.on('streamEvent', (evt) => {

@@ -139,6 +139,22 @@ export function SearchIcon({ size = 13 }: IconProps): ReactElement {
   )
 }
 
+export function GlobeIcon({ size = 14 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.3}
+    >
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M2.5 8h11" />
+      <ellipse cx="8" cy="8" rx="2.6" ry="5.5" />
+    </svg>
+  )
+}
+
 export function CloseIcon({ size = 14 }: IconProps): ReactElement {
   return (
     <svg
