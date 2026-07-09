@@ -30,6 +30,7 @@ import {
   searchSchema
 } from './db'
 import type {
+  AgentCompactResult,
   AgentEvent,
   AgentKeyStatus,
   AgentMode,
@@ -1029,6 +1030,102 @@ async function runAgentTurn(
   }
 }
 
+/** Cap on the summary a /compact call may produce. */
+const COMPACT_MAX_TOKENS = 8192
+
+const COMPACT_PROMPT = [
+  'Summarize this conversation so the summary can replace the full history as context for future turns.',
+  "Preserve, concisely: the user's goals and open questions; every schema fact learned (tables, columns, types, keys); key findings from queries that were run; the latest SQL under discussion, verbatim if it was final; and any constraints or preferences the user stated.",
+  'Omit pleasantries and dead ends. Respond with the summary only.'
+].join(' ')
+
+/** Replace the chat history with a model-written summary of it (/compact). */
+async function compactChat(
+  chatId: string,
+  modelId: string
+): Promise<AgentCompactResult> {
+  const { key } = loadKey()
+  if (!key) {
+    return {
+      ok: false,
+      error: `No API key found. Add \`export ${API_KEY_VAR}=...\` to ~/.zshrc and try again.`
+    }
+  }
+  const chat = chats.get(chatId)
+  if (!chat || chat.messages.length === 0) {
+    return { ok: false, error: 'Nothing to compact — the conversation is empty.' }
+  }
+  if (chat.controller) {
+    return {
+      ok: false,
+      error: 'Wait for the current response to finish before compacting.'
+    }
+  }
+  const model = AGENT_MODELS.find((m) => m.id === modelId) ?? AGENT_MODELS[0]
+  const client = new Anthropic({ apiKey: key })
+
+  // An aborted turn can leave dangling tool_use blocks; pair each with a
+  // synthetic result or the API rejects the transcript.
+  const content: Anthropic.ContentBlockParam[] = []
+  const last = chat.messages[chat.messages.length - 1]
+  if (last?.role === 'assistant' && Array.isArray(last.content)) {
+    for (const blk of last.content) {
+      if (blk.type === 'tool_use') {
+        content.push({
+          type: 'tool_result',
+          tool_use_id: blk.id,
+          content: 'Interrupted before the tool ran.',
+          is_error: true
+        })
+      }
+    }
+  }
+  content.push({ type: 'text', text: COMPACT_PROMPT })
+
+  try {
+    const resp = await client.messages.create({
+      model: model.id,
+      max_tokens: COMPACT_MAX_TOKENS,
+      messages: [...chat.messages, { role: 'user', content }]
+    })
+    const summary = resp.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n')
+      .trim()
+    if (!summary) {
+      return {
+        ok: false,
+        error: 'Compaction failed: the model returned no summary.'
+      }
+    }
+    // Replace the history with a user/assistant pair so the next turn still
+    // alternates roles cleanly.
+    chat.messages.length = 0
+    chat.messages.push(
+      {
+        role: 'user',
+        content: `The earlier conversation was compacted to save context. Summary of everything so far:\n\n${summary}`
+      },
+      {
+        role: 'assistant',
+        content: 'Understood — continuing from that summary.'
+      }
+    )
+    // The summary's output tokens approximate the new occupancy; the gauge
+    // self-corrects with exact numbers on the next turn.
+    return { ok: true, contextTokens: resp.usage.output_tokens }
+  } catch (err) {
+    const message =
+      err instanceof Anthropic.APIError
+        ? `${err.status ?? ''} ${err.message}`.trim()
+        : err instanceof Error
+          ? err.message
+          : String(err)
+    return { ok: false, error: `Compaction failed: ${message}` }
+  }
+}
+
 /** Abort the stream and cancel the running statement. */
 function stopChat(chatId: string): void {
   const chat = chats.get(chatId)
@@ -1061,6 +1158,12 @@ export function registerAgentHandlers(
   ipcMain.handle('agent:stop', (_event, chatId: string) => {
     stopChat(chatId)
   })
+
+  ipcMain.handle(
+    'agent:compact',
+    (_event, chatId: string, model: string): Promise<AgentCompactResult> =>
+      compactChat(chatId, model)
+  )
 
   ipcMain.handle('agent:reset', (_event, chatId: string) => {
     stopChat(chatId)

@@ -4,6 +4,7 @@ import type { KeyboardEvent, MutableRefObject, ReactElement } from 'react'
 import {
   AGENT_MODELS,
   AGENT_MODES,
+  AGENT_SLASH_COMMANDS,
   API_KEY_VAR,
   DEFAULT_AGENT_MODEL,
   DEFAULT_AGENT_MODE,
@@ -93,6 +94,7 @@ type ChatPart =
       summary: string
     }
   | { kind: 'error'; text: string }
+  | { kind: 'notice'; text: string }
 
 interface ChatMessage {
   id: string
@@ -253,7 +255,9 @@ export function AgentPanel({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
   const [thinking, setThinking] = useState(false)
+  const [compacting, setCompacting] = useState(false)
   const [contextTokens, setContextTokens] = useState(0)
+  const [slashIndex, setSlashIndex] = useState(0)
   const [modelId, setModelId] = useState(DEFAULT_AGENT_MODEL.id)
   const [effort, setEffort] = useState<AgentEffort | null>(
     DEFAULT_AGENT_MODEL.defaultEffort
@@ -383,7 +387,7 @@ export function AgentPanel({
   useEffect(() => {
     const host = scrollRef.current
     if (host) host.scrollTop = host.scrollHeight
-  }, [messages, thinking, busy])
+  }, [messages, thinking, busy, compacting])
 
   // "Add to Agent Thread" from the connections tree should reveal the chips.
   const prevContextLen = useRef(context.length)
@@ -466,7 +470,7 @@ export function AgentPanel({
 
   const send = useCallback(() => {
     const prompt = input.trim()
-    if (!prompt || busy) return
+    if (!prompt || busy || compacting) return
     setInput('')
     setBusy(true)
     setMessages((prev) => [
@@ -495,7 +499,18 @@ export function AgentPanel({
       editor,
       context
     })
-  }, [input, busy, chatId, model, effort, mode, target, editorBridge, context])
+  }, [
+    input,
+    busy,
+    compacting,
+    chatId,
+    model,
+    effort,
+    mode,
+    target,
+    editorBridge,
+    context
+  ])
 
   const stop = useCallback(() => {
     void window.dbDesk.agent.stop(chatId)
@@ -510,14 +525,90 @@ export function AgentPanel({
     setContextTokens(0)
   }, [chatId])
 
+  // Slash-command menu: open while the input is nothing but "/" + letters.
+  const slashMatches = useMemo(() => {
+    const m = /^\/([a-z]*)$/i.exec(input)
+    if (!m) return []
+    const q = m[1].toLowerCase()
+    return AGENT_SLASH_COMMANDS.filter((c) => c.name.startsWith(q))
+  }, [input])
+  const slashSel =
+    slashMatches.length > 0 ? Math.min(slashIndex, slashMatches.length - 1) : 0
+
+  const runCompact = useCallback(async () => {
+    if (busy || compacting) return
+    const id = chatId
+    setCompacting(true)
+    const res = await window.dbDesk.agent.compact(id, model.id)
+    setCompacting(false)
+    // The chat may have been cleared while the summary was being written.
+    if (chatIdRef.current !== id) return
+    if (res.ok) {
+      setContextTokens(res.contextTokens)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId('m'),
+          role: 'assistant',
+          parts: [{ kind: 'notice', text: 'Context compacted' }]
+        }
+      ])
+    } else {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId('m'),
+          role: 'assistant',
+          parts: [{ kind: 'error', text: res.error }]
+        }
+      ])
+    }
+  }, [busy, compacting, chatId, model.id])
+
+  const runSlashCommand = useCallback(
+    (name: string) => {
+      setInput('')
+      if (name === 'clear') newChat()
+      else if (name === 'compact') void runCompact()
+    },
+    [newChat, runCompact]
+  )
+
   const onComposerKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (slashMatches.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSlashIndex((slashSel + 1) % slashMatches.length)
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSlashIndex((slashSel - 1 + slashMatches.length) % slashMatches.length)
+          return
+        }
+        if (e.key === 'Tab') {
+          e.preventDefault()
+          setInput(`/${slashMatches[slashSel].name}`)
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setInput('')
+          return
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault()
+          runSlashCommand(slashMatches[slashSel].name)
+          return
+        }
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         send()
       }
     },
-    [send]
+    [send, slashMatches, slashSel, runSlashCommand]
   )
 
   const effortOptions = model.efforts
@@ -679,6 +770,13 @@ export function AgentPanel({
                       </div>
                     )
                   }
+                  if (part.kind === 'notice') {
+                    return (
+                      <div key={i} className="chat-notice">
+                        {part.text}
+                      </div>
+                    )
+                  }
                   return (
                     <div key={i} className="chat-error">
                       {part.text}
@@ -689,6 +787,9 @@ export function AgentPanel({
             ))}
             {thinking && busy && (
               <div className="chat__thinking">Thinking…</div>
+            )}
+            {compacting && (
+              <div className="chat__thinking">Compacting context…</div>
             )}
           </div>
           <div className="chat__composer">
@@ -739,6 +840,22 @@ export function AgentPanel({
                   Add context
                 </button>
               </div>
+              {slashMatches.length > 0 && (
+                <div className="slash-pop">
+                  {slashMatches.map((cmd, i) => (
+                    <button
+                      key={cmd.name}
+                      type="button"
+                      className={`slash-pop__item${i === slashSel ? ' is-active' : ''}`}
+                      onMouseEnter={() => setSlashIndex(i)}
+                      onClick={() => runSlashCommand(cmd.name)}
+                    >
+                      <span className="slash-pop__name">/{cmd.name}</span>
+                      <span className="slash-pop__desc">{cmd.description}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <textarea
                 className="composer__input"
                 placeholder={
@@ -748,7 +865,10 @@ export function AgentPanel({
                 }
                 rows={2}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  setInput(e.target.value)
+                  setSlashIndex(0)
+                }}
                 onKeyDown={onComposerKeyDown}
               />
               <div className="composer__toolbar">
@@ -842,7 +962,7 @@ export function AgentPanel({
                     type="button"
                     className="composer__send"
                     title="Send (⏎)"
-                    disabled={!input.trim()}
+                    disabled={!input.trim() || compacting}
                     onClick={send}
                   >
                     <ArrowUpIcon />
