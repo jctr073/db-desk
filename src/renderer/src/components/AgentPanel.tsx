@@ -4,6 +4,7 @@ import type { KeyboardEvent, MutableRefObject, ReactElement } from 'react'
 import {
   AGENT_MODELS,
   AGENT_MODES,
+  AGENT_SLASH_COMMANDS,
   API_KEY_VAR,
   DEFAULT_AGENT_MODEL,
   DEFAULT_AGENT_MODE,
@@ -21,6 +22,7 @@ import type {
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import { NodeIcon } from '../connections/NodeIcon'
+import { highlightSql, stripSqlComments } from '../sql/highlight'
 import type { FileState } from '../files/useFileState'
 import type { EditorBridge } from './editorBridge'
 import type { QueryTarget } from './useQueryRunner'
@@ -29,6 +31,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CloseIcon,
+  GlobeIcon,
   PlayIcon,
   PlusThinIcon,
   SearchIcon,
@@ -93,6 +96,7 @@ type ChatPart =
       summary: string
     }
   | { kind: 'error'; text: string }
+  | { kind: 'notice'; text: string }
 
 interface ChatMessage {
   id: string
@@ -166,6 +170,24 @@ function splitFences(text: string): { code: boolean; body: string }[] {
   })
 }
 
+/** SQL text with editor-palette token coloring (see --sql-* tokens). */
+function SqlCode({ sql }: { sql: string }): ReactElement {
+  const segments = useMemo(() => highlightSql(sql), [sql])
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.cls ? (
+          <span key={i} className={`sql-${seg.cls}`}>
+            {seg.text}
+          </span>
+        ) : (
+          seg.text
+        )
+      )}
+    </>
+  )
+}
+
 function AssistantText({
   text,
   onInsert
@@ -178,7 +200,9 @@ function AssistantText({
       {splitFences(text).map((seg, i) =>
         seg.code ? (
           <div key={i} className="chat-sql">
-            <pre>{seg.body.trimEnd()}</pre>
+            <pre>
+              <SqlCode sql={seg.body.trimEnd()} />
+            </pre>
             <div className="chat-sql__actions">
               <button
                 type="button"
@@ -201,6 +225,41 @@ function AssistantText({
   )
 }
 
+const GAUGE_RADIUS = 11
+const GAUGE_CIRCUMFERENCE = 2 * Math.PI * GAUGE_RADIUS
+
+/** Ring gauge showing how full the model's context window is. */
+function ContextGauge({
+  tokens,
+  windowSize
+}: {
+  tokens: number
+  windowSize: number
+}): ReactElement {
+  const percent = Math.min(100, Math.round((tokens / windowSize) * 100))
+  const level = percent >= 90 ? ' is-danger' : percent >= 70 ? ' is-warn' : ''
+  return (
+    <div
+      className={`context-gauge${level}`}
+      title={`Context: ${tokens.toLocaleString()} of ${windowSize.toLocaleString()} tokens (${percent}%)`}
+    >
+      <svg viewBox="0 0 26 26" width={26} height={26}>
+        <circle className="context-gauge__track" cx="13" cy="13" r={GAUGE_RADIUS} />
+        <circle
+          className="context-gauge__fill"
+          cx="13"
+          cy="13"
+          r={GAUGE_RADIUS}
+          strokeDasharray={GAUGE_CIRCUMFERENCE}
+          strokeDashoffset={GAUGE_CIRCUMFERENCE * (1 - percent / 100)}
+          transform="rotate(-90 13 13)"
+        />
+      </svg>
+      <span className="context-gauge__label">{percent}%</span>
+    </div>
+  )
+}
+
 export function AgentPanel({
   files,
   connNames,
@@ -218,6 +277,9 @@ export function AgentPanel({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
   const [thinking, setThinking] = useState(false)
+  const [compacting, setCompacting] = useState(false)
+  const [contextTokens, setContextTokens] = useState(0)
+  const [slashIndex, setSlashIndex] = useState(0)
   const [modelId, setModelId] = useState(DEFAULT_AGENT_MODEL.id)
   const [effort, setEffort] = useState<AgentEffort | null>(
     DEFAULT_AGENT_MODEL.defaultEffort
@@ -238,6 +300,8 @@ export function AgentPanel({
     }
   })
   const [modeOpen, setModeOpen] = useState(false)
+  // Off by default: web browsing is opt-in per session.
+  const [webSearch, setWebSearch] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const chatIdRef = useRef(chatId)
@@ -321,6 +385,7 @@ export function AgentPanel({
         case 'done':
           setBusy(false)
           setThinking(false)
+          if (evt.contextTokens !== null) setContextTokens(evt.contextTokens)
           if (evt.stopReason === 'refusal') {
             setMessages((prev) =>
               appendPart(prev, {
@@ -346,7 +411,7 @@ export function AgentPanel({
   useEffect(() => {
     const host = scrollRef.current
     if (host) host.scrollTop = host.scrollHeight
-  }, [messages, thinking, busy])
+  }, [messages, thinking, busy, compacting])
 
   // "Add to Agent Thread" from the connections tree should reveal the chips.
   const prevContextLen = useRef(context.length)
@@ -429,7 +494,7 @@ export function AgentPanel({
 
   const send = useCallback(() => {
     const prompt = input.trim()
-    if (!prompt || busy) return
+    if (!prompt || busy || compacting) return
     setInput('')
     setBusy(true)
     setMessages((prev) => [
@@ -448,6 +513,7 @@ export function AgentPanel({
       model: model.id,
       effort: effort && model.efforts.includes(effort) ? effort : null,
       mode,
+      webSearch,
       target: target
         ? {
             connId: target.connId,
@@ -458,7 +524,19 @@ export function AgentPanel({
       editor,
       context
     })
-  }, [input, busy, chatId, model, effort, mode, target, editorBridge, context])
+  }, [
+    input,
+    busy,
+    compacting,
+    chatId,
+    model,
+    effort,
+    mode,
+    webSearch,
+    target,
+    editorBridge,
+    context
+  ])
 
   const stop = useCallback(() => {
     void window.dbDesk.agent.stop(chatId)
@@ -470,16 +548,93 @@ export function AgentPanel({
     setMessages([])
     setBusy(false)
     setThinking(false)
+    setContextTokens(0)
   }, [chatId])
+
+  // Slash-command menu: open while the input is nothing but "/" + letters.
+  const slashMatches = useMemo(() => {
+    const m = /^\/([a-z]*)$/i.exec(input)
+    if (!m) return []
+    const q = m[1].toLowerCase()
+    return AGENT_SLASH_COMMANDS.filter((c) => c.name.startsWith(q))
+  }, [input])
+  const slashSel =
+    slashMatches.length > 0 ? Math.min(slashIndex, slashMatches.length - 1) : 0
+
+  const runCompact = useCallback(async () => {
+    if (busy || compacting) return
+    const id = chatId
+    setCompacting(true)
+    const res = await window.dbDesk.agent.compact(id, model.id)
+    setCompacting(false)
+    // The chat may have been cleared while the summary was being written.
+    if (chatIdRef.current !== id) return
+    if (res.ok) {
+      setContextTokens(res.contextTokens)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId('m'),
+          role: 'assistant',
+          parts: [{ kind: 'notice', text: 'Context compacted' }]
+        }
+      ])
+    } else {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId('m'),
+          role: 'assistant',
+          parts: [{ kind: 'error', text: res.error }]
+        }
+      ])
+    }
+  }, [busy, compacting, chatId, model.id])
+
+  const runSlashCommand = useCallback(
+    (name: string) => {
+      setInput('')
+      if (name === 'clear') newChat()
+      else if (name === 'compact') void runCompact()
+    },
+    [newChat, runCompact]
+  )
 
   const onComposerKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (slashMatches.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSlashIndex((slashSel + 1) % slashMatches.length)
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSlashIndex((slashSel - 1 + slashMatches.length) % slashMatches.length)
+          return
+        }
+        if (e.key === 'Tab') {
+          e.preventDefault()
+          setInput(`/${slashMatches[slashSel].name}`)
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setInput('')
+          return
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault()
+          runSlashCommand(slashMatches[slashSel].name)
+          return
+        }
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         send()
       }
     },
-    [send]
+    [send, slashMatches, slashSel, runSlashCommand]
   )
 
   const effortOptions = model.efforts
@@ -631,13 +786,25 @@ export function AgentPanel({
                       >
                         <PlayIcon size={9} />
                         <code>
-                          {part.sql.replace(/\s+/g, ' ').slice(0, 60)}
+                          <SqlCode
+                            sql={stripSqlComments(part.sql)
+                              .replace(/\s+/g, ' ')
+                              .trim()
+                              .slice(0, 60)}
+                          />
                         </code>
                         <span className="chat-tool__summary">
                           {part.status === 'running'
                             ? 'running…'
                             : part.summary}
                         </span>
+                      </div>
+                    )
+                  }
+                  if (part.kind === 'notice') {
+                    return (
+                      <div key={i} className="chat-notice">
+                        {part.text}
                       </div>
                     )
                   }
@@ -651,6 +818,9 @@ export function AgentPanel({
             ))}
             {thinking && busy && (
               <div className="chat__thinking">Thinking…</div>
+            )}
+            {compacting && (
+              <div className="chat__thinking">Compacting context…</div>
             )}
           </div>
           <div className="chat__composer">
@@ -701,6 +871,22 @@ export function AgentPanel({
                   Add context
                 </button>
               </div>
+              {slashMatches.length > 0 && (
+                <div className="slash-pop">
+                  {slashMatches.map((cmd, i) => (
+                    <button
+                      key={cmd.name}
+                      type="button"
+                      className={`slash-pop__item${i === slashSel ? ' is-active' : ''}`}
+                      onMouseEnter={() => setSlashIndex(i)}
+                      onClick={() => runSlashCommand(cmd.name)}
+                    >
+                      <span className="slash-pop__name">/{cmd.name}</span>
+                      <span className="slash-pop__desc">{cmd.description}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <textarea
                 className="composer__input"
                 placeholder={
@@ -710,7 +896,10 @@ export function AgentPanel({
                 }
                 rows={2}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  setInput(e.target.value)
+                  setSlashIndex(0)
+                }}
                 onKeyDown={onComposerKeyDown}
               />
               <div className="composer__toolbar">
@@ -785,6 +974,23 @@ export function AgentPanel({
                     </>
                   )}
                 </div>
+                <ContextGauge
+                  tokens={contextTokens}
+                  windowSize={model.contextWindow}
+                />
+                <button
+                  type="button"
+                  className={`composer__web${webSearch ? ' is-on' : ''}`}
+                  aria-pressed={webSearch}
+                  title={
+                    webSearch
+                      ? 'Web browsing on — the agent may search the web when the task calls for it'
+                      : 'Web browsing off — click to let the agent search the web'
+                  }
+                  onClick={() => setWebSearch((on) => !on)}
+                >
+                  <GlobeIcon size={14} />
+                </button>
                 <div className="composer__spacer" />
                 {busy ? (
                   <button
@@ -800,7 +1006,7 @@ export function AgentPanel({
                     type="button"
                     className="composer__send"
                     title="Send (⏎)"
-                    disabled={!input.trim()}
+                    disabled={!input.trim() || compacting}
                     onClick={send}
                   >
                     <ArrowUpIcon />

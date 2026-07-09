@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 
 import type {
+  AgentCompactResult,
   AgentEvent,
   AgentKeyStatus,
   AgentSendRequest
@@ -99,6 +100,9 @@ const api = Object.freeze({
       ipcRenderer.invoke('agent:stop', chatId),
     reset: (chatId: string): Promise<void> =>
       ipcRenderer.invoke('agent:reset', chatId),
+    /** Replace the chat history with a model-written summary (/compact). */
+    compact: (chatId: string, model: string): Promise<AgentCompactResult> =>
+      ipcRenderer.invoke('agent:compact', chatId, model),
     /** Subscribe to agent progress events; returns an unsubscribe function. */
     onEvent: (callback: (evt: AgentEvent) => void): (() => void) => {
       const listener = (_event: IpcRendererEvent, evt: AgentEvent): void =>

@@ -20,6 +20,14 @@
   --red: #ff657a;
   --stripe: rgba(255, 255, 255, 0.025);
   --shadow: rgba(15, 16, 24, 0.55);
+  /* SQL syntax tokens — keep in sync with the Monaco theme in SqlEditor.tsx. */
+  --sql-kw: #ff657a;
+  --sql-fn: #bad761;
+  --sql-type: #9cd1bb;
+  --sql-str: #ffd76d;
+  --sql-num: #c39ac9;
+  --sql-comment: #696d77;
+  --sql-op: #ff657a;
 }
 
 :root[data-theme='light'] {
@@ -41,6 +49,13 @@
   --red: #d64545;
   --stripe: rgba(0, 0, 0, 0.022);
   --shadow: rgba(30, 40, 70, 0.18);
+  --sql-kw: #d64545;
+  --sql-fn: #1f9d4d;
+  --sql-type: #0f766e;
+  --sql-str: #b7861c;
+  --sql-num: #7c3aed;
+  --sql-comment: #8c919c;
+  --sql-op: #d64545;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1730,6 +1745,28 @@ body.is-col-resizing {
   overflow-x: auto;
   white-space: pre;
 }
+.sql-kw {
+  color: var(--sql-kw);
+}
+.sql-fn {
+  color: var(--sql-fn);
+}
+.sql-type {
+  color: var(--sql-type);
+}
+.sql-str {
+  color: var(--sql-str);
+}
+.sql-num {
+  color: var(--sql-num);
+}
+.sql-comment {
+  color: var(--sql-comment);
+  font-style: italic;
+}
+.sql-op {
+  color: var(--sql-op);
+}
 .chat-sql__actions {
   display: flex;
   justify-content: flex-end;
@@ -1797,6 +1834,22 @@ body.is-col-resizing {
   font-size: 11px;
   font-style: italic;
   animation: chat-pulse 1.4s ease-in-out infinite;
+}
+
+/* Divider-style notice in the transcript (e.g. after /compact). */
+.chat-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+.chat-notice::before,
+.chat-notice::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
 }
 @keyframes chat-pulse {
   0%,
@@ -1941,6 +1994,29 @@ body.is-col-resizing {
   opacity: 0.5;
   cursor: default;
 }
+/* Web-browsing toggle: dim when off, accent when on. */
+.composer__web {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.composer__web:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.composer__web.is-on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: var(--accent-strong);
+}
 .chat__target-bar {
   flex: 0 0 auto;
   display: flex;
@@ -1978,6 +2054,49 @@ body.is-col-resizing {
 .composer__send:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* Ring gauge showing context-window usage. */
+.context-gauge {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+}
+.context-gauge svg {
+  display: block;
+}
+.context-gauge__track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2;
+}
+.context-gauge__fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset 0.4s ease,
+    stroke 0.4s ease;
+}
+.context-gauge.is-warn .context-gauge__fill {
+  stroke: var(--amber);
+}
+.context-gauge.is-danger .context-gauge__fill {
+  stroke: var(--red);
+}
+.context-gauge__label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text-dim);
+  user-select: none;
 }
 
 /* Compact model + effort pill and its popover (design 1b). */
@@ -2147,6 +2266,53 @@ body.is-col-resizing {
 }
 
 /* "Add context" picker: schema objects of the selected target. */
+/* Slash-command menu anchored above the composer. */
+.slash-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 8px;
+  z-index: 61;
+  width: 300px;
+  max-width: calc(100% - 16px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow: 0 18px 44px var(--shadow);
+  animation: dbfade 0.14s ease;
+  padding: 5px;
+}
+.slash-pop__item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.slash-pop__item.is-active {
+  background: var(--accent-soft);
+}
+.slash-pop__name {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+.slash-pop__desc {
+  flex: 1;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .picker-pop {
   position: absolute;
   bottom: calc(100% + 6px);

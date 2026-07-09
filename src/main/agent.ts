@@ -30,6 +30,7 @@ import {
   searchSchema
 } from './db'
 import type {
+  AgentCompactResult,
   AgentEvent,
   AgentKeyStatus,
   AgentMode,
@@ -54,6 +55,8 @@ const TOOL_RUN_LIMIT = 500
 const AGENT_STATEMENT_TIMEOUT_MS = 30_000
 /** Cap on the schema summary embedded in the system prompt. */
 const SCHEMA_SUMMARY_MAX_CHARS = 48_000
+/** Cap on web searches the model may run in a single turn. */
+const WEB_SEARCH_MAX_USES = 5
 
 interface KeyInfo {
   key: string | null
@@ -258,6 +261,11 @@ function buildSystemPrompt(
       '- Query execution is disabled for this chat; do not claim to have run anything.'
     )
   }
+  if (req.webSearch) {
+    parts.push(
+      '- Web search is enabled for this chat. You may search the web when outside information would genuinely help — engine documentation, SQL syntax and function references, unfamiliar error messages, or examples the user asked for. Most requests are answerable from the schema and your own knowledge; do not search for those.'
+    )
+  }
   if (req.target) {
     const version = getServerVersion(req.target.connId)
     parts.push(
@@ -385,6 +393,25 @@ function searchSchemaTool(dialect: DialectInfo): Anthropic.Tool {
       },
       required: ['pattern']
     }
+  }
+}
+
+/**
+ * Server-side web search tool, executed on Anthropic's infrastructure.
+ * Haiku 4.5 predates the dynamic-filtering variant and needs the basic one.
+ */
+function webSearchTool(modelId: string): Anthropic.Messages.ToolUnion {
+  if (modelId === 'claude-haiku-4-5') {
+    return {
+      type: 'web_search_20250305',
+      name: 'web_search',
+      max_uses: WEB_SEARCH_MAX_USES
+    }
+  }
+  return {
+    type: 'web_search_20260209',
+    name: 'web_search',
+    max_uses: WEB_SEARCH_MAX_USES
   }
 }
 
@@ -902,7 +929,7 @@ async function runAgentTurn(
   ]
   // Metadata Only offers no execution tools at all (Layer 1); its schema
   // knowledge is the system-prompt summary above.
-  const tools =
+  const tools: Anthropic.Messages.ToolUnion[] =
     req.target && mode === 'read-only'
       ? [
           WRITE_EDITOR_TOOL,
@@ -912,8 +939,15 @@ async function runAgentTurn(
           searchSchemaTool(dialect)
         ]
       : [WRITE_EDITOR_TOOL]
+  // Web search runs server-side; results come back as content blocks, so
+  // there is no execution branch in the tool-use loop below.
+  if (req.webSearch) tools.push(webSearchTool(model.id))
 
   chat.messages.push({ role: 'user', content: req.prompt })
+
+  // Latest known context occupancy, updated after every API call so the
+  // renderer's gauge stays accurate even when the turn aborts mid-loop.
+  let contextTokens: number | null = null
 
   try {
     for (;;) {
@@ -940,6 +974,40 @@ async function runAgentTurn(
         if (block.type === 'thinking') {
           send({ type: 'thinking', chatId: req.chatId, active: false })
         }
+        // Web search executes server-side mid-stream; mirror it into the
+        // transcript the same way client tools are shown.
+        if (block.type === 'server_tool_use' && block.name === 'web_search') {
+          const query = String(
+            (block.input as { query?: unknown })?.query ?? ''
+          )
+          send({
+            type: 'tool_start',
+            chatId: req.chatId,
+            toolId: block.id,
+            name: block.name,
+            sql: `web search "${query}"`
+          })
+        }
+        if (block.type === 'web_search_tool_result') {
+          const content = block.content
+          send(
+            Array.isArray(content)
+              ? {
+                  type: 'tool_result',
+                  chatId: req.chatId,
+                  toolId: block.tool_use_id,
+                  ok: true,
+                  summary: `${content.length} result${content.length === 1 ? '' : 's'}`
+                }
+              : {
+                  type: 'tool_result',
+                  chatId: req.chatId,
+                  toolId: block.tool_use_id,
+                  ok: false,
+                  summary: `search failed: ${content.error_code}`
+                }
+          )
+        }
       })
       stream.on('streamEvent', (evt) => {
         if (
@@ -951,6 +1019,12 @@ async function runAgentTurn(
       })
 
       const message = await stream.finalMessage()
+      const usage = message.usage
+      contextTokens =
+        usage.input_tokens +
+        (usage.cache_read_input_tokens ?? 0) +
+        (usage.cache_creation_input_tokens ?? 0) +
+        usage.output_tokens
       chat.messages.push({ role: 'assistant', content: message.content })
 
       if (message.stop_reason === 'pause_turn') continue
@@ -989,7 +1063,8 @@ async function runAgentTurn(
       send({
         type: 'done',
         chatId: req.chatId,
-        stopReason: message.stop_reason
+        stopReason: message.stop_reason,
+        contextTokens
       })
       return
     }
@@ -998,7 +1073,12 @@ async function runAgentTurn(
       err instanceof Anthropic.APIUserAbortError ||
       controller.signal.aborted
     ) {
-      send({ type: 'done', chatId: req.chatId, stopReason: 'aborted' })
+      send({
+        type: 'done',
+        chatId: req.chatId,
+        stopReason: 'aborted',
+        contextTokens
+      })
       return
     }
     const message =
@@ -1010,6 +1090,102 @@ async function runAgentTurn(
     send({ type: 'error', chatId: req.chatId, message })
   } finally {
     chat.controller = null
+  }
+}
+
+/** Cap on the summary a /compact call may produce. */
+const COMPACT_MAX_TOKENS = 8192
+
+const COMPACT_PROMPT = [
+  'Summarize this conversation so the summary can replace the full history as context for future turns.',
+  "Preserve, concisely: the user's goals and open questions; every schema fact learned (tables, columns, types, keys); key findings from queries that were run; the latest SQL under discussion, verbatim if it was final; and any constraints or preferences the user stated.",
+  'Omit pleasantries and dead ends. Respond with the summary only.'
+].join(' ')
+
+/** Replace the chat history with a model-written summary of it (/compact). */
+async function compactChat(
+  chatId: string,
+  modelId: string
+): Promise<AgentCompactResult> {
+  const { key } = loadKey()
+  if (!key) {
+    return {
+      ok: false,
+      error: `No API key found. Add \`export ${API_KEY_VAR}=...\` to ~/.zshrc and try again.`
+    }
+  }
+  const chat = chats.get(chatId)
+  if (!chat || chat.messages.length === 0) {
+    return { ok: false, error: 'Nothing to compact — the conversation is empty.' }
+  }
+  if (chat.controller) {
+    return {
+      ok: false,
+      error: 'Wait for the current response to finish before compacting.'
+    }
+  }
+  const model = AGENT_MODELS.find((m) => m.id === modelId) ?? AGENT_MODELS[0]
+  const client = new Anthropic({ apiKey: key })
+
+  // An aborted turn can leave dangling tool_use blocks; pair each with a
+  // synthetic result or the API rejects the transcript.
+  const content: Anthropic.ContentBlockParam[] = []
+  const last = chat.messages[chat.messages.length - 1]
+  if (last?.role === 'assistant' && Array.isArray(last.content)) {
+    for (const blk of last.content) {
+      if (blk.type === 'tool_use') {
+        content.push({
+          type: 'tool_result',
+          tool_use_id: blk.id,
+          content: 'Interrupted before the tool ran.',
+          is_error: true
+        })
+      }
+    }
+  }
+  content.push({ type: 'text', text: COMPACT_PROMPT })
+
+  try {
+    const resp = await client.messages.create({
+      model: model.id,
+      max_tokens: COMPACT_MAX_TOKENS,
+      messages: [...chat.messages, { role: 'user', content }]
+    })
+    const summary = resp.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n')
+      .trim()
+    if (!summary) {
+      return {
+        ok: false,
+        error: 'Compaction failed: the model returned no summary.'
+      }
+    }
+    // Replace the history with a user/assistant pair so the next turn still
+    // alternates roles cleanly.
+    chat.messages.length = 0
+    chat.messages.push(
+      {
+        role: 'user',
+        content: `The earlier conversation was compacted to save context. Summary of everything so far:\n\n${summary}`
+      },
+      {
+        role: 'assistant',
+        content: 'Understood — continuing from that summary.'
+      }
+    )
+    // The summary's output tokens approximate the new occupancy; the gauge
+    // self-corrects with exact numbers on the next turn.
+    return { ok: true, contextTokens: resp.usage.output_tokens }
+  } catch (err) {
+    const message =
+      err instanceof Anthropic.APIError
+        ? `${err.status ?? ''} ${err.message}`.trim()
+        : err instanceof Error
+          ? err.message
+          : String(err)
+    return { ok: false, error: `Compaction failed: ${message}` }
   }
 }
 
@@ -1045,6 +1221,12 @@ export function registerAgentHandlers(
   ipcMain.handle('agent:stop', (_event, chatId: string) => {
     stopChat(chatId)
   })
+
+  ipcMain.handle(
+    'agent:compact',
+    (_event, chatId: string, model: string): Promise<AgentCompactResult> =>
+      compactChat(chatId, model)
+  )
 
   ipcMain.handle('agent:reset', (_event, chatId: string) => {
     stopChat(chatId)
