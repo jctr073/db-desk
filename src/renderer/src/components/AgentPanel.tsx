@@ -33,6 +33,7 @@ import {
   CloseIcon,
   GlobeIcon,
   PlayIcon,
+  PlugIcon,
   PlusThinIcon,
   SearchIcon,
   ShieldIcon,
@@ -40,6 +41,7 @@ import {
   StopIcon
 } from './icons'
 import { FilesPanel } from './FilesPanel'
+import { McpSettingsDialog } from './McpSettingsDialog'
 
 interface AgentPanelProps {
   files: FileState
@@ -300,6 +302,7 @@ export function AgentPanel({
     }
   })
   const [modeOpen, setModeOpen] = useState(false)
+  const [mcpOpen, setMcpOpen] = useState(false)
   // Off by default: web browsing is opt-in per session.
   const [webSearch, setWebSearch] = useState(false)
 
@@ -743,7 +746,16 @@ export function AgentPanel({
                 </>
               )}
             </div>
+            <button
+              type="button"
+              className="icon-btn icon-btn--sm"
+              title="MCP servers — external tools for the agent"
+              onClick={() => setMcpOpen(true)}
+            >
+              <PlugIcon />
+            </button>
           </div>
+          {mcpOpen && <McpSettingsDialog onClose={() => setMcpOpen(false)} />}
           {keyMissing && (
             <div className="chat__notice">
               No API key found — add <code>export {API_KEY_VAR}=…</code> to{' '}

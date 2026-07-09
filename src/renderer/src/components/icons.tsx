@@ -385,6 +385,20 @@ export function ShieldIcon({ size = 12 }: IconProps): ReactElement {
   )
 }
 
+export function PlugIcon({ size = 13 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.3}
+    >
+      <path d="M5.2 1.6v3.2M10.8 1.6v3.2M4 4.8h8M5.2 4.8v2.4a2.8 2.8 0 0 0 5.6 0V4.8M8 10v4.4" />
+    </svg>
+  )
+}
+
 export function DatabaseIcon({ size = 18 }: IconProps): ReactElement {
   return (
     <svg

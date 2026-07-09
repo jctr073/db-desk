@@ -38,6 +38,8 @@ import type {
   AgentTargetRef
 } from '../shared/agent'
 import { AGENT_MODELS, API_KEY_VAR, resolveAgentMode } from '../shared/agent'
+import { callMcpTool, mcpToolsForTurn } from './mcp'
+import type { McpAgentTool } from './mcp'
 import type { DatabaseIntrospection, QueryResult } from '../shared/db'
 import { dialectFor } from '../shared/dialect'
 import type { DialectInfo } from '../shared/dialect'
@@ -238,7 +240,8 @@ function buildSystemPrompt(
   req: AgentSendRequest,
   mode: AgentMode,
   schemaSummary: string | null,
-  dialect: DialectInfo
+  dialect: DialectInfo,
+  mcpTools: McpAgentTool[]
 ): string {
   const parts: string[] = [
     'You are the AI assistant inside DB Desk, a desktop database client.',
@@ -273,6 +276,11 @@ function buildSystemPrompt(
   if (req.webSearch) {
     parts.push(
       '- Web search is enabled for this chat. You may search the web when outside information would genuinely help — engine documentation, SQL syntax and function references, unfamiliar error messages, or examples the user asked for. Most requests are answerable from the schema and your own knowledge; do not search for those.'
+    )
+  }
+  if (mcpTools.length > 0) {
+    parts.push(
+      '- Tools named mcp__* come from MCP servers the user configured. They act on external systems with whatever access the user granted those servers; they are separate from the connected database and from the read/write rules above, which apply only to the SQL tools. Use them when the request calls for it.'
     )
   }
   if (req.target) {
@@ -867,6 +875,44 @@ function execWriteEditor(
   return { ...base, content: 'The SQL was inserted into the active editor.' }
 }
 
+async function execMcpTool(
+  req: AgentSendRequest,
+  tool: McpAgentTool,
+  block: Anthropic.ToolUseBlock,
+  send: Sender
+): Promise<Anthropic.ToolResultBlockParam> {
+  const base: Anthropic.ToolResultBlockParam = {
+    type: 'tool_result',
+    tool_use_id: block.id,
+    content: ''
+  }
+  const input = (block.input ?? {}) as Record<string, unknown>
+  const argsPreview = JSON.stringify(input)
+  send({
+    type: 'tool_start',
+    chatId: req.chatId,
+    toolId: block.id,
+    name: block.name,
+    sql: `${tool.serverName}: ${tool.toolName} ${argsPreview === '{}' ? '' : argsPreview}`.trim()
+  })
+  const res = await callMcpTool(tool.serverId, tool.toolName, input)
+  const content =
+    res.text.length > TOOL_RESULT_MAX_CHARS
+      ? `${res.text.slice(0, TOOL_RESULT_MAX_CHARS)}\n…(truncated at ${TOOL_RESULT_MAX_CHARS} chars)`
+      : res.text
+  if (!res.ok) {
+    return toolError(base, req, block.id, send, 'failed', content)
+  }
+  send({
+    type: 'tool_result',
+    chatId: req.chatId,
+    toolId: block.id,
+    ok: true,
+    summary: `${res.text.length.toLocaleString()} chars`
+  })
+  return { ...base, content }
+}
+
 /**
  * Move the incremental cache breakpoint to the last (user) message so each
  * request reuses the previous request's cached prefix instead of paying for
@@ -963,12 +1009,18 @@ async function runAgentTurn(
     req.target ? getConnectionType(req.target.connId) : null
   )
   const schemaSummary = req.target ? await schemaSummaryFor(req.target) : null
+  // MCP tools are user-configured and mode-independent: the access mode
+  // protects the connected database, while MCP servers act on external
+  // systems with their own credentials. Snapshot once per turn so the tool
+  // array and the dispatch below cannot disagree mid-turn.
+  const mcpTools = mcpToolsForTurn()
+  const mcpByName = new Map(mcpTools.map((t) => [t.namespacedName, t]))
   // The system prompt (with the schema summary) is by far the largest stable
   // prefix; cache it so follow-up turns and tool round-trips reuse it.
   const system: Anthropic.TextBlockParam[] = [
     {
       type: 'text',
-      text: buildSystemPrompt(req, mode, schemaSummary, dialect),
+      text: buildSystemPrompt(req, mode, schemaSummary, dialect, mcpTools),
       cache_control: { type: 'ephemeral' }
     }
   ]
@@ -984,6 +1036,13 @@ async function runAgentTurn(
           searchSchemaTool(dialect)
         ]
       : [WRITE_EDITOR_TOOL]
+  for (const t of mcpTools) {
+    tools.push({
+      name: t.namespacedName,
+      description: `Tool "${t.toolName}" from the user-configured MCP server "${t.serverName}".${t.description ? ` ${t.description}` : ''}`,
+      input_schema: t.inputSchema as Anthropic.Tool.InputSchema
+    })
+  }
   // Web search runs server-side; results come back as content blocks, so
   // there is no execution branch in the tool-use loop below.
   const webTool = req.webSearch ? webSearchTool(model.id) : null
@@ -1113,6 +1172,9 @@ async function runAgentTurn(
             results.push(await execSearchSchema(req, mode, block, send))
           } else if (block.name === 'write_to_editor') {
             results.push(execWriteEditor(req, block, send))
+          } else if (mcpByName.has(block.name)) {
+            const tool = mcpByName.get(block.name) as McpAgentTool
+            results.push(await execMcpTool(req, tool, block, send))
           } else {
             results.push({
               type: 'tool_result',

@@ -16,6 +16,7 @@ import type {
   SavedConnection,
   TestResult
 } from '../shared/db'
+import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
 
 const api = Object.freeze({
   appName: 'DB Desk',
@@ -90,6 +91,28 @@ const api = Object.freeze({
       ipcRenderer.invoke('files:getNextName', connId, database),
     deleteForConnection: (connId: string): Promise<void> =>
       ipcRenderer.invoke('files:deleteForConnection', connId)
+  }),
+  mcp: Object.freeze({
+    list: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:list'),
+    save: (config: McpServerConfig): Promise<McpServerStatus[]> =>
+      ipcRenderer.invoke('mcp:save', config),
+    delete: (id: string): Promise<McpServerStatus[]> =>
+      ipcRenderer.invoke('mcp:delete', id),
+    restart: (id: string): Promise<McpServerStatus[]> =>
+      ipcRenderer.invoke('mcp:restart', id),
+    /** Subscribe to server status pushes; returns an unsubscribe function. */
+    onChanged: (
+      callback: (statuses: McpServerStatus[]) => void
+    ): (() => void) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        statuses: McpServerStatus[]
+      ): void => callback(statuses)
+      ipcRenderer.on('mcp:changed', listener)
+      return () => {
+        ipcRenderer.removeListener('mcp:changed', listener)
+      }
+    }
   }),
   agent: Object.freeze({
     keyStatus: (): Promise<AgentKeyStatus> =>

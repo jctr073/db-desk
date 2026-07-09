@@ -54,6 +54,18 @@ the web when a task calls for it — engine documentation, SQL syntax
 references, or unfamiliar error messages — via Anthropic's server-side web
 search tool.
 
+The agent can also use tools from user-configured **MCP servers**. The plug
+button next to the mode picker opens the MCP Servers dialog, where servers are
+added as a command line (spawned as stdio child processes), optional
+environment variables (stored encrypted via `safeStorage`), and an
+enabled toggle; the dialog shows each server's live status and the tools it
+advertises, with restart/edit/remove actions. Tools from running servers are
+offered to the model under namespaced names (`mcp__server__tool`) in every
+access mode. Note the deliberate delineation: the access modes below guard the
+*connected database* (the built-in SQL tools); MCP tools act on external
+systems with whatever rights you granted the server process, so their access
+is governed by the server's own credentials, not by the agent's database mode.
+
 The agent panel's mode picker offers three access modes: **Metadata Only**
 (default) — "Writes SQL from the schema tree. Never executes anything on the
 database."; **Read-Only** — "Runs read-only queries to inspect schema and live
