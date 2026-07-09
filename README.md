@@ -54,12 +54,15 @@ the web when a task calls for it — engine documentation, SQL syntax
 references, or unfamiliar error messages — via Anthropic's server-side web
 search tool.
 
-The agent can also use tools from user-configured **MCP servers**. The plug
-button next to the mode picker opens the MCP Servers dialog, where servers are
-added as a command line (spawned as stdio child processes), optional
-environment variables (stored encrypted via `safeStorage`), and an
-enabled toggle; the dialog shows each server's live status and the tools it
-advertises, with restart/edit/remove actions. Tools from running servers are
+The agent can also use tools from user-configured **MCP servers**. A split
+plug control in the composer, next to the web-search toggle, opens the MCP
+Servers dialog on click; its adjoining chevron drops down a live list of
+connected servers with per-server status, from which a server row also opens
+the dialog. Servers are added as a command line (spawned as stdio child
+processes), optional environment variables (stored encrypted via
+`safeStorage`), and an enabled toggle; the dialog shows each server's live
+status and the tools it advertises, with restart/edit/remove actions. Tools
+from running servers are
 offered to the model under namespaced names (`mcp__server__tool`) in every
 access mode. Note the deliberate delineation: the access modes below guard the
 *connected database* (the built-in SQL tools); MCP tools act on external
