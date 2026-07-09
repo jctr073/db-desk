@@ -49,7 +49,10 @@ right-click menu or the composer's **Add context** picker — so the agent focus
 on the objects you care about. SQL code blocks in a reply get an Insert button that
 drops them into the editor at the cursor, and the agent itself writes its final
 query into the editor through a `write_to_editor` tool when it finishes an
-answer.
+answer. A globe toggle in the composer (off by default) lets the agent search
+the web when a task calls for it — engine documentation, SQL syntax
+references, or unfamiliar error messages — via Anthropic's server-side web
+search tool.
 
 The agent panel's mode picker offers three access modes: **Metadata Only**
 (default) — "Writes SQL from the schema tree. Never executes anything on the
