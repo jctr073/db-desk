@@ -53,6 +53,18 @@ const fkStyle: CSSProperties = {
   flex: '0 0 auto'
 }
 
+/** Subtle marker for nodes that have local knowledge attached. */
+const knowledgeDotStyle: CSSProperties = {
+  width: 5,
+  height: 5,
+  minWidth: 5,
+  borderRadius: '50%',
+  background: 'var(--accent)',
+  opacity: 0.85,
+  marginLeft: 6,
+  flex: '0 0 auto'
+}
+
 const monoRight: CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 11,
@@ -70,6 +82,8 @@ interface TreeRowProps {
   mode: TreeMode
   rowHeight: number
   showStatusDots: boolean
+  /** Show the knowledge dot: local knowledge is attached to this node. */
+  hasKnowledge?: boolean
   onClick: () => void
   onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void
 }
@@ -83,6 +97,7 @@ export function TreeRow({
   mode,
   rowHeight,
   showStatusDots,
+  hasKnowledge = false,
   onClick,
   onContextMenu
 }: TreeRowProps): ReactElement {
@@ -253,6 +268,9 @@ export function TreeRow({
         <span style={labelStyle}>{node.label}</span>
         {showSub && <span style={subStyle}>{node.subtitle}</span>}
       </span>
+      {hasKnowledge && (
+        <span title="Has local knowledge" style={knowledgeDotStyle} />
+      )}
       {node.kind === 'column' && node.badge === 'pk' && (
         <span style={pkStyle} title="Primary key">
           <KeyIcon />

@@ -40,6 +40,18 @@ import type {
 import { AGENT_MODELS, API_KEY_VAR, resolveAgentMode } from '../shared/agent'
 import { callMcpTool, mcpToolsForTurn } from './mcp'
 import type { McpAgentTool } from './mcp'
+import { listRecords, saveRecord } from './knowledge'
+import type {
+  AnnotationRecord,
+  ColumnRef,
+  ExemplarRecord,
+  GlossaryRecord,
+  KnowledgeKind,
+  KnowledgeRecord,
+  KnowledgeRecordInput,
+  NoteRecord,
+  RelationshipRecord
+} from '../shared/knowledge'
 import type { DatabaseIntrospection, QueryResult } from '../shared/db'
 import { dialectFor } from '../shared/dialect'
 import type { DialectInfo } from '../shared/dialect'
@@ -57,6 +69,12 @@ const TOOL_RUN_LIMIT = 500
 const AGENT_STATEMENT_TIMEOUT_MS = 30_000
 /** Cap on the schema summary embedded in the system prompt. */
 const SCHEMA_SUMMARY_MAX_CHARS = 48_000
+/** Cap on the local-knowledge section embedded in the system prompt. */
+export const KNOWLEDGE_SUMMARY_MAX_CHARS = 16_000
+/** Cap on hits one search_knowledge call returns to the model. */
+const KNOWLEDGE_SEARCH_MAX_HITS = 20
+/** Per-hit cap on the rendered record text in a search_knowledge payload. */
+const KNOWLEDGE_HIT_MAX_CHARS = 1_000
 /** Cap on web searches the model may run in a single turn. */
 const WEB_SEARCH_MAX_USES = 5
 
@@ -236,7 +254,389 @@ async function schemaSummaryFor(target: AgentTargetRef): Promise<string> {
   return summary
 }
 
-function buildSystemPrompt(
+// --- Local knowledge (system-prompt section + search_knowledge) -------------
+//
+// The knowledge store is app-local: rendering it into the prompt and searching
+// it never touches the warehouse, so these helpers carry no access-mode gate.
+// Records are read fresh from listRecords on every prompt build (they are
+// small), so saves and deletes take effect on the very next turn with no cache
+// to invalidate — unlike the schema summary, which is introspection-priced and
+// cached in schemaCache above.
+
+/** The five kinds this build renders; unknown kinds are preserved on disk but skipped here. */
+const KNOWN_KNOWLEDGE_KINDS = new Set<string>([
+  'relationship',
+  'glossary',
+  'annotation',
+  'exemplar',
+  'note'
+])
+
+/**
+ * Containment for every single-line interpolation of record content into the
+ * prompt/tool output: newlines and control characters collapse to a space so
+ * a field can never fabricate its own lines (fake headings, list items) —
+ * knowledge records persist across conversations, so an uncontained field
+ * would turn a one-time data-level injection into a durable prompt injection.
+ * Tolerates non-strings (hand-edited files) rather than crashing the build.
+ */
+function singleLine(text: unknown): string {
+  if (typeof text !== 'string') return ''
+  // eslint-disable-next-line no-control-regex -- filtering control chars is the point
+  return text.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ')
+}
+
+/** `schema.table` or `schema.table.column`, as prompt/search display text. */
+function refName(ref: ColumnRef | undefined): string {
+  if (!ref || typeof ref.schema !== 'string' || typeof ref.table !== 'string') {
+    return '(invalid ref)'
+  }
+  return singleLine(
+    ref.column
+      ? `${ref.schema}.${ref.table}.${ref.column}`
+      : `${ref.schema}.${ref.table}`
+  )
+}
+
+/** Provenance marker so the model can weigh agent-inferred records. */
+function sourceTag(rec: KnowledgeRecord): string {
+  if (rec.source !== 'agent') return ''
+  return rec.confidence
+    ? ` [agent-recorded, ${rec.confidence} confidence]`
+    : ' [agent-recorded]'
+}
+
+function quoteValue(value: string): string {
+  return `'${singleLine(value).replace(/'/g, "''")}'`
+}
+
+/** Continuation lines of a multi-line value stay inside the list item. */
+function indentBlock(text: unknown, prefix: string): string {
+  const s = typeof text === 'string' ? text : ''
+  return s.replace(/\r\n?/g, '\n').split('\n').join(`\n${prefix}`)
+}
+
+/**
+ * One relationship as an explicit join instruction. Polymorphic joins spell
+ * out every discriminator value → target pair and end with the warning the
+ * model must not lose, e.g.: "public.events.subject_id joins to
+ * public.patients.id when public.events.subject_type = 'patient', to
+ * public.providers.id when 'provider'. Never join without filtering the
+ * discriminator."
+ */
+function renderRelationship(rel: RelationshipRecord, withNotes: boolean): string {
+  const notes = withNotes && rel.notes ? ` ${singleLine(rel.notes)}` : ''
+  if (rel.relType === 'polymorphic' && rel.discriminator && rel.targets) {
+    const disc = refName(rel.discriminator)
+    const cases = Object.entries(rel.targets).map(([value, target], i) =>
+      i === 0
+        ? `to ${refName(target)} when ${disc} = ${quoteValue(value)}`
+        : `to ${refName(target)} when ${quoteValue(value)}`
+    )
+    return `${refName(rel.from)} joins ${cases.join(', ')}. Never join without filtering the discriminator.${notes}`
+  }
+  const to = rel.to ? refName(rel.to) : '(target unspecified)'
+  return `${refName(rel.from)} joins to ${to}.${notes}`
+}
+
+function renderGlossaryTerm(g: GlossaryRecord, detail: KnowledgeDetail): string {
+  const synonyms = (g.synonyms ?? []).map(singleLine)
+  const term = singleLine(g.term)
+  const aka = synonyms.length > 0 ? ` (aka ${synonyms.join(', ')})` : ''
+  if (detail === 'terms') return `- ${term}${aka}`
+  const maps = (g.mappings ?? [])
+    .map((m) => `${refName(m?.ref)}${m?.caveat ? ` (${singleLine(m.caveat)})` : ''}`)
+    .join(', ')
+  const def = g.definition ? `${singleLine(g.definition)}${maps ? ' — ' : ''}` : ''
+  return `- ${term}${aka}: ${def}${maps ? `maps to ${maps}` : ''}${sourceTag(g)}`
+}
+
+/**
+ * Degradation tiers for the prompt section, mirroring SchemaDetail: 'full' =
+ * everything; 'no-note-bodies' = notes shrink to titles; 'no-exemplar-sql' =
+ * exemplars additionally shrink to their questions; 'terms' = every record is
+ * one compact line (titles/terms/targets only — join rules stay explicit
+ * because they are the highest-stakes content).
+ */
+type KnowledgeDetail = 'full' | 'no-note-bodies' | 'no-exemplar-sql' | 'terms'
+
+function renderKnowledge(records: KnowledgeRecord[], detail: KnowledgeDetail): string {
+  const dropNoteBodies = detail !== 'full'
+  const dropExemplarSql = detail === 'no-exemplar-sql' || detail === 'terms'
+  const terms = detail === 'terms'
+
+  const relationships = records.filter(
+    (r): r is RelationshipRecord => r.kind === 'relationship'
+  )
+  const glossary = records.filter((r): r is GlossaryRecord => r.kind === 'glossary')
+  const annotations = records.filter(
+    (r): r is AnnotationRecord => r.kind === 'annotation'
+  )
+  const exemplars = records.filter((r): r is ExemplarRecord => r.kind === 'exemplar')
+  const notes = records.filter((r): r is NoteRecord => r.kind === 'note')
+  if (
+    relationships.length + glossary.length + annotations.length +
+      exemplars.length + notes.length === 0
+  ) {
+    return ''
+  }
+
+  const lines: string[] = [
+    '## Local knowledge',
+    'Knowledge recorded locally in DB Desk by the user and past agent sessions — business meaning and join rules the database catalog does not carry. Trust it when writing queries.'
+  ]
+  if (relationships.length > 0) {
+    lines.push('', 'Relationships (join rules):')
+    for (const rel of relationships) {
+      lines.push(`- ${renderRelationship(rel, !terms)}${terms ? '' : sourceTag(rel)}`)
+    }
+  }
+  if (glossary.length > 0) {
+    lines.push('', 'Glossary:')
+    for (const g of glossary) lines.push(renderGlossaryTerm(g, detail))
+  }
+  if (annotations.length > 0) {
+    lines.push('', 'Annotations:')
+    for (const a of annotations) {
+      lines.push(
+        terms
+          ? `- ${refName(a.target)}`
+          : `- ${refName(a.target)}: ${indentBlock(a.text, '  ')}${sourceTag(a)}`
+      )
+    }
+  }
+  if (exemplars.length > 0) {
+    lines.push('', 'Exemplar queries (question → SQL):')
+    for (const e of exemplars) {
+      if (dropExemplarSql) {
+        lines.push(`- Q: ${singleLine(e.question)}`)
+      } else {
+        lines.push(
+          `- Q: ${singleLine(e.question)}${sourceTag(e)}`,
+          `  SQL: ${indentBlock(e.sql, '  ')}`
+        )
+      }
+    }
+  }
+  if (notes.length > 0) {
+    lines.push('', 'Notes:')
+    for (const n of notes) {
+      if (dropNoteBodies) {
+        lines.push(`- ${singleLine(n.title)}`)
+      } else {
+        lines.push(
+          `- ${singleLine(n.title)}: ${indentBlock(n.body, '  ')}${sourceTag(n)}`
+        )
+        if ((n.references ?? []).length > 0) {
+          lines.push(`  [refs: ${n.references.map(refName).join(', ')}]`)
+        }
+      }
+    }
+  }
+  return lines.join('\n')
+}
+
+/**
+ * The "## Local knowledge" prompt section, degrading tier by tier under its
+ * budget instead of cutting mid-text (mirror of summarizeSchema). Empty store
+ * renders nothing. Exported for unit tests.
+ */
+export function summarizeKnowledge(records: KnowledgeRecord[]): string {
+  const full = renderKnowledge(records, 'full')
+  if (full === '') return ''
+  if (full.length <= KNOWLEDGE_SUMMARY_MAX_CHARS) return full
+  const abridgedNote =
+    '\n(local knowledge abridged to fit context — use search_knowledge to retrieve full entries)'
+  for (const detail of ['no-note-bodies', 'no-exemplar-sql'] as const) {
+    const rendered = renderKnowledge(records, detail)
+    if (rendered.length + abridgedNote.length <= KNOWLEDGE_SUMMARY_MAX_CHARS) {
+      return rendered + abridgedNote
+    }
+  }
+  const minimal = renderKnowledge(records, 'terms')
+  if (minimal.length + abridgedNote.length <= KNOWLEDGE_SUMMARY_MAX_CHARS) {
+    return minimal + abridgedNote
+  }
+  return (
+    minimal.slice(0, KNOWLEDGE_SUMMARY_MAX_CHARS - abridgedNote.length) +
+    abridgedNote
+  )
+}
+
+/** Every structured column reference a record carries, in a stable order. */
+function knowledgeRefs(rec: KnowledgeRecord): ColumnRef[] {
+  switch (rec.kind) {
+    case 'annotation':
+      return [rec.target]
+    case 'relationship': {
+      const refs: ColumnRef[] = []
+      if (rec.from) refs.push(rec.from)
+      if (rec.to) refs.push(rec.to)
+      if (rec.discriminator) refs.push(rec.discriminator)
+      if (rec.targets) refs.push(...Object.values(rec.targets))
+      return refs
+    }
+    case 'glossary':
+      return (rec.mappings ?? []).flatMap((m) => (m?.ref ? [m.ref] : []))
+    case 'exemplar':
+      return rec.references ?? []
+    case 'note':
+      return rec.references ?? []
+    default:
+      return []
+  }
+}
+
+/** Lowercased searchable text: record prose plus every ref's name parts. */
+function knowledgeHaystack(rec: KnowledgeRecord): string {
+  const texts: string[] = []
+  switch (rec.kind) {
+    case 'annotation':
+      texts.push(rec.text)
+      break
+    case 'relationship':
+      if (rec.notes) texts.push(rec.notes)
+      if (rec.targets) texts.push(...Object.keys(rec.targets))
+      break
+    case 'glossary':
+      texts.push(rec.term, ...(rec.synonyms ?? []))
+      if (rec.definition) texts.push(rec.definition)
+      for (const m of rec.mappings ?? []) if (m?.caveat) texts.push(m.caveat)
+      break
+    case 'exemplar':
+      texts.push(rec.question, rec.sql)
+      break
+    case 'note':
+      texts.push(rec.title, rec.body)
+      break
+  }
+  for (const ref of knowledgeRefs(rec)) {
+    texts.push(ref.schema, ref.table)
+    if (ref.column) texts.push(ref.column)
+  }
+  return texts.join('\n').toLowerCase()
+}
+
+/** Full one-record rendering for a search hit, capped per hit. */
+function knowledgeHitSummary(rec: KnowledgeRecord): string {
+  let text: string
+  switch (rec.kind) {
+    case 'annotation':
+      text = `${refName(rec.target)}: ${rec.text}`
+      break
+    case 'relationship':
+      text = renderRelationship(rec, true)
+      break
+    case 'glossary':
+      text = renderGlossaryTerm(rec, 'full').replace(/^- /, '')
+      break
+    case 'exemplar':
+      text = `Q: ${singleLine(rec.question)}\nSQL: ${rec.sql}`
+      break
+    case 'note':
+      text = `${singleLine(rec.title)}: ${rec.body}`
+      break
+    default:
+      text = ''
+  }
+  return text.length > KNOWLEDGE_HIT_MAX_CHARS
+    ? `${text.slice(0, KNOWLEDGE_HIT_MAX_CHARS)}…`
+    : text
+}
+
+/**
+ * One search_knowledge hit. The id matters: the agent write path updates
+ * existing records by id, and search_knowledge is where the model gets them.
+ */
+export interface KnowledgeSearchHit {
+  id: string
+  kind: KnowledgeKind
+  refs: ColumnRef[]
+  summary: string
+}
+
+/**
+ * Case-insensitive keyword search (every whitespace-separated keyword must
+ * match) over record text — glossary terms/synonyms/definitions, annotation
+ * text, note titles/bodies, exemplar questions/SQL, relationship notes and
+ * discriminator values — plus the schema/table/column names inside structured
+ * refs. Pure and local; never touches the warehouse. Exported for unit tests.
+ */
+export function searchKnowledgeRecords(
+  records: KnowledgeRecord[],
+  query: string
+): KnowledgeSearchHit[] {
+  const keywords = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (keywords.length === 0) return []
+  const hits: KnowledgeSearchHit[] = []
+  for (const rec of records) {
+    if (!KNOWN_KNOWLEDGE_KINDS.has(rec.kind)) continue
+    const haystack = knowledgeHaystack(rec)
+    if (keywords.every((k) => haystack.includes(k))) {
+      hits.push({
+        id: rec.id,
+        kind: rec.kind,
+        refs: knowledgeRefs(rec),
+        summary: knowledgeHitSummary(rec)
+      })
+    }
+  }
+  return hits
+}
+
+/**
+ * Local annotations and relationships touching one table, appended to
+ * describe_table output after the DB-native detail. `name` is the tool input
+ * ("orders" or "sales.orders"); matching is case-insensitive and, when no
+ * schema is given, spans all schemas. Returns null when nothing is recorded.
+ * Exported for unit tests.
+ */
+export function renderTableKnowledge(
+  records: KnowledgeRecord[],
+  name: string
+): string | null {
+  const parts = name.toLowerCase().split('.').filter(Boolean)
+  if (parts.length === 0) return null
+  const table = parts[parts.length - 1]
+  const schema = parts.length > 1 ? parts[parts.length - 2] : null
+  const matches = (ref: ColumnRef | undefined): boolean =>
+    ref !== undefined &&
+    ref.table.toLowerCase() === table &&
+    (schema === null || ref.schema.toLowerCase() === schema)
+  const annotations = records.filter(
+    (r): r is AnnotationRecord => r.kind === 'annotation' && matches(r.target)
+  )
+  const relationships = records.filter(
+    (r): r is RelationshipRecord =>
+      r.kind === 'relationship' &&
+      (matches(r.from) ||
+        matches(r.to) ||
+        matches(r.discriminator) ||
+        Object.values(r.targets ?? {}).some(matches))
+  )
+  if (annotations.length === 0 && relationships.length === 0) return null
+  const lines: string[] = [
+    'local knowledge (recorded in DB Desk, not from the database catalog):'
+  ]
+  if (annotations.length > 0) {
+    lines.push('annotations:')
+    for (const a of annotations) {
+      lines.push(
+        `  ${refName(a.target)}: ${indentBlock(a.text, '    ')}${sourceTag(a)}`
+      )
+    }
+  }
+  if (relationships.length > 0) {
+    lines.push('relationships:')
+    for (const rel of relationships) {
+      lines.push(`  ${renderRelationship(rel, true)}${sourceTag(rel)}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+/** Exported for unit tests. */
+export function buildSystemPrompt(
   req: AgentSendRequest,
   mode: AgentMode,
   schemaSummary: string | null,
@@ -271,6 +671,12 @@ function buildSystemPrompt(
   } else {
     parts.push(
       '- Query execution is disabled for this chat; do not claim to have run anything.'
+    )
+  }
+  if (req.target) {
+    parts.push(
+      '- Use search_knowledge to look up locally recorded knowledge about this database — glossary terms, join rules, annotations, exemplar queries, notes. It reads only the local DB Desk store, never the database, so it is available in every mode.',
+      '- Use save_knowledge to record a durable fact the user states about their data — what a column really means, a join rule (including polymorphic joins), a glossary term, or a good example query — so it survives chat resets and helps future conversations. Do not save conversation-local trivia, one-off answers, or anything you are unsure about. To correct or extend an existing record, pass the id from a search_knowledge result so it updates in place rather than duplicating. It writes only the local store, never the database, so it is available in every mode.'
     )
   }
   if (req.webSearch) {
@@ -318,6 +724,15 @@ function buildSystemPrompt(
   }
   if (schemaSummary) {
     parts.push('', 'Database schema:', schemaSummary)
+  }
+  if (req.target) {
+    // Read fresh on every build (records are small); saves and deletes —
+    // from the UI or the agent's own tools — apply on the next turn without
+    // any cache to invalidate.
+    const knowledge = summarizeKnowledge(
+      listRecords(req.target.connId, req.target.database)
+    )
+    if (knowledge) parts.push('', knowledge)
   }
   if (req.editor && req.editor.sql.trim()) {
     parts.push(
@@ -410,6 +825,152 @@ function searchSchemaTool(dialect: DialectInfo): Anthropic.Tool {
       },
       required: ['pattern']
     }
+  }
+}
+
+/**
+ * Purely local tool: searches the DB Desk knowledge store, never the
+ * warehouse, so — unlike the SQL tools — it is offered in Metadata Only mode
+ * too and carries no access-mode gate.
+ */
+const SEARCH_KNOWLEDGE_TOOL: Anthropic.Tool = {
+  name: 'search_knowledge',
+  description:
+    'Keyword search over the local knowledge store for the connected database: glossary terms and synonyms, table/column annotations, join relationships (including polymorphic join rules), exemplar question→SQL pairs, and notes recorded by the user or past agent sessions. Matches record text and the schema/table/column names in structured references. Returns hits with the record id, kind, refs, and content. Reads only the local store — it never queries the database — and is available in every access mode.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description:
+          'Keywords to search for (all must match), e.g. "MRN" or "orders join".'
+      }
+    },
+    required: ['query']
+  }
+}
+
+/** JSON-schema fragment for a structured column/table reference. */
+const COLUMN_REF_SCHEMA = {
+  type: 'object',
+  properties: {
+    schema: { type: 'string' },
+    table: { type: 'string' },
+    column: {
+      type: 'string',
+      description: 'Omit for a reference to the whole table.'
+    }
+  },
+  required: ['schema', 'table']
+} as const
+
+/**
+ * Write path into the local knowledge store. Like search_knowledge this never
+ * touches the warehouse — it only writes DB Desk's app-local records — so it is
+ * offered in Metadata Only as well as Read-Only. The record shape is validated
+ * with the same `validateKnowledgeRecord` the UI save path uses; `source` is
+ * forced to 'agent' by the handler. Kind-specific fields are all optional at
+ * the schema level and enforced per-kind by validation, so one flat schema
+ * covers every record kind.
+ */
+const SAVE_KNOWLEDGE_TOOL: Anthropic.Tool = {
+  name: 'save_knowledge',
+  description:
+    'Record a durable fact about this database in the local DB Desk knowledge store so it survives chat resets and informs future conversations. Use it when the user states a lasting truth about their data — what a column really means, a join rule (including polymorphic joins), a glossary term, or a good example query. Do NOT save conversation-local trivia, one-off answers, or anything you are unsure about. To correct or extend an existing record, pass its `id` from a search_knowledge result so it is updated in place instead of duplicated. Records you write are marked as agent-sourced; set `confidence` to reflect how sure you are. Writes only the local store, never the database, so it is available in every access mode.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      id: {
+        type: 'string',
+        description:
+          'Omit to create a new record. Pass an id from search_knowledge to update that existing record in place.'
+      },
+      kind: {
+        type: 'string',
+        enum: ['annotation', 'relationship', 'glossary', 'exemplar', 'note'],
+        description: 'Which record kind to save; determines the required fields.'
+      },
+      confidence: {
+        type: 'string',
+        enum: ['high', 'medium', 'low'],
+        description: 'How sure you are of this fact.'
+      },
+      provenance: {
+        type: 'string',
+        description: 'Optional note on where this fact came from.'
+      },
+      target: {
+        ...COLUMN_REF_SCHEMA,
+        description: 'annotation: the table or column this describes.'
+      },
+      text: {
+        type: 'string',
+        description: 'annotation: markdown description, caveat, or gotcha.'
+      },
+      relType: {
+        type: 'string',
+        enum: ['standard', 'polymorphic'],
+        description: 'relationship: standard single-target join, or polymorphic.'
+      },
+      from: {
+        ...COLUMN_REF_SCHEMA,
+        description: 'relationship: the local (foreign-key) column; a column is required.'
+      },
+      to: {
+        ...COLUMN_REF_SCHEMA,
+        description: 'relationship (standard): the single join target column.'
+      },
+      discriminator: {
+        ...COLUMN_REF_SCHEMA,
+        description: 'relationship (polymorphic): the column whose value selects the target.'
+      },
+      targets: {
+        type: 'object',
+        description:
+          'relationship (polymorphic): map of discriminator value -> join target ColumnRef.',
+        additionalProperties: COLUMN_REF_SCHEMA
+      },
+      notes: {
+        type: 'string',
+        description: 'relationship: optional free-form join notes.'
+      },
+      term: { type: 'string', description: 'glossary: the business term.' },
+      synonyms: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'glossary: alternate names for the term (may be empty).'
+      },
+      definition: {
+        type: 'string',
+        description: 'glossary: optional definition of the term.'
+      },
+      mappings: {
+        type: 'array',
+        description: 'glossary: which columns realize this term.',
+        items: {
+          type: 'object',
+          properties: {
+            ref: COLUMN_REF_SCHEMA,
+            caveat: { type: 'string' }
+          },
+          required: ['ref']
+        }
+      },
+      question: {
+        type: 'string',
+        description: 'exemplar: the natural-language question.'
+      },
+      sql: { type: 'string', description: 'exemplar: the SQL that answers it.' },
+      title: { type: 'string', description: 'note: a short title.' },
+      body: { type: 'string', description: 'note: markdown body.' },
+      references: {
+        type: 'array',
+        items: COLUMN_REF_SCHEMA,
+        description:
+          'exemplar & note: every table/column the record refers to, as structured refs (required so usage lookups can find it — prose mentions do not count).'
+      }
+    },
+    required: ['kind']
   }
 }
 
@@ -508,6 +1069,15 @@ function toolResultPayload(result: QueryResult): string {
 }
 
 type Sender = (evt: AgentEvent) => void
+
+/**
+ * Fires the same `knowledge:changed` push the UI save path emits (see
+ * registerKnowledgeHandlers in index.ts) so renderer knowledge views refresh
+ * when the agent's save_knowledge tool writes a record. Set in
+ * registerAgentHandlers; a no-op until then (e.g. in unit tests) so the write
+ * still succeeds without a window.
+ */
+let broadcastKnowledgeChanged: (connId: string, database: string) => void = () => {}
 
 function toolError(
   base: Anthropic.ToolResultBlockParam,
@@ -774,7 +1344,13 @@ async function execDescribeTable(
     ok: true,
     summary: name
   })
-  return { ...base, content: res.data }
+  // Locally recorded annotations and relationships ride along after the
+  // DB-native detail so one describe_table call carries both.
+  const local = renderTableKnowledge(
+    listRecords(target.connId, target.database),
+    name
+  )
+  return { ...base, content: local ? `${res.data}\n\n${local}` : res.data }
 }
 
 async function execSearchSchema(
@@ -841,6 +1417,143 @@ async function execSearchSchema(
     summary: matches
   })
   return { ...base, content: res.data }
+}
+
+/**
+ * search_knowledge: local store lookup only. No access-mode check on purpose —
+ * the mode protects the connected database, and this tool never proxies SQL or
+ * touches the warehouse in any mode. Exported for unit tests.
+ */
+export function execSearchKnowledge(
+  req: AgentSendRequest,
+  block: Anthropic.ToolUseBlock,
+  send: Sender
+): Anthropic.ToolResultBlockParam {
+  const query = String((block.input as { query?: unknown }).query ?? '').trim()
+  const base: Anthropic.ToolResultBlockParam = {
+    type: 'tool_result',
+    tool_use_id: block.id,
+    content: ''
+  }
+  const target = req.target
+  if (!target) {
+    return toolError(
+      base,
+      req,
+      block.id,
+      send,
+      'no target',
+      'No database target is connected.'
+    )
+  }
+  send({
+    type: 'tool_start',
+    chatId: req.chatId,
+    toolId: block.id,
+    name: block.name,
+    sql: `search knowledge "${query}"`
+  })
+  const all = searchKnowledgeRecords(
+    listRecords(target.connId, target.database),
+    query
+  )
+  const hits = all.slice(0, KNOWLEDGE_SEARCH_MAX_HITS)
+  send({
+    type: 'tool_result',
+    chatId: req.chatId,
+    toolId: block.id,
+    ok: true,
+    summary: `${all.length} match${all.length === 1 ? '' : 'es'}`
+  })
+  return {
+    ...base,
+    content: JSON.stringify({
+      hits,
+      note:
+        all.length > hits.length
+          ? `showing first ${hits.length} of ${all.length} matches — refine the query for the rest`
+          : undefined
+    })
+  }
+}
+
+/**
+ * save_knowledge: writes one record into the local knowledge store. No
+ * access-mode gate on purpose — it only writes DB Desk's app-local store, never
+ * the warehouse — but it does require a connected target (records are keyed to
+ * connId + database). `source` is forced to 'agent'; the record is validated
+ * with the same `validateKnowledgeRecord` the UI save path uses (via
+ * saveRecord), so malformed payloads become a useful tool error rather than a
+ * bad write. A present `id` that matches an existing record updates it in place
+ * (preserving createdAt, stamping updatedAt); otherwise a new record is minted.
+ * On success it fires the `knowledge:changed` push so open knowledge views
+ * refresh. Exported for unit tests.
+ */
+export function execSaveKnowledge(
+  req: AgentSendRequest,
+  block: Anthropic.ToolUseBlock,
+  send: Sender
+): Anthropic.ToolResultBlockParam {
+  const base: Anthropic.ToolResultBlockParam = {
+    type: 'tool_result',
+    tool_use_id: block.id,
+    content: ''
+  }
+  const target = req.target
+  if (!target) {
+    return toolError(
+      base,
+      req,
+      block.id,
+      send,
+      'no target',
+      'No database target is connected.'
+    )
+  }
+  const input = (block.input ?? {}) as Record<string, unknown>
+  // Force source: the agent only ever writes agent-sourced records. Strip any
+  // caller-supplied source/timestamps; the store owns identity and stamping.
+  const draft = { ...input, source: 'agent' } as KnowledgeRecordInput
+  const kindLabel = typeof input.kind === 'string' ? input.kind : 'record'
+  send({
+    type: 'tool_start',
+    chatId: req.chatId,
+    toolId: block.id,
+    name: block.name,
+    sql: input.id ? `update knowledge ${kindLabel}` : `save knowledge ${kindLabel}`
+  })
+  const existed =
+    typeof input.id === 'string' &&
+    listRecords(target.connId, target.database).some((r) => r.id === input.id)
+  let saved: KnowledgeRecord
+  try {
+    saved = saveRecord(target.connId, target.database, draft)
+  } catch (err) {
+    return toolError(
+      base,
+      req,
+      block.id,
+      send,
+      'invalid record',
+      `save_knowledge rejected the record: ${describeError(err)}`
+    )
+  }
+  broadcastKnowledgeChanged(target.connId, target.database)
+  send({
+    type: 'tool_result',
+    chatId: req.chatId,
+    toolId: block.id,
+    ok: true,
+    summary: `${existed ? 'updated' : 'saved'} ${saved.kind}`
+  })
+  return {
+    ...base,
+    content: JSON.stringify({
+      id: saved.id,
+      kind: saved.kind,
+      action: existed ? 'updated' : 'created'
+    })
+  }
 }
 
 function execWriteEditor(
@@ -1036,6 +1749,10 @@ async function runAgentTurn(
           searchSchemaTool(dialect)
         ]
       : [WRITE_EDITOR_TOOL]
+  // search_knowledge and save_knowledge read/write only the local knowledge
+  // store — never the warehouse — so both are offered in Metadata Only as well
+  // as Read-Only. They require a target because records are keyed to it.
+  if (req.target) tools.push(SEARCH_KNOWLEDGE_TOOL, SAVE_KNOWLEDGE_TOOL)
   for (const t of mcpTools) {
     tools.push({
       name: t.namespacedName,
@@ -1170,6 +1887,10 @@ async function runAgentTurn(
             results.push(await execDescribeTable(req, mode, block, send))
           } else if (block.name === 'search_schema') {
             results.push(await execSearchSchema(req, mode, block, send))
+          } else if (block.name === 'search_knowledge') {
+            results.push(execSearchKnowledge(req, block, send))
+          } else if (block.name === 'save_knowledge') {
+            results.push(execSaveKnowledge(req, block, send))
           } else if (block.name === 'write_to_editor') {
             results.push(execWriteEditor(req, block, send))
           } else if (mcpByName.has(block.name)) {
@@ -1323,6 +2044,14 @@ export function registerAgentHandlers(
   const send: Sender = (evt) => {
     const win = getWindow()
     if (win && !win.isDestroyed()) win.webContents.send('agent:event', evt)
+  }
+  // Mirror the UI save path's push so the save_knowledge tool refreshes any
+  // open renderer knowledge views.
+  broadcastKnowledgeChanged = (connId, database) => {
+    const win = getWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('knowledge:changed', { connId, database })
+    }
   }
 
   ipcMain.handle('agent:keyStatus', (): AgentKeyStatus => {

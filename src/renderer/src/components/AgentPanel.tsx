@@ -23,6 +23,8 @@ import type {
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import type { McpServerStatus } from '../../../shared/mcp'
 import { NodeIcon } from '../connections/NodeIcon'
+import { KnowledgePanel } from '../knowledge/KnowledgePanel'
+import type { KnowledgeNav, KnowledgeState } from '../knowledge/useKnowledgeState'
 import { highlightSql, stripSqlComments } from '../sql/highlight'
 import type { FileState } from '../files/useFileState'
 import type { EditorBridge } from './editorBridge'
@@ -43,6 +45,7 @@ import {
 } from './icons'
 import { FilesPanel } from './FilesPanel'
 import { McpSettingsDialog } from './McpSettingsDialog'
+import { SaveExemplarDialog } from './SaveExemplarDialog'
 
 interface AgentPanelProps {
   files: FileState
@@ -64,6 +67,14 @@ interface AgentPanelProps {
   /** Raw introspection per connection id → database name, for the picker. */
   schemas: Record<string, Record<string, DatabaseIntrospection>>
   ensureSchema: (connId: string, database: string) => void
+  /** Knowledge records + usage index for the knowledge tab's target. */
+  knowledge: KnowledgeState
+  knowledgeTargetKey: string | null
+  onKnowledgeTargetChange: (key: string | null) => void
+  /** Pending "Show usages" / "Add annotation…" request from the schema tree. */
+  knowledgeNav: KnowledgeNav | null
+  /** Clears the pending nav once KnowledgePanel has acted on it (one-shot). */
+  onKnowledgeNavConsumed: () => void
 }
 
 const EFFORT_LABEL: Record<AgentEffort, string> = {
@@ -193,10 +204,13 @@ function SqlCode({ sql }: { sql: string }): ReactElement {
 
 function AssistantText({
   text,
-  onInsert
+  onInsert,
+  onSaveExemplar
 }: {
   text: string
   onInsert: (sql: string) => void
+  /** Present only when a target is connected: adds a "Save as exemplar" action. */
+  onSaveExemplar?: (sql: string) => void
 }): ReactElement {
   return (
     <>
@@ -214,6 +228,15 @@ function AssistantText({
               >
                 Insert
               </button>
+              {onSaveExemplar && (
+                <button
+                  type="button"
+                  title="Save this query as a reusable exemplar"
+                  onClick={() => onSaveExemplar(seg.body.trimEnd())}
+                >
+                  Save as exemplar
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -273,9 +296,18 @@ export function AgentPanel({
   onAddContext,
   onRemoveContext,
   schemas,
-  ensureSchema
+  ensureSchema,
+  knowledge,
+  knowledgeTargetKey,
+  onKnowledgeTargetChange,
+  knowledgeNav,
+  onKnowledgeNavConsumed
 }: AgentPanelProps): ReactElement {
-  const [activeTab, setActiveTab] = useState<'files' | 'agent'>('agent')
+  const [activeTab, setActiveTab] = useState<'files' | 'agent' | 'knowledge'>(
+    'agent'
+  )
+  const [knowledgeNewSeq, setKnowledgeNewSeq] = useState(0)
+  const consumeKnowledgeNewSeq = useCallback(() => setKnowledgeNewSeq(0), [])
   const [chatId, setChatId] = useState(() => nextId('chat'))
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
@@ -305,6 +337,8 @@ export function AgentPanel({
   const [modeOpen, setModeOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
   const [mcpMenuOpen, setMcpMenuOpen] = useState(false)
+  /** SQL captured from a chat code block for the "Save as exemplar" dialog. */
+  const [exemplarSql, setExemplarSql] = useState<string | null>(null)
   const [mcpStatuses, setMcpStatuses] = useState<McpServerStatus[]>([])
   // Off by default: web browsing is opt-in per session.
   const [webSearch, setWebSearch] = useState(false)
@@ -431,6 +465,15 @@ export function AgentPanel({
     prevContextLen.current = context.length
   }, [context.length])
 
+  // "Show usages" / "Add annotation…" from the tree reveals the knowledge tab.
+  const prevNavSeq = useRef(0)
+  useEffect(() => {
+    if (knowledgeNav && knowledgeNav.seq !== prevNavSeq.current) {
+      prevNavSeq.current = knowledgeNav.seq
+      setActiveTab('knowledge')
+    }
+  }, [knowledgeNav])
+
   // Escape dismisses whichever popover is open.
   useEffect(() => {
     if (!modelOpen && !pickerOpen && !modeOpen) return
@@ -502,6 +545,21 @@ export function AgentPanel({
     },
     [editorBridge]
   )
+
+  const onSaveExemplar = useCallback((sql: string) => {
+    setExemplarSql(sql)
+  }, [])
+
+  /** The user's most recent prompt, prefilled as the exemplar's question. */
+  const lastUserPrompt = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      if (msg.role !== 'user') continue
+      const text = msg.parts.find((p) => p.kind === 'text')
+      if (text && text.kind === 'text') return text.text
+    }
+    return ''
+  }, [messages])
 
   const send = useCallback(() => {
     const prompt = input.trim()
@@ -674,13 +732,27 @@ export function AgentPanel({
           <SparkleIcon />
           AI Agent
         </button>
+        <button
+          className={`agent-tab${activeTab === 'knowledge' ? ' is-active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('knowledge')}
+        >
+          Knowledge
+        </button>
         <div className="agent-tabbar__spacer" />
         <button
           className="icon-btn icon-btn--sm"
-          title={activeTab === 'agent' ? 'New chat' : 'New query file'}
+          title={
+            activeTab === 'agent'
+              ? 'New chat'
+              : activeTab === 'knowledge'
+                ? 'New knowledge record'
+                : 'New query file'
+          }
           type="button"
           onClick={() => {
             if (activeTab === 'agent') newChat()
+            else if (activeTab === 'knowledge') setKnowledgeNewSeq((s) => s + 1)
             else files.createFile(null, null)
           }}
         >
@@ -689,6 +761,19 @@ export function AgentPanel({
       </div>
       {activeTab === 'files' ? (
         <FilesPanel files={files} connNames={connNames} />
+      ) : activeTab === 'knowledge' ? (
+        <KnowledgePanel
+          state={knowledge}
+          targets={targets}
+          targetKey={knowledgeTargetKey}
+          onTargetKeyChange={onKnowledgeTargetChange}
+          schemas={schemas}
+          ensureSchema={ensureSchema}
+          nav={knowledgeNav}
+          onNavConsumed={onKnowledgeNavConsumed}
+          newSeq={knowledgeNewSeq}
+          onNewConsumed={consumeKnowledgeNewSeq}
+        />
       ) : (
         <div className="chat">
           <div className="chat__target-bar">
@@ -782,6 +867,7 @@ export function AgentPanel({
                         key={i}
                         text={part.text}
                         onInsert={insertSql}
+                        onSaveExemplar={target ? onSaveExemplar : undefined}
                       />
                     ) : (
                       <div key={i} className="chat-prose">
@@ -1165,6 +1251,16 @@ export function AgentPanel({
             </div>
           </div>
         </div>
+      )}
+      {exemplarSql !== null && target && (
+        <SaveExemplarDialog
+          connId={target.connId}
+          database={target.database}
+          targetLabel={`${target.connName} / ${target.database}`}
+          initialSql={exemplarSql}
+          initialQuestion={lastUserPrompt}
+          onClose={() => setExemplarSql(null)}
+        />
       )}
     </section>
   )
