@@ -49,6 +49,8 @@ import {
   CloseIcon,
   FolderIcon,
   GlobeIcon,
+  HistoryIcon,
+  NewChatIcon,
   PlayIcon,
   PlugIcon,
   PlusThinIcon,
@@ -142,6 +144,21 @@ interface ChatMessage {
   parts: ChatPart[]
 }
 
+interface ArchivedChat {
+  id: string
+  messages: ChatMessage[]
+  contextTokens: number
+  createdAt: number
+  updatedAt: number
+  selectedTargetKey: string | null
+  modelId: string
+  effort: AgentEffort | null
+  mode: AgentMode
+  webSearch: boolean
+  repoEnabled: boolean
+  draft: string
+}
+
 let idSeq = 0
 function nextId(prefix: string): string {
   return `${prefix}${++idSeq}`
@@ -151,6 +168,22 @@ const MODE_STORAGE_KEY = 'agent.mode'
 
 function targetKey(target: QueryTarget): string {
   return JSON.stringify([target.connId, target.database])
+}
+
+function chatTitle(messages: ChatMessage[]): string {
+  const firstUser = messages.find((message) => message.role === 'user')
+  const text = firstUser?.parts.find((part) => part.kind === 'text')
+  if (!text || text.kind !== 'text') return 'New chat'
+  return text.text.replace(/\s+/g, ' ').trim() || 'New chat'
+}
+
+function chatTime(timestamp: number): string {
+  const date = new Date(timestamp)
+  const today = new Date()
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
 /** Last path segment of a repo root, for display — renderer never parses paths. */
@@ -397,6 +430,10 @@ export function AgentPanel({
   const [knowledgeNewSeq, setKnowledgeNewSeq] = useState(0)
   const consumeKnowledgeNewSeq = useCallback(() => setKnowledgeNewSeq(0), [])
   const [chatId, setChatId] = useState(() => nextId('chat'))
+  const [chatCreatedAt, setChatCreatedAt] = useState(() => Date.now())
+  const [chatUpdatedAt, setChatUpdatedAt] = useState(() => Date.now())
+  const [chatHistory, setChatHistory] = useState<ArchivedChat[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
   const [thinking, setThinking] = useState(false)
@@ -635,17 +672,18 @@ export function AgentPanel({
 
   // Escape dismisses whichever popover is open.
   useEffect(() => {
-    if (!modelOpen && !pickerOpen && !modeOpen) return
+    if (!modelOpen && !pickerOpen && !modeOpen && !historyOpen) return
     const onKey = (e: globalThis.KeyboardEvent): void => {
       if (e.key === 'Escape') {
         setModelOpen(false)
         setPickerOpen(false)
         setModeOpen(false)
+        setHistoryOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [modelOpen, pickerOpen, modeOpen])
+  }, [modelOpen, pickerOpen, modeOpen, historyOpen])
 
   const openPicker = useCallback(() => {
     setPickerFilter('')
@@ -727,6 +765,7 @@ export function AgentPanel({
     (prompt: string) => {
       if (!prompt || busy || compacting) return
       setBusy(true)
+      setChatUpdatedAt(Date.now())
       setMessages((prev) => [
         ...prev,
         {
@@ -805,14 +844,89 @@ export function AgentPanel({
     void window.dbDesk.agent.stop(chatId)
   }, [chatId])
 
+  const currentChatSnapshot = useCallback(
+    (): ArchivedChat => ({
+      id: chatId,
+      messages,
+      contextTokens,
+      createdAt: chatCreatedAt,
+      updatedAt: chatUpdatedAt,
+      selectedTargetKey,
+      modelId,
+      effort,
+      mode,
+      webSearch,
+      repoEnabled,
+      draft: input
+    }),
+    [
+      chatId,
+      messages,
+      contextTokens,
+      chatCreatedAt,
+      chatUpdatedAt,
+      selectedTargetKey,
+      modelId,
+      effort,
+      mode,
+      webSearch,
+      repoEnabled,
+      input
+    ]
+  )
+
   const newChat = useCallback(() => {
-    void window.dbDesk.agent.reset(chatId)
+    if (busy || compacting) return
+    const current = currentChatSnapshot()
+    if (current.messages.length > 0 || current.draft.trim()) {
+      setChatHistory((previous) => [
+        current,
+        ...previous.filter((chat) => chat.id !== current.id)
+      ])
+    }
+    const now = Date.now()
     setChatId(nextId('chat'))
+    setChatCreatedAt(now)
+    setChatUpdatedAt(now)
     setMessages([])
     setBusy(false)
     setThinking(false)
     setContextTokens(0)
-  }, [chatId])
+    setInput('')
+    setHistoryOpen(false)
+  }, [busy, compacting, currentChatSnapshot])
+
+  const openChat = useCallback(
+    (nextChat: ArchivedChat) => {
+      if (busy || compacting || nextChat.id === chatId) return
+      const current = currentChatSnapshot()
+      setChatHistory((previous) => {
+        const withoutNext = previous.filter(
+          (chat) => chat.id !== nextChat.id && chat.id !== current.id
+        )
+        return current.messages.length > 0 || current.draft.trim()
+          ? [current, ...withoutNext]
+          : withoutNext
+      })
+      setChatId(nextChat.id)
+      setChatCreatedAt(nextChat.createdAt)
+      setChatUpdatedAt(nextChat.updatedAt)
+      setMessages(nextChat.messages)
+      setContextTokens(nextChat.contextTokens)
+      setSelectedTargetKey(nextChat.selectedTargetKey)
+      setModelId(nextChat.modelId)
+      setEffort(nextChat.effort)
+      setMode(nextChat.mode)
+      setWebSearch(nextChat.webSearch)
+      setRepoEnabled(nextChat.repoEnabled)
+      setInput(nextChat.draft)
+      setBusy(false)
+      setThinking(false)
+      setCompacting(false)
+      setHistoryOpen(false)
+    },
+    [busy, compacting, chatId, currentChatSnapshot]
+  )
 
   // Slash-command menu: open while the input is nothing but "/" + letters.
   const slashMatches = useMemo(() => {
@@ -1123,6 +1237,75 @@ export function AgentPanel({
                 </>
               )}
             </div>
+          </div>
+          <div className="chat__session-bar">
+            <div className="chat-history-ctl">
+              <button
+                type="button"
+                className={`chat-session-btn${historyOpen ? ' is-active' : ''}`}
+                title="Chat history"
+                aria-label="Chat history"
+                aria-expanded={historyOpen}
+                disabled={busy || compacting}
+                onClick={() => setHistoryOpen((open) => !open)}
+              >
+                <HistoryIcon size={17} />
+              </button>
+              {historyOpen && (
+                <>
+                  <div
+                    className="ctx-overlay"
+                    onMouseDown={() => setHistoryOpen(false)}
+                  />
+                  <div className="chat-history-pop">
+                    <div className="chat-history-pop__heading">
+                      Chat history
+                    </div>
+                    <button
+                      type="button"
+                      className="chat-history-item is-active"
+                      disabled
+                    >
+                      <span className="chat-history-item__title">
+                        {chatTitle(messages)}
+                      </span>
+                      <span className="chat-history-item__meta">Current</span>
+                    </button>
+                    {chatHistory.length > 0 ? (
+                      chatHistory.map((chat) => (
+                        <button
+                          key={chat.id}
+                          type="button"
+                          className="chat-history-item"
+                          onClick={() => openChat(chat)}
+                        >
+                          <span className="chat-history-item__title">
+                            {chatTitle(chat.messages)}
+                          </span>
+                          <span className="chat-history-item__meta">
+                            {chatTime(chat.updatedAt)}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="chat-history-pop__empty">
+                        Previous chats will appear here.
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            <button
+              type="button"
+              className="chat-session-btn"
+              title="New chat"
+              aria-label="New chat"
+              disabled={busy || compacting}
+              onClick={newChat}
+            >
+              <NewChatIcon size={18} />
+            </button>
           </div>
           {mcpOpen && <McpSettingsDialog onClose={() => setMcpOpen(false)} />}
           {keyMissing && (

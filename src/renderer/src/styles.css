@@ -1726,6 +1726,105 @@ body.is-col-resizing {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
 }
+.chat__session-bar {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding: 3px 12px 1px;
+}
+.chat-session-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.chat-session-btn:hover:not(:disabled),
+.chat-session-btn.is-active {
+  color: var(--text);
+  background: var(--panel-hi);
+  border-color: var(--border-soft);
+}
+.chat-session-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.chat-history-ctl {
+  position: relative;
+}
+.chat-history-pop {
+  position: absolute;
+  z-index: 70;
+  top: 32px;
+  right: 0;
+  width: min(270px, calc(var(--agent-width, 322px) - 24px));
+  max-height: 330px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  box-shadow: 0 12px 36px var(--shadow);
+  animation: dbfade 0.1s ease;
+}
+.chat-history-pop__heading {
+  padding: 6px 8px 7px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.chat-history-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  text-align: left;
+  cursor: pointer;
+}
+.chat-history-item:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--row-hover);
+}
+.chat-history-item.is-active {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+.chat-history-item__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.chat-history-item__meta {
+  color: var(--text-faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.chat-history-pop__empty {
+  padding: 12px 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.4;
+}
 .chat__scroll {
   flex: 1;
   overflow-y: auto;

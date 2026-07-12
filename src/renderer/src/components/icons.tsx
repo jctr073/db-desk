@@ -68,6 +68,36 @@ export function PlusThinIcon({ size = 14 }: IconProps): ReactElement {
   )
 }
 
+export function HistoryIcon({ size = 15 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.3}
+    >
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 4.5V8l2.4 1.5" />
+    </svg>
+  )
+}
+
+export function NewChatIcon({ size = 16 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.3}
+    >
+      <path d="M3.2 11.7A5.7 5.7 0 1 1 5 13l-2.6.8.8-2.1Z" />
+      <path d="M8 5.3v5.4M5.3 8h5.4" />
+    </svg>
+  )
+}
+
 export function MinusIcon({ size = 15 }: IconProps): ReactElement {
   return (
     <svg
