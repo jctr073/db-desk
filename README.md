@@ -40,7 +40,11 @@ The right-hand panel's **AI Agent** tab turns prompts into SQL. It reads
 `CLAUDE_API_KEY` from `~/.zshrc` (re-read on every request, so no restart is
 needed after editing it), and offers a model and reasoning-effort picker,
 defaulting to Opus 4.8 at `xhigh` effort. Chat history streams per-session with
-a live "thinking" indicator and a Stop button to cancel mid-response. Each turn
+a live "thinking" indicator and a Stop button to cancel mid-response. A session
+bar above the thread offers **New chat** and a **Chat history** popover:
+starting a new chat archives the current one, and reopening an archived chat
+restores its messages along with its target, model, effort, mode, web-search
+and codebase toggles, and any unsent draft. Each turn
 sees the schema of the connection/database selected in its own target picker
 and the contents of the active SQL editor file, so generated SQL can reference
 real tables and columns. Specific schemas, tables, or views can also be pinned
@@ -145,8 +149,8 @@ reset instead of being lost; agent-written records are tagged with a
 fully editable and deletable like any human-authored record. Both tools touch
 only the local store, never the database, so they work in every access mode,
 including Metadata Only. In the schema tree, a right-click on a table or
-column offers **Show usages** (everything in the knowledge store that
-references it, grouped by kind) and **Add annotation…**, and nodes with any
+column offers **Show knowledge entries** (everything in the knowledge store
+that references it, grouped by kind) and **Add annotation…**, and nodes with any
 knowledge attached show a small dot badge. Queries can be captured as
 exemplars too — a **Save as exemplar…** action on the editor toolbar and on
 SQL code blocks in agent replies opens a dialog to pair the query with a
