@@ -124,7 +124,16 @@ reads this store two ways: a `## Local knowledge` section is rendered into
 its system prompt (relationships first, since join rules are highest-stakes,
 then glossary, annotations, and exemplars, degrading gracefully under a char
 budget on large stores) and a `search_knowledge` tool lets it look up specific
-terms, joins, or annotations on demand. It also writes to the store: a
+terms, joins, or annotations on demand. Every record surfaced to the agent —
+whether via the system-prompt section, `describe_table`, or `search_knowledge`
+— carries a `[kb:id]` citation tag, and the agent is instructed to cite the
+records that actually shaped its answer inline in its reply; the chat
+transcript renders each tag as a small chip naming the record's kind that
+opens the record in the Knowledge tab on click, so it's visible when the agent
+draws on recorded knowledge instead of the schema alone. Tool calls in the
+transcript are similarly labeled (Run SQL, Describe, Knowledge, Codebase,
+Web, …) with a status icon, so each step the agent took is easy to scan. It
+also writes to the store: a
 `save_knowledge` tool lets the agent record a durable fact stated mid-chat
 (e.g. "that column is actually the admission date") so it survives a chat
 reset instead of being lost; agent-written records are tagged with a
