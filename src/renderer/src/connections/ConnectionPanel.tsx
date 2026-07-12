@@ -264,7 +264,7 @@ export function ConnectionPanel({
                     setMenu(null)
                   }}
                 >
-                  Show usages
+                  Show knowledge entries
                 </button>
                 <button
                   className="ctx-menu__item"
