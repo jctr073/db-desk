@@ -54,8 +54,6 @@ interface ConnectionPanelProps {
   ) => void
   /** Ids of nodes that have local knowledge attached (dot badge). */
   knowledgeIds?: Set<string>
-  /** Report the selected node + object count up to the app status bar. */
-  onStatus?: (sel: string, count: string) => void
 }
 
 /** Tree kinds that can ride along to the agent thread as context chips. */
@@ -106,8 +104,7 @@ export function ConnectionPanel({
   onNewQueryFile,
   onAddToAgentThread,
   onKnowledgeAction,
-  knowledgeIds,
-  onStatus
+  knowledgeIds
 }: ConnectionPanelProps): ReactElement {
   const rows = useMemo(
     () => flattenTree(state.tree, { expanded: state.expanded, filter: state.filter }),
@@ -156,10 +153,6 @@ export function ConnectionPanel({
       : state.selectedNode.label
   }
   const rowCountText = `${rows.length} ${rows.length === 1 ? 'item' : 'items'}`
-
-  useEffect(() => {
-    onStatus?.(selText, rowCountText)
-  }, [selText, rowCountText, onStatus])
 
   return (
     <section className="conn-panel">
@@ -234,6 +227,11 @@ export function ConnectionPanel({
             onRowContextMenu={onRowContextMenu}
           />
         )}
+      </div>
+
+      <div className="conn-footer">
+        <span className="conn-footer__sel">{selText}</span>
+        <span className="conn-footer__count">{rowCountText}</span>
       </div>
 
       {menu && menuNode && (

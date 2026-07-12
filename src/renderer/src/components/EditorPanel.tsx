@@ -12,9 +12,6 @@ import { statementAtOffset } from '../../../shared/sql'
 import { ensureSqlLanguageFeatures } from '../sql/completions'
 import type { Theme } from '../theme'
 import {
-  CheckIcon,
-  ChevronDownIcon,
-  CubeIcon,
   DatabaseIcon,
   FormatIcon,
   KebabIcon,
@@ -30,13 +27,24 @@ import { SaveExemplarDialog } from './SaveExemplarDialog'
 import { SqlEditor } from './SqlEditor'
 import type { QueryRunner, QueryTarget } from './useQueryRunner'
 import type { EditorBridge } from './editorBridge'
-import type { FileState } from '../files/useFileState'
+import type { FileState, QueryFile } from '../files/useFileState'
 
 const DEFAULT_LIMIT = 500
+
+/** Dot colors cycled per connection, in tree order (see connColors). */
+const CONN_COLORS = [
+  'var(--accent)',
+  'var(--teal)',
+  'var(--green)',
+  'var(--amber)',
+  'var(--red)'
+]
 
 interface EditorPanelProps {
   theme: Theme
   targets: QueryTarget[]
+  /** Connection id → display name, for labelling connection tabs. */
+  connNames: Record<string, string>
   /** Introspection cache: connection id → database name → schema. */
   schemas: Record<string, Record<string, DatabaseIntrospection>>
   ensureSchema: (connId: string, database: string) => void
@@ -46,10 +54,39 @@ interface EditorPanelProps {
   bridge: MutableRefObject<EditorBridge | null>
   /** Report the active result's summary + target up to the app status bar. */
   onQueryStatus?: (text: string, target: string) => void
+  /** Report the active connection tab's resolved target (for the status bar). */
+  onTargetChange?: (target: QueryTarget | null) => void
 }
 
-function targetKey(target: QueryTarget): string {
-  return JSON.stringify([target.connId, target.database])
+/** Open files bucketed by (connection, database) — one top-tier tab each. */
+interface FileGroup {
+  key: string
+  connId: string | null
+  database: string | null
+  files: QueryFile[]
+}
+
+function groupKeyOf(connId: string | null, database: string | null): string {
+  return `${connId ?? ''}\u0000${database ?? ''}`
+}
+
+/**
+ * The (connection, database) a group's queries run against. Groups made at
+ * connection level (no database) and scratch files (no connection) fall back
+ * to the connection's — or the app's — primary target.
+ */
+function resolveTarget(
+  group: FileGroup | null,
+  targets: QueryTarget[]
+): QueryTarget | null {
+  const fallback = targets.find((t) => t.primary) ?? targets[0] ?? null
+  if (!group || !group.connId) return fallback
+  const conn = targets.filter((t) => t.connId === group.connId)
+  if (conn.length === 0) return null // connection offline
+  if (group.database) {
+    return conn.find((t) => t.database === group.database) ?? null
+  }
+  return conn.find((t) => t.primary) ?? conn[0]
 }
 
 /** Fixed-position style dropping a menu below its button, right-aligned. */
@@ -64,24 +101,23 @@ function menuPosition(button: HTMLButtonElement): {
 export function EditorPanel({
   theme,
   targets,
+  connNames,
   schemas,
   ensureSchema,
   files,
   runner,
   bridge,
-  onQueryStatus
+  onQueryStatus,
+  onTargetChange
 }: EditorPanelProps): ReactElement {
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [limit, setLimit] = useState<number | null>(DEFAULT_LIMIT)
   const [resultsPct, setResultsPct] = useState(50)
   const [dirtyIds, setDirtyIds] = useState<ReadonlySet<string>>(new Set())
-  /** Which toolbar popover is open: the connection target or the kebab. */
-  const [menu, setMenu] = useState<'target' | 'actions' | null>(null)
+  const [actionsOpen, setActionsOpen] = useState(false)
   /** Captured SQL for the "Save as exemplar" dialog; null = closed. */
   const [exemplarSql, setExemplarSql] = useState<string | null>(null)
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const splitRef = useRef<HTMLDivElement | null>(null)
-  const targetBtnRef = useRef<HTMLButtonElement | null>(null)
   const actionsBtnRef = useRef<HTMLButtonElement | null>(null)
 
   // Per-file buffers so switching tabs preserves unsaved edits.
@@ -91,10 +127,65 @@ export function EditorPanel({
   // Distinguishes programmatic setValue (tab switch) from user typing.
   const suppressChangeRef = useRef(false)
 
-  const target = targets.find((t) => targetKey(t) === selectedKey) ?? null
+  const groups = useMemo(() => {
+    const map = new Map<string, FileGroup>()
+    for (const file of files.files) {
+      const key = groupKeyOf(file.connId, file.database)
+      let group = map.get(key)
+      if (!group) {
+        group = { key, connId: file.connId, database: file.database, files: [] }
+        map.set(key, group)
+      }
+      group.files.push(file)
+    }
+    return [...map.values()]
+  }, [files.files])
+
+  const activeGroup =
+    (files.selectedFileId
+      ? groups.find((g) => g.files.some((f) => f.id === files.selectedFileId))
+      : null) ??
+    groups[0] ??
+    null
+
+  const target = resolveTarget(activeGroup, targets)
   const activeFile = files.selectedFileId
     ? files.files.find((f) => f.id === files.selectedFileId)
     : null
+
+  // Switching back to a connection tab restores the file that was open there.
+  const lastFileByGroup = useRef(new Map<string, string>())
+  useEffect(() => {
+    if (files.selectedFileId && activeGroup) {
+      lastFileByGroup.current.set(activeGroup.key, files.selectedFileId)
+    }
+  }, [files.selectedFileId, activeGroup])
+
+  const selectGroup = useCallback(
+    (group: FileGroup) => {
+      const remembered = lastFileByGroup.current.get(group.key)
+      const file = group.files.find((f) => f.id === remembered) ?? group.files[0]
+      if (file) files.selectFile(file.id)
+    },
+    [files.selectFile]
+  )
+
+  /** Connection id → tab dot color, assigned in connection (tree) order. */
+  const connColors = useMemo(() => {
+    const out = new Map<string, string>()
+    for (const t of targets) {
+      if (!out.has(t.connId)) {
+        out.set(t.connId, CONN_COLORS[out.size % CONN_COLORS.length])
+      }
+    }
+    return out
+  }, [targets])
+
+  useEffect(() => {
+    onTargetChange?.(target)
+  }, [target, onTargetChange])
+  // The panel never unmounts in practice, but don't leave a stale target up.
+  useEffect(() => () => onTargetChange?.(null), [onTargetChange])
 
   const activeFileNameRef = useRef<string | null>(null)
   activeFileNameRef.current = activeFile?.name ?? null
@@ -157,21 +248,13 @@ export function EditorPanel({
   }, [files.selectedFileId, setEditorValue])
 
   useEffect(() => {
-    if (!menu) return
+    if (!actionsOpen) return
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setMenu(null)
+      if (event.key === 'Escape') setActionsOpen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [menu])
-
-  // Keep the selection valid as connections come and go; prefer the database
-  // the first connection was actually opened against.
-  useEffect(() => {
-    if (selectedKey && targets.some((t) => targetKey(t) === selectedKey)) return
-    const fallback = targets.find((t) => t.primary) ?? targets[0]
-    setSelectedKey(fallback ? targetKey(fallback) : null)
-  }, [targets, selectedKey])
+  }, [actionsOpen])
 
   // Completion reads the active target's schema through this ref so the
   // provider (registered once) always sees the latest introspection.
@@ -181,8 +264,8 @@ export function EditorPanel({
   const schemaRef = useRef<DatabaseIntrospection | null>(null)
   schemaRef.current = activeSchema
 
-  // Databases picked in the toolbar may not have been expanded in the tree
-  // yet; introspect them so completions have something to offer.
+  // Databases a tab points at may not have been expanded in the tree yet;
+  // introspect them so completions have something to offer.
   useEffect(() => {
     if (target) ensureSchema(target.connId, target.database)
   }, [target, ensureSchema])
@@ -312,107 +395,67 @@ export function EditorPanel({
     window.addEventListener('pointerup', up)
   }, [])
 
-  const byConnection = new Map<string, QueryTarget[]>()
-  for (const t of targets) {
-    const list = byConnection.get(t.connId)
-    if (list) list.push(t)
-    else byConnection.set(t.connId, [t])
-  }
+  /** Display name for a group's connection tab. */
+  const groupName = (group: FileGroup): string =>
+    group.connId ? (connNames[group.connId] ?? group.connId) : 'Scratch'
 
-  const filesByGroup = useMemo(() => {
-    const groups = new Map<string, (typeof files.files)[number][]>()
-    for (const file of files.files) {
-      const key = file.connId && file.database
-        ? `${file.connId}/${file.database}`
-        : file.connId || 'unsaved'
-      const list = groups.get(key) ?? []
-      list.push(file)
-      groups.set(key, list)
-    }
-    return groups
-  }, [files.files])
+  const activeTabHint = activeGroup
+    ? `${activeGroup.files.length} open · ${groupName(activeGroup)}${
+        target && activeGroup.connId ? ` / ${target.database}` : ''
+      }`
+    : ''
 
   return (
     <section className="editor-panel">
       <div className="editor-tabbar">
         <div className="editor-tabbar__tabs">
-        {[...filesByGroup.entries()].map(([groupKey, groupFiles]) => (
-          <div key={groupKey} className="editor-tabs-group">
-            {groupFiles.map((file) => (
-              <div
-                key={file.id}
-                className={`editor-tab${files.selectedFileId === file.id ? ' is-active' : ''}`}
-                onClick={() => files.selectFile(file.id)}
-                title={`${file.name} · ${file.connId}/${file.database || '(connection level)'}`}
+          {groups.map((group) => {
+            const isActive = group.key === activeGroup?.key
+            const groupTarget = resolveTarget(group, targets)
+            const color = group.connId
+              ? (connColors.get(group.connId) ?? 'var(--text-faint)')
+              : 'var(--text-faint)'
+            return (
+              <button
+                key={group.key}
+                type="button"
+                className={`conn-tab${isActive ? ' is-active' : ''}`}
+                title={
+                  group.connId
+                    ? groupTarget
+                      ? `${groupName(group)} / ${groupTarget.database}`
+                      : `${groupName(group)} (offline)`
+                    : 'Files not tied to a connection'
+                }
+                onClick={() => selectGroup(group)}
               >
-                <SqlFileIcon />
-                {file.name}
-                {dirtyIds.has(file.id) && (
-                  <span className="editor-tab__dot" title="Unsaved changes" />
+                <span
+                  className="conn-tab__dot"
+                  style={{ background: color }}
+                  aria-hidden
+                />
+                <span className="conn-tab__icon">
+                  <DatabaseIcon size={13} />
+                </span>
+                <span className="conn-tab__name">{groupName(group)}</span>
+                {group.database && (
+                  <>
+                    <span className="conn-tab__sep">/</span>
+                    <span className="conn-tab__db">{group.database}</span>
+                  </>
                 )}
-                <button
-                  className="editor-tab__close"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    closeFile(file.id)
-                  }}
-                  title="Close tab"
-                  type="button"
-                >
-                  <CloseIcon />
-                </button>
-              </div>
-            ))}
-          </div>
-        ))}
-        <button
-          className="icon-btn icon-btn--sm editor-tabbar__new"
-          title="New query"
-          type="button"
-          onClick={() => {
-            const connId = activeFile?.connId || null
-            const database = activeFile?.database || null
-            files.createFile(connId, database)
-          }}
-        >
-          <PlusThinIcon />
-        </button>
+                <span className="conn-tab__count">{group.files.length}</span>
+              </button>
+            )
+          })}
         </div>
-        <button
-          ref={targetBtnRef}
-          className={`target-pill${menu === 'target' ? ' is-open' : ''}`}
-          type="button"
-          title="Connection and database queries run against"
-          disabled={targets.length === 0}
-          onClick={() => setMenu((m) => (m === 'target' ? null : 'target'))}
-        >
-          <span
-            className={`target-pill__dot${target ? '' : ' is-off'}`}
-            aria-hidden
-          />
-          <span className="target-pill__icon">
-            <DatabaseIcon size={13} />
-          </span>
-          {target ? (
-            <>
-              <span className="target-pill__conn">{target.connName}</span>
-              <span className="target-pill__sep">/</span>
-              <span>{target.database}</span>
-            </>
-          ) : (
-            'No connection'
-          )}
-          <span className="pill-chev">
-            <ChevronDownIcon size={10} />
-          </span>
-        </button>
         <button
           className="btn-run btn-run--bar"
           type="button"
           disabled={!target}
           title={
             target
-              ? 'Run statement at cursor (⌘⏎)'
+              ? `Run statement at cursor (⌘⏎) — ${target.connName} / ${target.database}`
               : 'Connect to a database to run queries'
           }
           onClick={runCurrent}
@@ -423,61 +466,65 @@ export function EditorPanel({
         </button>
         <button
           ref={actionsBtnRef}
-          className={`btn-kebab${menu === 'actions' ? ' is-open' : ''}`}
+          className={`btn-kebab${actionsOpen ? ' is-open' : ''}`}
           type="button"
           title="More actions"
-          onClick={() => setMenu((m) => (m === 'actions' ? null : 'actions'))}
+          onClick={() => setActionsOpen((open) => !open)}
         >
           <KebabIcon />
         </button>
       </div>
-      {menu === 'target' && targetBtnRef.current && (
-        <>
-          <div className="ctx-overlay" onClick={() => setMenu(null)} />
+      <div className="file-tabbar">
+        {(activeGroup?.files ?? []).map((file) => (
           <div
-            className="ctx-menu toolbar-menu target-menu"
-            style={menuPosition(targetBtnRef.current)}
-            role="menu"
+            key={file.id}
+            className={`editor-tab${files.selectedFileId === file.id ? ' is-active' : ''}`}
+            onClick={() => files.selectFile(file.id)}
+            title={`${file.name} · ${file.connId ?? 'no connection'}/${file.database || '(connection level)'}`}
           >
-            {[...byConnection.values()].map((group) => (
-              <div key={group[0].connId}>
-                <div className="target-menu__group">
-                  <span className="target-menu__dot" aria-hidden />
-                  {group[0].connName}
-                </div>
-                {group.map((t) => {
-                  const key = targetKey(t)
-                  const active = key === selectedKey
-                  return (
-                    <button
-                      key={key}
-                      className={`target-menu__item${active ? ' is-active' : ''}`}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={active}
-                      onClick={() => {
-                        setSelectedKey(key)
-                        setMenu(null)
-                      }}
-                    >
-                      <CubeIcon />
-                      <span>{t.database}</span>
-                      {active && (
-                        <span className="menu-check">
-                          <CheckIcon size={13} />
-                        </span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            ))}
+            <SqlFileIcon />
+            {file.name}
+            {dirtyIds.has(file.id) && (
+              <span className="editor-tab__dot" title="Unsaved changes" />
+            )}
+            <button
+              className="editor-tab__close"
+              onClick={(e) => {
+                e.stopPropagation()
+                closeFile(file.id)
+              }}
+              title="Close tab"
+              type="button"
+            >
+              <CloseIcon />
+            </button>
           </div>
-        </>
-      )}
-      {menu === 'actions' && actionsBtnRef.current && (
+        ))}
+        <button
+          className="icon-btn icon-btn--sm editor-tabbar__new"
+          title={
+            activeGroup?.connId
+              ? `New query on ${groupName(activeGroup)}`
+              : 'New query'
+          }
+          type="button"
+          onClick={() =>
+            files.createFile(
+              activeGroup?.connId ?? null,
+              activeGroup?.database ?? null
+            )
+          }
+        >
+          <PlusThinIcon />
+        </button>
+        <div className="editor-tabbar__spacer" />
+        {activeTabHint && (
+          <span className="file-tabbar__hint">{activeTabHint}</span>
+        )}
+      </div>
+      {actionsOpen && actionsBtnRef.current && (
         <>
-          <div className="ctx-overlay" onClick={() => setMenu(null)} />
+          <div className="ctx-overlay" onClick={() => setActionsOpen(false)} />
           <div
             className="ctx-menu toolbar-menu"
             style={menuPosition(actionsBtnRef.current)}
@@ -487,7 +534,7 @@ export function EditorPanel({
               className="toolbar-menu__item"
               type="button"
               role="menuitem"
-              onClick={() => setMenu(null)}
+              onClick={() => setActionsOpen(false)}
             >
               <FormatIcon />
               <span>Format SQL</span>
@@ -502,7 +549,7 @@ export function EditorPanel({
               }
               onClick={() => {
                 saveFileById(files.selectedFileId)
-                setMenu(null)
+                setActionsOpen(false)
               }}
             >
               <SaveIcon />
@@ -520,7 +567,7 @@ export function EditorPanel({
                   : 'Connect to a database to save an exemplar'
               }
               onClick={() => {
-                setMenu(null)
+                setActionsOpen(false)
                 openExemplar()
               }}
             >

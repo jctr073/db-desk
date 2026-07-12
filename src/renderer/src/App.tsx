@@ -64,14 +64,10 @@ export function App(): ReactElement {
     setAgentContext((prev) => prev.filter((c) => agentContextKey(c) !== key))
   }, [])
 
-  // The two panels feed their footers into the single app-wide status bar.
-  const [connStatus, setConnStatus] = useState({ sel: '', count: '' })
+  // The editor panel feeds the app-wide status bar: the connection its
+  // active tab runs against, and the active result's summary.
+  const [activeTarget, setActiveTarget] = useState<QueryTarget | null>(null)
   const [queryStatus, setQueryStatus] = useState({ text: '', target: '' })
-  const onConnStatus = useCallback((sel: string, count: string) => {
-    setConnStatus((prev) =>
-      prev.sel === sel && prev.count === count ? prev : { sel, count }
-    )
-  }, [])
   const onQueryStatus = useCallback((text: string, target: string) => {
     setQueryStatus((prev) =>
       prev.text === text && prev.target === target ? prev : { text, target }
@@ -254,7 +250,6 @@ export function App(): ReactElement {
           onAddToAgentThread={addAgentContext}
           onKnowledgeAction={onKnowledgeAction}
           knowledgeIds={knowledgeIds}
-          onStatus={onConnStatus}
         />
         <div
           className="col-divider"
@@ -265,12 +260,14 @@ export function App(): ReactElement {
         <EditorPanel
           theme={theme}
           targets={targets}
+          connNames={connNames}
           schemas={connections.schemas}
           ensureSchema={connections.ensureSchema}
           files={files}
           runner={runner}
           bridge={editorBridge}
           onQueryStatus={onQueryStatus}
+          onTargetChange={setActiveTarget}
         />
         <div
           className="col-divider"
@@ -300,8 +297,7 @@ export function App(): ReactElement {
       <StatusBar
         theme={theme}
         onToggleTheme={toggle}
-        connText={connStatus.sel}
-        connCount={connStatus.count}
+        connText={activeTarget ? `Connection · ${activeTarget.connName}` : ''}
         queryText={queryStatus.text}
         queryTarget={queryStatus.target}
       />

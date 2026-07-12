@@ -33,9 +33,9 @@ const LIMIT_CHOICES: (number | null)[] = [100, 500, 1000, 5000, null]
 
 /** Width budgeted per inline tab when deciding how many fit. */
 const TAB_SLOT_PX = 150
-/** Space kept free for the AI group tab, overflow button, spacer, limit
-    pill and rerun control. */
-const BAR_RESERVED_PX = 250
+/** Space kept free for the RESULTS cap, AI group tab, overflow button,
+    spacer, limit pill and rerun control. */
+const BAR_RESERVED_PX = 310
 
 function statusLine(tab: ResultTab): string {
   const result = tab.result
@@ -218,6 +218,7 @@ export function ResultsPanel({
   return (
     <div className="results-panel">
       <div className="results-tabbar" ref={barRef}>
+        <span className="results-cap">RESULTS</span>
         {visibleTabs.map((tab) => (
           <div
             key={tab.id}
