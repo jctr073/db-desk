@@ -40,7 +40,15 @@ import type {
 import { AGENT_MODELS, API_KEY_VAR, resolveAgentMode } from '../shared/agent'
 import { callMcpTool, mcpToolsForTurn } from './mcp'
 import type { McpAgentTool } from './mcp'
+import {
+  getRepoCommit,
+  getRepoRoot,
+  grepRepo,
+  listRepoFiles,
+  readRepoFile
+} from './repo'
 import { listRecords, saveRecord } from './knowledge'
+import { normalizeColumnKey } from '../shared/knowledge'
 import type {
   AnnotationRecord,
   ColumnRef,
@@ -138,6 +146,13 @@ function getChat(chatId: string): ChatState {
 
 /** Schema summaries are reused across turns; introspection can be slow. */
 const schemaCache = new Map<string, string>()
+
+/**
+ * The introspection behind each cached summary, kept for save_knowledge ref
+ * checking. Same key space and lifecycle as schemaCache (both clear on
+ * agent:reset), so the two can never describe different snapshots.
+ */
+const introspectionCache = new Map<string, DatabaseIntrospection>()
 
 function schemaCacheKey(target: AgentTargetRef): string {
   return `${target.connId}/${target.database}`
@@ -251,7 +266,35 @@ async function schemaSummaryFor(target: AgentTargetRef): Promise<string> {
   if (!res.ok) return `(schema introspection failed: ${res.error})`
   const summary = summarizeSchema(res.data)
   schemaCache.set(cacheKey, summary)
+  introspectionCache.set(cacheKey, res.data)
   return summary
+}
+
+/**
+ * Every normalized ref key the live schema can satisfy — `schema.table` for
+ * each relation plus `schema.table.column` for each column — or null when no
+ * introspection has been cached for the target this session. Used to flag
+ * (never block) save_knowledge records whose refs match nothing real.
+ */
+function liveRefKeys(target: AgentTargetRef): Set<string> | null {
+  const db = introspectionCache.get(schemaCacheKey(target))
+  if (!db) return null
+  const keys = new Set<string>()
+  for (const schema of db.schemas) {
+    for (const rel of [...schema.tables, ...schema.views, ...schema.matviews]) {
+      keys.add(normalizeColumnKey({ schema: schema.name, table: rel.name }))
+      for (const col of rel.columns) {
+        keys.add(
+          normalizeColumnKey({
+            schema: schema.name,
+            table: rel.name,
+            column: col.name
+          })
+        )
+      }
+    }
+  }
+  return keys
 }
 
 // --- Local knowledge (system-prompt section + search_knowledge) -------------
@@ -636,12 +679,19 @@ export function renderTableKnowledge(
 }
 
 /** Exported for unit tests. */
+/** Repo facts injected into the system prompt when a codebase is attached. */
+export interface RepoPromptInfo {
+  root: string
+  commit: string | null
+}
+
 export function buildSystemPrompt(
   req: AgentSendRequest,
   mode: AgentMode,
   schemaSummary: string | null,
   dialect: DialectInfo,
-  mcpTools: McpAgentTool[]
+  mcpTools: McpAgentTool[],
+  repo?: RepoPromptInfo | null
 ): string {
   const parts: string[] = [
     'You are the AI assistant inside DB Desk, a desktop database client.',
@@ -687,6 +737,12 @@ export function buildSystemPrompt(
   if (mcpTools.length > 0) {
     parts.push(
       '- Tools named mcp__* come from MCP servers the user configured. They act on external systems with whatever access the user granted those servers; they are separate from the connected database and from the read/write rules above, which apply only to the SQL tools. Use them when the request calls for it.'
+    )
+  }
+  if (repo) {
+    parts.push(
+      `- The codebase that owns this database is attached read-only at "${repo.root}"${repo.commit ? ` (git commit ${repo.commit})` : ''}. Use list_repo_files, grep_repo, and read_repo_file to consult it: migrations, ORM models, query layers, and docs often explain what the schema alone cannot — especially undeclared joins and polymorphic associations. All paths are relative to that root; secret-bearing files (.env, keys) are not accessible.`,
+      `- When you save knowledge derived from the codebase, set provenance to the source file path${repo.commit ? ` at this commit, e.g. "db/migrate/x.rb@${repo.commit}"` : ''}, and verify every schema/table/column reference against the live schema first. Where code and database disagree, trust the database and lower the confidence.`
     )
   }
   if (req.target) {
@@ -971,6 +1027,84 @@ const SAVE_KNOWLEDGE_TOOL: Anthropic.Tool = {
       }
     },
     required: ['kind']
+  }
+}
+
+/**
+ * Repo tools: read-only, sandboxed access to the codebase attached to the
+ * connection (see repo.ts for the sandbox invariants). Offered only when the
+ * user enabled the codebase toggle AND main has a configured root for the
+ * target connection — the model never supplies or learns absolute paths
+ * beyond the root shown in the system prompt.
+ */
+const LIST_REPO_FILES_TOOL: Anthropic.Tool = {
+  name: 'list_repo_files',
+  description:
+    'List files in the attached codebase. Returns repo-relative paths. Skips dot-directories, vendored/build directories (node_modules, dist, …), and credential files. A glob without "/" matches basenames anywhere (e.g. "*.rb"); with "/" it matches the full relative path ("db/migrate/**"). Results are capped; narrow with dir/glob when truncated.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      dir: {
+        type: 'string',
+        description: 'Directory to list from, relative to the repo root. Default: the root.'
+      },
+      glob: {
+        type: 'string',
+        description: 'Optional filter supporting **, *, and ?, e.g. "**/*.sql" or "*.prisma".'
+      }
+    }
+  }
+}
+
+const GREP_REPO_TOOL: Anthropic.Tool = {
+  name: 'grep_repo',
+  description:
+    'Search file contents in the attached codebase with a JavaScript regular expression (case-insensitive unless caseSensitive is true). Returns matching lines as path:line pairs, capped at 200 matches. Binary files, oversized files, and credential files are skipped. Narrow with dir/glob for focused searches.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      pattern: {
+        type: 'string',
+        description: 'Regular expression to search for, e.g. "belongs_to|has_many" or "CREATE TABLE".'
+      },
+      dir: {
+        type: 'string',
+        description: 'Directory to search under, relative to the repo root. Default: the root.'
+      },
+      glob: {
+        type: 'string',
+        description: 'Optional filename filter supporting **, *, and ?, e.g. "*.py".'
+      },
+      caseSensitive: {
+        type: 'boolean',
+        description: 'Match case-sensitively. Default false.'
+      }
+    },
+    required: ['pattern']
+  }
+}
+
+const READ_REPO_FILE_TOOL: Anthropic.Tool = {
+  name: 'read_repo_file',
+  description:
+    'Read a file from the attached codebase. Path is relative to the repo root. Returns up to 500 lines per call by default; use offset/limit to page through longer files. Binary and credential files are refused.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Repo-relative file path, e.g. "db/schema.rb".'
+      },
+      offset: {
+        type: 'number',
+        description: '1-based line number to start from. Default 1.'
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum lines to return. Default 500.'
+      }
+    },
+    required: ['path']
   }
 }
 
@@ -1539,19 +1673,39 @@ export function execSaveKnowledge(
     )
   }
   broadcastKnowledgeChanged(target.connId, target.database)
+  // Flag (never block) refs the live schema cannot satisfy: the record is
+  // saved either way — dangling refs are legal in the store — but the model
+  // should fix a typo or lower the confidence rather than leave it silent.
+  // Requires the introspection cached by this session's schema summary; when
+  // absent, saving proceeds unchecked exactly as before.
+  const keys = liveRefKeys(target)
+  const unresolved = keys
+    ? [
+        ...new Set(
+          knowledgeRefs(saved)
+            .map((ref) => normalizeColumnKey(ref))
+            .filter((key) => !keys.has(key))
+        )
+      ]
+    : []
   send({
     type: 'tool_result',
     chatId: req.chatId,
     toolId: block.id,
     ok: true,
-    summary: `${existed ? 'updated' : 'saved'} ${saved.kind}`
+    summary: `${existed ? 'updated' : 'saved'} ${saved.kind}${unresolved.length > 0 ? ` (${unresolved.length} unresolved ref${unresolved.length === 1 ? '' : 's'})` : ''}`
   })
   return {
     ...base,
     content: JSON.stringify({
       id: saved.id,
       kind: saved.kind,
-      action: existed ? 'updated' : 'created'
+      action: existed ? 'updated' : 'created',
+      unresolvedRefs: unresolved.length > 0 ? unresolved : undefined,
+      note:
+        unresolved.length > 0
+          ? 'These references match nothing in the live schema. If they are typos, update the record (pass this id); if the schema is simply ahead/behind the code, lower the confidence.'
+          : undefined
     })
   }
 }
@@ -1586,6 +1740,162 @@ function execWriteEditor(
     summary: 'written to editor'
   })
   return { ...base, content: 'The SQL was inserted into the active editor.' }
+}
+
+/**
+ * Trim a list of result lines to the shared tool-result budget, reporting how
+ * many were dropped so the model knows to narrow its query.
+ */
+function capLines(lines: string[], budget: number): { kept: string[]; dropped: number } {
+  let used = 0
+  let end = lines.length
+  for (let i = 0; i < lines.length; i++) {
+    used += lines[i].length + 1
+    if (used > budget) {
+      end = i
+      break
+    }
+  }
+  return { kept: lines.slice(0, end), dropped: lines.length - end }
+}
+
+/**
+ * Shared shell for the three repo tools: emits tool_start with a readable
+ * label, runs the primitive, converts thrown sandbox/filesystem errors into
+ * ordinary tool errors, and reports a one-line summary. Repo primitives throw
+ * user-readable messages by design, so those are forwarded verbatim.
+ */
+async function execRepoTool(
+  req: AgentSendRequest,
+  block: Anthropic.ToolUseBlock,
+  send: Sender,
+  label: string,
+  run: () => Promise<{ content: string; summary: string }>
+): Promise<Anthropic.ToolResultBlockParam> {
+  const base: Anthropic.ToolResultBlockParam = {
+    type: 'tool_result',
+    tool_use_id: block.id,
+    content: ''
+  }
+  send({
+    type: 'tool_start',
+    chatId: req.chatId,
+    toolId: block.id,
+    name: block.name,
+    sql: label
+  })
+  try {
+    const { content, summary } = await run()
+    send({
+      type: 'tool_result',
+      chatId: req.chatId,
+      toolId: block.id,
+      ok: true,
+      summary
+    })
+    return { ...base, content }
+  } catch (err) {
+    return toolError(base, req, block.id, send, 'failed', describeError(err))
+  }
+}
+
+function execListRepoFiles(
+  req: AgentSendRequest,
+  root: string,
+  block: Anthropic.ToolUseBlock,
+  send: Sender
+): Promise<Anthropic.ToolResultBlockParam> {
+  const input = (block.input ?? {}) as { dir?: unknown; glob?: unknown }
+  const dir = typeof input.dir === 'string' ? input.dir : undefined
+  const glob = typeof input.glob === 'string' ? input.glob : undefined
+  const label = `repo: list ${[dir, glob].filter(Boolean).join(' ') || '(all)'}`
+  return execRepoTool(req, block, send, label, async () => {
+    const res = await listRepoFiles(root, dir, glob)
+    const { kept, dropped } = capLines(res.files, TOOL_RESULT_MAX_CHARS - 200)
+    const truncated = res.truncated || dropped > 0
+    return {
+      content: JSON.stringify({
+        files: kept,
+        note: truncated
+          ? `truncated — ${kept.length} paths shown; narrow with dir or glob`
+          : undefined
+      }),
+      summary: `${kept.length} file${kept.length === 1 ? '' : 's'}${truncated ? ' (truncated)' : ''}`
+    }
+  })
+}
+
+function execGrepRepo(
+  req: AgentSendRequest,
+  root: string,
+  block: Anthropic.ToolUseBlock,
+  send: Sender
+): Promise<Anthropic.ToolResultBlockParam> {
+  const input = (block.input ?? {}) as {
+    pattern?: unknown
+    dir?: unknown
+    glob?: unknown
+    caseSensitive?: unknown
+  }
+  const pattern = String(input.pattern ?? '')
+  const dir = typeof input.dir === 'string' ? input.dir : undefined
+  const glob = typeof input.glob === 'string' ? input.glob : undefined
+  const label = `repo: grep /${pattern}/${glob ? ` in ${glob}` : dir ? ` in ${dir}` : ''}`
+  return execRepoTool(req, block, send, label, async () => {
+    const res = await grepRepo(root, pattern, {
+      dir,
+      glob,
+      caseSensitive: input.caseSensitive === true
+    })
+    const lines = res.matches.map((m) => `${m.path}:${m.line}: ${m.text}`)
+    const { kept, dropped } = capLines(lines, TOOL_RESULT_MAX_CHARS - 200)
+    const truncated = res.truncated || dropped > 0
+    return {
+      content: JSON.stringify({
+        matches: kept,
+        filesScanned: res.filesScanned,
+        note: truncated
+          ? `truncated — ${kept.length} matches shown; narrow the pattern, dir, or glob`
+          : undefined
+      }),
+      summary: `${kept.length} match${kept.length === 1 ? '' : 'es'}${truncated ? ' (truncated)' : ''}`
+    }
+  })
+}
+
+function execReadRepoFile(
+  req: AgentSendRequest,
+  root: string,
+  block: Anthropic.ToolUseBlock,
+  send: Sender
+): Promise<Anthropic.ToolResultBlockParam> {
+  const input = (block.input ?? {}) as {
+    path?: unknown
+    offset?: unknown
+    limit?: unknown
+  }
+  const path = String(input.path ?? '')
+  const label = `repo: read ${path}`
+  return execRepoTool(req, block, send, label, async () => {
+    const res = await readRepoFile(
+      root,
+      path,
+      typeof input.offset === 'number' ? input.offset : undefined,
+      typeof input.limit === 'number' ? input.limit : undefined
+    )
+    return {
+      content: JSON.stringify({
+        path: res.path,
+        startLine: res.startLine,
+        totalLines: res.totalLines,
+        content: res.content,
+        note: res.truncated
+          ? 'truncated — use offset/limit to read further'
+          : undefined
+      }),
+      summary: `${res.totalLines.toLocaleString()} line${res.totalLines === 1 ? '' : 's'}${res.truncated ? ' (partial)' : ''}`
+    }
+  })
 }
 
 async function execMcpTool(
@@ -1728,12 +2038,21 @@ async function runAgentTurn(
   // array and the dispatch below cannot disagree mid-turn.
   const mcpTools = mcpToolsForTurn()
   const mcpByName = new Map(mcpTools.map((t) => [t.namespacedName, t]))
+  // Repo access requires both halves: the renderer's per-chat toggle AND a
+  // main-side configured root for the target connection. The request never
+  // carries a path, so a tampered renderer can at most toggle access to the
+  // directory the user already attached through the main-process picker.
+  const repoRoot =
+    req.repo && req.target ? getRepoRoot(req.target.connId) : null
+  const repo: RepoPromptInfo | null = repoRoot
+    ? { root: repoRoot, commit: await getRepoCommit(repoRoot) }
+    : null
   // The system prompt (with the schema summary) is by far the largest stable
   // prefix; cache it so follow-up turns and tool round-trips reuse it.
   const system: Anthropic.TextBlockParam[] = [
     {
       type: 'text',
-      text: buildSystemPrompt(req, mode, schemaSummary, dialect, mcpTools),
+      text: buildSystemPrompt(req, mode, schemaSummary, dialect, mcpTools, repo),
       cache_control: { type: 'ephemeral' }
     }
   ]
@@ -1753,6 +2072,11 @@ async function runAgentTurn(
   // store — never the warehouse — so both are offered in Metadata Only as well
   // as Read-Only. They require a target because records are keyed to it.
   if (req.target) tools.push(SEARCH_KNOWLEDGE_TOOL, SAVE_KNOWLEDGE_TOOL)
+  // Repo tools read only the attached local checkout — never the database —
+  // so, like the knowledge tools, they are mode-independent.
+  if (repoRoot) {
+    tools.push(LIST_REPO_FILES_TOOL, GREP_REPO_TOOL, READ_REPO_FILE_TOOL)
+  }
   for (const t of mcpTools) {
     tools.push({
       name: t.namespacedName,
@@ -1893,6 +2217,12 @@ async function runAgentTurn(
             results.push(execSaveKnowledge(req, block, send))
           } else if (block.name === 'write_to_editor') {
             results.push(execWriteEditor(req, block, send))
+          } else if (repoRoot && block.name === 'list_repo_files') {
+            results.push(await execListRepoFiles(req, repoRoot, block, send))
+          } else if (repoRoot && block.name === 'grep_repo') {
+            results.push(await execGrepRepo(req, repoRoot, block, send))
+          } else if (repoRoot && block.name === 'read_repo_file') {
+            results.push(await execReadRepoFile(req, repoRoot, block, send))
           } else if (mcpByName.has(block.name)) {
             const tool = mcpByName.get(block.name) as McpAgentTool
             results.push(await execMcpTool(req, tool, block, send))
@@ -2078,5 +2408,6 @@ export function registerAgentHandlers(
     chats.delete(chatId)
     // Schema may have changed since it was cached; a fresh chat re-introspects.
     schemaCache.clear()
+    introspectionCache.clear()
   })
 }

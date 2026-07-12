@@ -22,6 +22,8 @@ import type {
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import type { McpServerStatus } from '../../../shared/mcp'
+import { REPO_SCAN_PROMPT } from '../../../shared/repo'
+import type { RepoStatus } from '../../../shared/repo'
 import { NodeIcon } from '../connections/NodeIcon'
 import { KnowledgePanel } from '../knowledge/KnowledgePanel'
 import type { KnowledgeNav, KnowledgeState } from '../knowledge/useKnowledgeState'
@@ -34,6 +36,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CloseIcon,
+  FolderIcon,
   GlobeIcon,
   PlayIcon,
   PlugIcon,
@@ -127,6 +130,25 @@ const MODE_STORAGE_KEY = 'agent.mode'
 
 function targetKey(target: QueryTarget): string {
   return JSON.stringify([target.connId, target.database])
+}
+
+/** Last path segment of a repo root, for display — renderer never parses paths. */
+function repoRootName(root: string): string {
+  const parts = root.split(/[/\\]/).filter(Boolean)
+  return parts[parts.length - 1] ?? root
+}
+
+/** Prefixes for tool `sql` fields that carry a plain label, not SQL. */
+const PLAIN_TOOL_LABEL_PREFIXES = [
+  'repo: ',
+  'search knowledge',
+  'web search',
+  'save knowledge',
+  'update knowledge'
+]
+
+function isPlainToolLabel(sql: string): boolean {
+  return PLAIN_TOOL_LABEL_PREFIXES.some((prefix) => sql.startsWith(prefix))
 }
 
 /** Appends delta text to the last assistant message, coalescing text parts. */
@@ -342,6 +364,10 @@ export function AgentPanel({
   const [mcpStatuses, setMcpStatuses] = useState<McpServerStatus[]>([])
   // Off by default: web browsing is opt-in per session.
   const [webSearch, setWebSearch] = useState(false)
+  const [repoStatus, setRepoStatus] = useState<RepoStatus | null>(null)
+  const [repoMenuOpen, setRepoMenuOpen] = useState(false)
+  // On by default: once a codebase is attached, using it is opt-out per chat.
+  const [repoEnabled, setRepoEnabled] = useState(true)
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const chatIdRef = useRef(chatId)
@@ -375,6 +401,23 @@ export function AgentPanel({
     void window.dbDesk.mcp.list().then(setMcpStatuses)
     return window.dbDesk.mcp.onChanged(setMcpStatuses)
   }, [])
+
+  // Load the codebase attachment for the selected target's connection.
+  useEffect(() => {
+    if (!target) {
+      setRepoStatus(null)
+      return
+    }
+    let cancelled = false
+    void window.dbDesk.repo.get(target.connId).then((status) => {
+      if (cancelled) return
+      setRepoStatus(status)
+      if (status.root) setRepoEnabled(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [target?.connId])
 
   useEffect(() => {
     const unsubscribe = window.dbDesk.agent.onEvent((evt: AgentEvent) => {
@@ -561,51 +604,86 @@ export function AgentPanel({
     return ''
   }, [messages])
 
+  /** Sends `prompt` as a normal user turn; shared by the composer and the
+   * "Scan codebase" action so a scan appears in the transcript exactly as if
+   * typed. */
+  const sendPrompt = useCallback(
+    (prompt: string) => {
+      if (!prompt || busy || compacting) return
+      setBusy(true)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId('m'),
+          role: 'user',
+          parts: [{ kind: 'text', text: prompt }]
+        },
+        { id: nextId('m'), role: 'assistant', parts: [] }
+      ])
+      const editor = editorBridge.current?.getActiveSql() ?? null
+      void window.dbDesk.agent.send({
+        chatId,
+        prompt,
+        model: model.id,
+        effort: effort && model.efforts.includes(effort) ? effort : null,
+        mode,
+        webSearch,
+        repo: !!repoStatus?.root && repoEnabled,
+        target: target
+          ? {
+              connId: target.connId,
+              connName: target.connName,
+              database: target.database
+            }
+          : null,
+        editor,
+        context
+      })
+    },
+    [
+      busy,
+      compacting,
+      chatId,
+      model,
+      effort,
+      mode,
+      webSearch,
+      repoStatus,
+      repoEnabled,
+      target,
+      editorBridge,
+      context
+    ]
+  )
+
   const send = useCallback(() => {
     const prompt = input.trim()
     if (!prompt || busy || compacting) return
     setInput('')
-    setBusy(true)
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: nextId('m'),
-        role: 'user',
-        parts: [{ kind: 'text', text: prompt }]
-      },
-      { id: nextId('m'), role: 'assistant', parts: [] }
-    ])
-    const editor = editorBridge.current?.getActiveSql() ?? null
-    void window.dbDesk.agent.send({
-      chatId,
-      prompt,
-      model: model.id,
-      effort: effort && model.efforts.includes(effort) ? effort : null,
-      mode,
-      webSearch,
-      target: target
-        ? {
-            connId: target.connId,
-            connName: target.connName,
-            database: target.database
-          }
-        : null,
-      editor,
-      context
+    sendPrompt(prompt)
+  }, [input, busy, compacting, sendPrompt])
+
+  /** Opens the native directory picker for the target's connection. */
+  const chooseRepo = useCallback(() => {
+    if (!target) return
+    void window.dbDesk.repo.choose(target.connId).then((status) => {
+      setRepoStatus(status)
+      if (status.root) setRepoEnabled(true)
     })
-  }, [
-    input,
-    busy,
-    compacting,
-    chatId,
-    model,
-    effort,
-    mode,
-    webSearch,
-    target,
-    editorBridge,
-    context
-  ])
+  }, [target])
+
+  /** Detaches the codebase from the target's connection. */
+  const clearRepo = useCallback(() => {
+    if (!target) return
+    void window.dbDesk.repo.clear(target.connId).then(setRepoStatus)
+  }, [target])
+
+  const scanCodebase = useCallback(() => {
+    if (!target || !repoStatus?.root || !repoEnabled || busy || compacting) {
+      return
+    }
+    sendPrompt(REPO_SCAN_PROMPT)
+  }, [target, repoStatus, repoEnabled, busy, compacting, sendPrompt])
 
   const stop = useCallback(() => {
     void window.dbDesk.agent.stop(chatId)
@@ -884,12 +962,16 @@ export function AgentPanel({
                       >
                         <PlayIcon size={9} />
                         <code>
-                          <SqlCode
-                            sql={stripSqlComments(part.sql)
-                              .replace(/\s+/g, ' ')
-                              .trim()
-                              .slice(0, 60)}
-                          />
+                          {isPlainToolLabel(part.sql) ? (
+                            part.sql.slice(0, 60)
+                          ) : (
+                            <SqlCode
+                              sql={stripSqlComments(part.sql)
+                                .replace(/\s+/g, ' ')
+                                .trim()
+                                .slice(0, 60)}
+                            />
+                          )}
                         </code>
                         <span className="chat-tool__summary">
                           {part.status === 'running'
@@ -1171,6 +1253,94 @@ export function AgentPanel({
                           }}
                         >
                           Manage servers…
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="mcp-ctl repo-ctl">
+                  <button
+                    type="button"
+                    className={`composer__web mcp-ctl__plug${
+                      repoStatus?.root && repoEnabled ? ' is-on' : ''
+                    }`}
+                    title={
+                      !target
+                        ? 'Connect to a database to attach a codebase'
+                        : !repoStatus?.root
+                          ? 'Attach a local codebase'
+                          : repoEnabled
+                            ? `Codebase attached — ${repoRootName(repoStatus.root)} (on, click to disable)`
+                            : `Codebase attached — ${repoRootName(repoStatus.root)} (off, click to enable)`
+                    }
+                    disabled={!target}
+                    onClick={() => {
+                      if (repoStatus?.root) setRepoEnabled((on) => !on)
+                      else chooseRepo()
+                    }}
+                  >
+                    <FolderIcon size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="mcp-ctl__chev"
+                    title="Codebase options"
+                    aria-label="Codebase options"
+                    disabled={!target}
+                    onClick={() => setRepoMenuOpen((open) => !open)}
+                  >
+                    <ChevronDownIcon size={10} />
+                  </button>
+                  {repoMenuOpen && target && (
+                    <>
+                      <div
+                        className="ctx-overlay"
+                        onMouseDown={() => setRepoMenuOpen(false)}
+                      />
+                      <div className="model-pop mcp-pop repo-pop">
+                        <div className="model-pop__heading">Codebase</div>
+                        <div className="mcp-pop__empty repo-pop__info">
+                          {repoStatus?.root ? (
+                            <>
+                              {repoStatus.root}
+                              {repoStatus.commit && ` @ ${repoStatus.commit}`}
+                            </>
+                          ) : (
+                            'No codebase attached.'
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="model-pop__row"
+                          disabled={!repoStatus?.root || !repoEnabled}
+                          title="Send the codebase-scan prompt as a chat message"
+                          onClick={() => {
+                            setRepoMenuOpen(false)
+                            scanCodebase()
+                          }}
+                        >
+                          Scan codebase
+                        </button>
+                        <button
+                          type="button"
+                          className="model-pop__row"
+                          onClick={() => {
+                            setRepoMenuOpen(false)
+                            chooseRepo()
+                          }}
+                        >
+                          Change directory…
+                        </button>
+                        <button
+                          type="button"
+                          className="model-pop__row"
+                          disabled={!repoStatus?.root}
+                          onClick={() => {
+                            setRepoMenuOpen(false)
+                            clearRepo()
+                          }}
+                        >
+                          Detach
                         </button>
                       </div>
                     </>

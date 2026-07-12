@@ -399,6 +399,20 @@ export function PlugIcon({ size = 13 }: IconProps): ReactElement {
   )
 }
 
+export function FolderIcon({ size = 14 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.3}
+    >
+      <path d="M2 4.3c0-.6.5-1.1 1.1-1.1h3l1.3 1.6h5.5c.6 0 1.1.5 1.1 1.1v5.8c0 .6-.5 1.1-1.1 1.1H3.1c-.6 0-1.1-.5-1.1-1.1z" />
+    </svg>
+  )
+}
+
 export function DatabaseIcon({ size = 18 }: IconProps): ReactElement {
   return (
     <svg

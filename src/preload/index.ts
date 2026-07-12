@@ -18,6 +18,7 @@ import type {
 } from '../shared/db'
 import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
 import type { KnowledgeRecord, KnowledgeRecordInput } from '../shared/knowledge'
+import type { RepoStatus } from '../shared/repo'
 
 const api = Object.freeze({
   appName: 'DB Desk',
@@ -152,6 +153,14 @@ const api = Object.freeze({
         ipcRenderer.removeListener('knowledge:changed', listener)
       }
     }
+  }),
+  repo: Object.freeze({
+    get: (connId: string): Promise<RepoStatus> =>
+      ipcRenderer.invoke('repo:get', connId),
+    choose: (connId: string): Promise<RepoStatus> =>
+      ipcRenderer.invoke('repo:choose', connId),
+    clear: (connId: string): Promise<RepoStatus> =>
+      ipcRenderer.invoke('repo:clear', connId)
   }),
   agent: Object.freeze({
     keyStatus: (): Promise<AgentKeyStatus> =>

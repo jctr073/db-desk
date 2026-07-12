@@ -1,0 +1,514 @@
+/**
+ * Main-process codebase attachment: persists a per-connection local repository
+ * root and gives the agent read-only, sandboxed access to it (list / grep /
+ * read). The root is chosen through a main-process directory dialog and stored
+ * main-side, keyed by connection id — the renderer never supplies a filesystem
+ * path over IPC, so a compromised renderer cannot point the agent at arbitrary
+ * directories. The renderer talks to it through `repo:*` IPC handles.
+ *
+ * Sandbox invariants (enforced here, not in the agent loop):
+ * - every agent-supplied path is relative and must resolve lexically inside
+ *   the root; absolute paths, `..` escapes, `~`, and control characters fail;
+ * - symlinks are never followed: the walker skips symlink entries outright,
+ *   and direct reads realpath-check the target against the realpathed root;
+ * - files that conventionally hold secrets (.env*, keys, certs) are invisible
+ *   to all three primitives — their contents would otherwise flow into the
+ *   model conversation;
+ * - everything is capped (walk visits, results, file sizes, match counts) so
+ *   a monorepo cannot wedge the main process or flood a tool result.
+ */
+
+import { execFile } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { promisify } from 'node:util'
+
+import { app, dialog, ipcMain } from 'electron'
+import type { BrowserWindow } from 'electron'
+
+import type { RepoStatus } from '../shared/repo'
+
+const execFileAsync = promisify(execFile)
+
+/** Ceiling on directory entries examined in one walk (list or grep). */
+const WALK_MAX_VISITS = 50_000
+/** Ceiling on paths one list_repo_files call returns. */
+const LIST_MAX_RESULTS = 1_000
+/** Ceiling on candidate files one grep call will open. */
+const GREP_MAX_FILES = 5_000
+/** Ceiling on matches one grep call returns. */
+const GREP_MAX_MATCHES = 200
+/** Files larger than this are skipped by grep and refused by read. */
+const MAX_FILE_BYTES = 2_000_000
+/** Per-match line excerpt cap in grep results. */
+const GREP_LINE_MAX_CHARS = 300
+/** Longest line prefix a grep pattern is tested against (bounds regex cost). */
+const GREP_SCAN_MAX_CHARS = 10_000
+/** Ceiling on characters one read_repo_file call returns. */
+const READ_MAX_CHARS = 30_000
+/** Default line count for read_repo_file when no limit is given. */
+const READ_DEFAULT_LINES = 500
+/** How much of a file is sniffed for NUL bytes to detect binaries. */
+const BINARY_SNIFF_BYTES = 8_192
+/** Ceiling on `git rev-parse` before giving up on a commit SHA. */
+const GIT_TIMEOUT_MS = 3_000
+
+/**
+ * Directories never entered by the walker. Dot-directories (.git, .venv,
+ * .idea, …) are skipped wholesale by name, so only "plain" vendored/output
+ * dirs need listing here.
+ */
+const IGNORED_DIRS = new Set([
+  'node_modules',
+  'vendor',
+  'dist',
+  'build',
+  'out',
+  'target',
+  'coverage',
+  'tmp',
+  '__pycache__',
+  'venv'
+])
+
+/**
+ * Filenames that conventionally hold credentials. Invisible to list/grep and
+ * refused by read: the repo root is user-chosen, but its .env would hand the
+ * model (and thus the API conversation) live secrets the user never meant to
+ * share. Deliberately a short, high-confidence list — this is a guardrail
+ * against accidents, not a secret scanner.
+ */
+export function isSensitiveName(name: string): boolean {
+  const lower = name.toLowerCase()
+  return (
+    /^\.env(\..+)?$/.test(lower) ||
+    /\.(pem|key|p12|pfx|keystore|jks)$/.test(lower) ||
+    /^id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$/.test(lower) ||
+    lower === '.netrc' ||
+    lower === '.npmrc' ||
+    lower === '.pgpass'
+  )
+}
+
+// --- Persistence (house pattern: module cache + JSON under userData) --------
+
+interface StoredRepoRoot {
+  connId: string
+  root: string
+}
+
+let cache: StoredRepoRoot[] | null = null
+
+function storePath(): string {
+  return join(app.getPath('userData'), 'repo-roots.json')
+}
+
+function load(): StoredRepoRoot[] {
+  if (cache) return cache
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(storePath(), 'utf8'))
+    cache = Array.isArray(parsed)
+      ? (parsed as StoredRepoRoot[]).filter(
+          (r) =>
+            !!r && typeof r.connId === 'string' && typeof r.root === 'string'
+        )
+      : []
+  } catch {
+    cache = []
+  }
+  return cache
+}
+
+function persist(records: StoredRepoRoot[]): void {
+  cache = records
+  const path = storePath()
+  mkdirSync(join(path, '..'), { recursive: true })
+  writeFileSync(path, JSON.stringify(records, null, 2), 'utf8')
+}
+
+/** The attached repo root for a connection, or null. Never renderer-supplied. */
+export function getRepoRoot(connId: string): string | null {
+  const record = load().find((r) => r.connId === connId)
+  if (!record) return null
+  // A root that vanished (unmounted volume, deleted checkout) reads as
+  // detached rather than surfacing ENOENT tool errors mid-conversation.
+  return existsSync(record.root) ? record.root : null
+}
+
+function setRepoRoot(connId: string, root: string): void {
+  const records = load().filter((r) => r.connId !== connId)
+  records.push({ connId, root })
+  persist(records)
+}
+
+export function clearRepoRoot(connId: string): void {
+  persist(load().filter((r) => r.connId !== connId))
+}
+
+/** Short SHA of HEAD for provenance strings, or null outside a git checkout. */
+export async function getRepoCommit(root: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', root, 'rev-parse', '--short', 'HEAD'],
+      { timeout: GIT_TIMEOUT_MS }
+    )
+    const sha = stdout.trim()
+    return /^[0-9a-f]{4,40}$/.test(sha) ? sha : null
+  } catch {
+    return null
+  }
+}
+
+// --- Path sandbox ------------------------------------------------------------
+
+/** True when `child` is `parent` itself or lexically inside it. */
+function isWithin(parent: string, child: string): boolean {
+  const rel = relative(parent, child)
+  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
+}
+
+/**
+ * Resolve an agent-supplied relative path against the root, or throw. Purely
+ * lexical — symlink containment is checked separately at access time, because
+ * it needs the filesystem. Exported for unit tests.
+ */
+export function resolveRepoPath(root: string, requested: string): string {
+  if (typeof requested !== 'string') {
+    throw new Error('Path must be a string.')
+  }
+  // eslint-disable-next-line no-control-regex -- rejecting control chars is the point
+  if (/[\u0000-\u001f\u007f]/.test(requested)) {
+    throw new Error('Path contains control characters.')
+  }
+  if (isAbsolute(requested) || /^[A-Za-z]:[\\/]/.test(requested) || requested.startsWith('~')) {
+    throw new Error('Path must be relative to the repository root.')
+  }
+  const abs = resolve(root, requested)
+  if (!isWithin(root, abs)) {
+    throw new Error('Path escapes the repository root.')
+  }
+  return abs
+}
+
+/**
+ * Realpath both sides and require containment, closing the symlink escape the
+ * lexical check cannot see (e.g. `docs/link -> /etc`). Throws if the target
+ * does not exist.
+ */
+async function assertRealInsideRoot(root: string, abs: string): Promise<string> {
+  const [realRoot, real] = await Promise.all([realpath(root), realpath(abs)])
+  if (!isWithin(realRoot, real)) {
+    throw new Error('Path resolves outside the repository root.')
+  }
+  return real
+}
+
+// --- Glob --------------------------------------------------------------------
+
+/**
+ * Minimal glob for the repo tools: `**` crosses directories, `*` and `?` stay
+ * within a segment. Matched against the full repo-relative path; callers also
+ * try the basename when the glob has no `/`, so `*.rb` finds Ruby files at any
+ * depth. Exported for unit tests.
+ */
+export function globToRegExp(glob: string): RegExp {
+  let out = '^'
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i]
+    if (ch === '*') {
+      if (glob[i + 1] === '*') {
+        i++
+        // `db/**/x` must also match `db/x`: swallow the separator into the
+        // optional group.
+        if (glob[i + 1] === '/') {
+          i++
+          out += '(?:.*/)?'
+        } else {
+          out += '.*'
+        }
+      } else {
+        out += '[^/]*'
+      }
+    } else if (ch === '?') {
+      out += '[^/]'
+    } else {
+      out += ch.replace(/[.+^${}()|[\]\\]/, '\\$&')
+    }
+  }
+  return new RegExp(out + '$')
+}
+
+function makeMatcher(glob: string | undefined): ((rel: string) => boolean) | null {
+  if (!glob || glob.trim() === '') return null
+  const re = globToRegExp(glob.trim())
+  const onBasename = !glob.includes('/')
+  return (rel) => re.test(rel) || (onBasename && re.test(basename(rel)))
+}
+
+// --- Walker -------------------------------------------------------------------
+
+interface WalkOutcome {
+  /** Repo-relative POSIX paths of matched regular files, sorted per-dir. */
+  files: string[]
+  /** True when a cap stopped the walk before it saw everything. */
+  truncated: boolean
+}
+
+/**
+ * Depth-first walk from `startRel`, never following symlinks, skipping
+ * dot-directories, IGNORED_DIRS, and sensitive filenames. `maxResults` bounds
+ * the returned list; WALK_MAX_VISITS bounds total entries examined.
+ */
+async function walkFiles(
+  root: string,
+  startRel: string,
+  matcher: ((rel: string) => boolean) | null,
+  maxResults: number
+): Promise<WalkOutcome> {
+  const startAbs = resolveRepoPath(root, startRel || '.')
+  await assertRealInsideRoot(root, startAbs)
+  const startStat = await stat(startAbs)
+  if (!startStat.isDirectory()) {
+    throw new Error(`Not a directory: ${startRel}`)
+  }
+  const files: string[] = []
+  let visits = 0
+  let truncated = false
+  // Explicit stack; recursion depth on pathological trees is the walker's
+  // problem, not the caller's.
+  const stack: string[] = [startAbs]
+  while (stack.length > 0) {
+    const dir = stack.pop() as string
+    let entries
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      continue // unreadable dir: skip, never fail the whole walk
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name))
+    // Reverse push so the stack pops in sorted order.
+    const dirs: string[] = []
+    for (const entry of entries) {
+      if (++visits > WALK_MAX_VISITS) {
+        truncated = true
+        break
+      }
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith('.') || IGNORED_DIRS.has(entry.name)) continue
+        dirs.push(join(dir, entry.name))
+        continue
+      }
+      if (!entry.isFile()) continue
+      if (isSensitiveName(entry.name)) continue
+      const rel = relative(root, join(dir, entry.name)).split(sep).join('/')
+      if (matcher && !matcher(rel)) continue
+      if (files.length >= maxResults) {
+        truncated = true
+        break
+      }
+      files.push(rel)
+    }
+    // A tripped cap ends the walk outright — re-queueing the subdirectories
+    // already collected for this directory would keep it crawling.
+    if (truncated) break
+    for (let i = dirs.length - 1; i >= 0; i--) stack.push(dirs[i])
+  }
+  return { files, truncated }
+}
+
+// --- Primitives ---------------------------------------------------------------
+
+export interface RepoListResult {
+  files: string[]
+  truncated: boolean
+}
+
+export async function listRepoFiles(
+  root: string,
+  dir?: string,
+  glob?: string
+): Promise<RepoListResult> {
+  const outcome = await walkFiles(
+    root,
+    dir ?? '.',
+    makeMatcher(glob),
+    LIST_MAX_RESULTS
+  )
+  return { files: outcome.files, truncated: outcome.truncated }
+}
+
+export interface RepoGrepMatch {
+  path: string
+  line: number
+  text: string
+}
+
+export interface RepoGrepResult {
+  matches: RepoGrepMatch[]
+  filesScanned: number
+  truncated: boolean
+}
+
+function looksBinary(buf: Buffer): boolean {
+  const end = Math.min(buf.length, BINARY_SNIFF_BYTES)
+  for (let i = 0; i < end; i++) {
+    if (buf[i] === 0) return true
+  }
+  return false
+}
+
+export async function grepRepo(
+  root: string,
+  pattern: string,
+  opts?: { dir?: string; glob?: string; caseSensitive?: boolean }
+): Promise<RepoGrepResult> {
+  if (typeof pattern !== 'string' || pattern.trim() === '') {
+    throw new Error('Pattern must be a non-empty string.')
+  }
+  if (pattern.length > 500) {
+    throw new Error('Pattern too long (max 500 characters).')
+  }
+  let re: RegExp
+  try {
+    re = new RegExp(pattern, opts?.caseSensitive ? '' : 'i')
+  } catch (err) {
+    throw new Error(
+      `Invalid regular expression: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
+    )
+  }
+  const { files, truncated: walkTruncated } = await walkFiles(
+    root,
+    opts?.dir ?? '.',
+    makeMatcher(opts?.glob),
+    GREP_MAX_FILES
+  )
+  const matches: RepoGrepMatch[] = []
+  let filesScanned = 0
+  let truncated = walkTruncated
+  for (const rel of files) {
+    if (matches.length >= GREP_MAX_MATCHES) {
+      truncated = true
+      break
+    }
+    let buf: Buffer
+    try {
+      const abs = join(root, ...rel.split('/'))
+      const info = await stat(abs)
+      if (info.size > MAX_FILE_BYTES) continue
+      buf = await readFile(abs)
+    } catch {
+      continue
+    }
+    if (looksBinary(buf)) continue
+    filesScanned++
+    const lines = buf.toString('utf8').split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].slice(0, GREP_SCAN_MAX_CHARS)
+      if (!re.test(line)) continue
+      matches.push({
+        path: rel,
+        line: i + 1,
+        text: lines[i].slice(0, GREP_LINE_MAX_CHARS).trimEnd()
+      })
+      if (matches.length >= GREP_MAX_MATCHES) {
+        truncated = true
+        break
+      }
+    }
+  }
+  return { matches, filesScanned, truncated }
+}
+
+export interface RepoReadResult {
+  path: string
+  content: string
+  /** 1-based line number of the first returned line. */
+  startLine: number
+  totalLines: number
+  truncated: boolean
+}
+
+export async function readRepoFile(
+  root: string,
+  relPath: string,
+  offset?: number,
+  limit?: number
+): Promise<RepoReadResult> {
+  const abs = resolveRepoPath(root, relPath)
+  const real = await assertRealInsideRoot(root, abs)
+  // Check the requested name AND the resolved name: an in-repo symlink like
+  // `notes.txt -> .env` passes containment but must not expose the target.
+  if (isSensitiveName(basename(abs)) || isSensitiveName(basename(real))) {
+    throw new Error('This file may contain credentials and cannot be read.')
+  }
+  const info = await stat(real)
+  if (info.isDirectory()) {
+    throw new Error(`Is a directory (use list_repo_files): ${relPath}`)
+  }
+  if (info.size > MAX_FILE_BYTES) {
+    throw new Error(
+      `File too large (${info.size.toLocaleString()} bytes; max ${MAX_FILE_BYTES.toLocaleString()}).`
+    )
+  }
+  const buf = await readFile(real)
+  if (looksBinary(buf)) {
+    throw new Error('File appears to be binary.')
+  }
+  const lines = buf.toString('utf8').split('\n')
+  const startLine = Math.max(1, Math.floor(offset ?? 1))
+  const lineCap = Math.max(1, Math.floor(limit ?? READ_DEFAULT_LINES))
+  let truncated = startLine + lineCap - 1 < lines.length
+  const slice = lines.slice(startLine - 1, startLine - 1 + lineCap)
+  let content = slice.join('\n')
+  if (content.length > READ_MAX_CHARS) {
+    content = content.slice(0, READ_MAX_CHARS)
+    truncated = true
+  }
+  return {
+    path: relPath,
+    content,
+    startLine,
+    totalLines: lines.length,
+    truncated
+  }
+}
+
+// --- IPC ----------------------------------------------------------------------
+
+async function statusFor(connId: string): Promise<RepoStatus> {
+  const root = getRepoRoot(connId)
+  return {
+    connId,
+    root,
+    commit: root ? await getRepoCommit(root) : null
+  }
+}
+
+export function registerRepoHandlers(getWindow: () => BrowserWindow | null): void {
+  ipcMain.handle('repo:get', (_event, connId: string) => statusFor(connId))
+
+  // The path enters the system here and only here: a native directory picker
+  // owned by the main process.
+  ipcMain.handle('repo:choose', async (_event, connId: string) => {
+    const win = getWindow()
+    const result = win
+      ? await dialog.showOpenDialog(win, {
+          title: 'Attach codebase',
+          buttonLabel: 'Attach',
+          properties: ['openDirectory']
+        })
+      : await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    const picked = result.canceled ? null : result.filePaths[0]
+    if (picked) setRepoRoot(connId, picked)
+    return statusFor(connId)
+  })
+
+  ipcMain.handle('repo:clear', (_event, connId: string) => {
+    clearRepoRoot(connId)
+    return statusFor(connId)
+  })
+}

@@ -2078,6 +2078,17 @@ body.is-col-resizing {
   color: var(--text-faint);
   line-height: 1.4;
 }
+/* Codebase attach control: same split-button/popover shape as MCP. */
+.repo-pop__info {
+  word-break: break-all;
+}
+.model-pop__row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.model-pop__row:disabled:hover {
+  background: transparent;
+}
 .chat__target-bar {
   flex: 0 0 auto;
   display: flex;

@@ -11,6 +11,7 @@ import {
 } from './db'
 import { registerAgentHandlers } from './agent'
 import { registerMcpHandlers, stopAllMcpServers } from './mcp'
+import { clearRepoRoot, registerRepoHandlers } from './repo'
 import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
 import {
   listQueries,
@@ -127,7 +128,12 @@ function registerDbHandlers(): void {
       savePassword: boolean
     ) => saveConnection(id, name, params, savePassword)
   )
-  ipcMain.handle('store:delete', (_event, id: string) => deleteSaved(id))
+  ipcMain.handle('store:delete', (_event, id: string) => {
+    // A deleted connection's repo attachment has nothing to hang off; drop it
+    // with the profile (mirrors how the renderer clears queries/knowledge).
+    clearRepoRoot(id)
+    return deleteSaved(id)
+  })
 }
 
 function registerFileHandlers(): void {
@@ -217,6 +223,7 @@ app.whenReady().then(() => {
   registerKnowledgeHandlers(() => mainWindow)
   registerAgentHandlers(() => mainWindow)
   registerMcpHandlers(() => mainWindow)
+  registerRepoHandlers(() => mainWindow)
   createWindow()
 
   app.on('activate', () => {

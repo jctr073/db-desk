@@ -67,6 +67,7 @@ function makeReq(overrides: Partial<AgentSendRequest> = {}): AgentSendRequest {
     effort: null,
     mode: 'metadata',
     webSearch: false,
+    repo: false,
     target: { connId: CONN, connName: 'Local', database: DB },
     editor: null,
     context: [],
