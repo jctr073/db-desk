@@ -229,6 +229,21 @@ export function SqlFileIcon({ size = 13 }: IconProps): ReactElement {
   )
 }
 
+export function BookIcon({ size = 12 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.3}
+    >
+      <path d="M2.5 3.2A1.7 1.7 0 0 1 4.2 1.5h9.3v11.7H4.2a1.7 1.7 0 0 0-1.7 1.7Z" />
+      <path d="M2.5 13.2V3.2M13.5 10.4H4.2a1.7 1.7 0 0 0-1.7 1.7" />
+    </svg>
+  )
+}
+
 export function PlayIcon({ size = 11 }: IconProps): ReactElement {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor">

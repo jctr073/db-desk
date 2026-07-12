@@ -224,6 +224,30 @@ describe('summarizeKnowledge', () => {
     expect(text).toContain(POLY_INSTRUCTION)
   })
 
+  it('tags every record with its [kb:id] citation marker', () => {
+    const records: KnowledgeRecord[] = [
+      standardRel(ref('public', 'orders', 'user_id'), ref('public', 'users', 'id')),
+      glossary('MRN'),
+      annotation(ref('public', 'users', 'id'), 'primary key'),
+      exemplar('active users', 'select 1'),
+      note('Billing quirks', 'Amounts are in cents.')
+    ]
+    const text = agent.summarizeKnowledge(records)
+    for (const rec of records) {
+      expect(text).toContain(`[kb:${rec.id}]`)
+    }
+  })
+
+  it('drops citation markers in the terms tier to save budget', () => {
+    const records: KnowledgeRecord[] = [polymorphicRel()]
+    for (let i = 0; i < 30; i++) {
+      records.push(annotation(ref('public', 'users', `col${i}`), 'a'.repeat(1_000)))
+    }
+    const text = agent.summarizeKnowledge(records)
+    expect(text).toContain('local knowledge abridged')
+    expect(text).not.toContain('[kb:')
+  })
+
   it('marks agent-recorded records with their confidence', () => {
     const rec: AnnotationRecord = {
       ...annotation(ref('public', 'users', 'id'), 'actually the surrogate key'),
@@ -313,6 +337,14 @@ describe('buildSystemPrompt local-knowledge section', () => {
     const noTarget = agent.buildSystemPrompt(makeReq({ target: null }), 'metadata', null, dialect, [])
     expect(noTarget).not.toContain('search_knowledge')
     expect(noTarget).not.toContain('## Local knowledge')
+  })
+
+  it('instructs [kb:...] citation only when a target is connected', () => {
+    const withTarget = agent.buildSystemPrompt(makeReq(), 'metadata', null, dialect, [])
+    expect(withTarget).toContain('[kb:')
+    expect(withTarget).toContain('never invent an id')
+    const noTarget = agent.buildSystemPrompt(makeReq({ target: null }), 'metadata', null, dialect, [])
+    expect(noTarget).not.toContain('[kb:')
   })
 
   it('reads the store fresh on every build (no stale prompt after a save)', () => {
@@ -493,6 +525,12 @@ describe('renderTableKnowledge (describe_table extension)', () => {
   it('returns null when the table has no local knowledge', () => {
     expect(agent.renderTableKnowledge(records, 'claims')).toBeNull()
     expect(agent.renderTableKnowledge([], 'users')).toBeNull()
+  })
+
+  it('tags annotations and relationships with their [kb:id] markers', () => {
+    const text = agent.renderTableKnowledge(records, 'users')
+    expect(text).toContain(`[kb:${records[0].id}]`)
+    expect(text).toContain(`[kb:${records[2].id}]`)
   })
 })
 

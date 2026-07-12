@@ -184,6 +184,22 @@ export function App(): ReactElement {
   )
   const clearKnowledgeNav = useCallback(() => setKnowledgeNav(null), [])
 
+  // "[kb:id]" citation chips in the agent transcript: point the knowledge tab
+  // at the chat's target and open the cited record.
+  const openKnowledgeRecord = useCallback(
+    (connId: string, database: string, recordId: string) => {
+      setKnTargetKey(knowledgeTargetKeyOf(connId, database))
+      setKnowledgeNav({
+        seq: ++knNavSeq.current,
+        action: 'record',
+        connId,
+        database,
+        recordId
+      })
+    },
+    []
+  )
+
   // Live usage indexes for every connected database, so the tree badges
   // knowledge across all of them (not just the tab's current target).
   const knowledgeTargets = useMemo(
@@ -278,6 +294,7 @@ export function App(): ReactElement {
           onKnowledgeTargetChange={setKnTargetKey}
           knowledgeNav={knowledgeNav}
           onKnowledgeNavConsumed={clearKnowledgeNav}
+          onOpenKnowledgeRecord={openKnowledgeRecord}
         />
       </div>
       <StatusBar

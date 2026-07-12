@@ -13,15 +13,20 @@ export function knowledgeTargetKeyOf(connId: string, database: string): string {
   return JSON.stringify([connId, database])
 }
 
-/** A "Show usages" / "Add annotation…" request routed from the schema tree. */
-export interface KnowledgeNav {
-  /** Monotonic, so repeating the same action on the same ref still fires. */
+/**
+ * A navigation request into the knowledge panel: "Show usages" / "Add
+ * annotation…" routed from the schema tree, or "open this record" from a
+ * `[kb:id]` citation chip in the agent transcript.
+ */
+export type KnowledgeNav = {
+  /** Monotonic, so repeating the same action on the same target still fires. */
   seq: number
-  action: 'usages' | 'annotate'
   connId: string
   database: string
-  ref: ColumnRef
-}
+} & (
+  | { action: 'usages' | 'annotate'; ref: ColumnRef }
+  | { action: 'record'; recordId: string }
+)
 
 export interface KnowledgeState {
   connId: string | null
@@ -31,6 +36,13 @@ export interface KnowledgeState {
   index: UsageIndex
   loading: boolean
   loadError: string | null
+  /**
+   * Target key (`knowledgeTargetKeyOf`) the current `records` were loaded
+   * for, or null while they are stale or still loading. Lets nav requests
+   * that switch the target wait for the right records instead of resolving
+   * against the previous database's.
+   */
+  loadedKey: string | null
 
   save: (record: KnowledgeRecordInput) => Promise<KnowledgeRecord | null>
   remove: (id: string) => Promise<boolean>
@@ -50,11 +62,13 @@ export function useKnowledgeState(
   const [records, setRecords] = useState<KnowledgeRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadedKey, setLoadedKey] = useState<string | null>(null)
 
   useEffect(() => {
     // Never show one database's records against another while loading.
     setRecords([])
     setLoadError(null)
+    setLoadedKey(null)
     // Reset unconditionally: a target that clears (or changes mid-flight) must
     // not leave the spinner stuck, since the cancelled load skips its finally.
     setLoading(false)
@@ -63,7 +77,10 @@ export function useKnowledgeState(
     const load = async (): Promise<void> => {
       try {
         const loaded = await window.dbDesk.knowledge.list(connId, database)
-        if (!cancelled) setRecords(loaded)
+        if (!cancelled) {
+          setRecords(loaded)
+          setLoadedKey(knowledgeTargetKeyOf(connId, database))
+        }
       } catch (error) {
         if (!cancelled) {
           setLoadError(
@@ -135,6 +152,7 @@ export function useKnowledgeState(
     index,
     loading,
     loadError,
+    loadedKey,
     save,
     remove,
     clearLoadError

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent, MutableRefObject, ReactElement } from 'react'
+import type {
+  KeyboardEvent,
+  MutableRefObject,
+  ReactElement,
+  ReactNode
+} from 'react'
 
 import {
   AGENT_MODELS,
@@ -25,14 +30,20 @@ import type { McpServerStatus } from '../../../shared/mcp'
 import { REPO_SCAN_PROMPT } from '../../../shared/repo'
 import type { RepoStatus } from '../../../shared/repo'
 import { NodeIcon } from '../connections/NodeIcon'
+import { KIND_LABELS, isKnownKind, recordTitle } from '../knowledge/format'
 import { KnowledgePanel } from '../knowledge/KnowledgePanel'
-import type { KnowledgeNav, KnowledgeState } from '../knowledge/useKnowledgeState'
+import { useKnowledgeState } from '../knowledge/useKnowledgeState'
+import type {
+  KnowledgeNav,
+  KnowledgeState
+} from '../knowledge/useKnowledgeState'
 import { highlightSql, stripSqlComments } from '../sql/highlight'
 import type { FileState } from '../files/useFileState'
 import type { EditorBridge } from './editorBridge'
 import type { QueryTarget } from './useQueryRunner'
 import {
   ArrowUpIcon,
+  BookIcon,
   CheckIcon,
   ChevronDownIcon,
   CloseIcon,
@@ -44,9 +55,11 @@ import {
   SearchIcon,
   ShieldIcon,
   SparkleIcon,
+  SqlFileIcon,
   StopIcon
 } from './icons'
 import { FilesPanel } from './FilesPanel'
+import { KbRefContext, Markdown } from './MarkdownText'
 import { McpSettingsDialog } from './McpSettingsDialog'
 import { SaveExemplarDialog } from './SaveExemplarDialog'
 
@@ -78,6 +91,12 @@ interface AgentPanelProps {
   knowledgeNav: KnowledgeNav | null
   /** Clears the pending nav once KnowledgePanel has acted on it (one-shot). */
   onKnowledgeNavConsumed: () => void
+  /** [kb:id] citation chip clicked: reveal that record in the knowledge tab. */
+  onOpenKnowledgeRecord: (
+    connId: string,
+    database: string,
+    recordId: string
+  ) => void
 }
 
 const EFFORT_LABEL: Record<AgentEffort, string> = {
@@ -108,6 +127,8 @@ type ChatPart =
   | {
       kind: 'tool'
       toolId: string
+      /** Tool name from the wire event (e.g. "run_sql", "search_knowledge"). */
+      name: string
       sql: string
       status: 'running' | 'ok' | 'error'
       summary: string
@@ -138,17 +159,56 @@ function repoRootName(root: string): string {
   return parts[parts.length - 1] ?? root
 }
 
-/** Prefixes for tool `sql` fields that carry a plain label, not SQL. */
-const PLAIN_TOOL_LABEL_PREFIXES = [
-  'repo: ',
-  'search knowledge',
-  'web search',
-  'save knowledge',
-  'update knowledge'
-]
+interface ToolMeta {
+  /** Short action label rendered as the chip's leading badge. */
+  label: string
+  Icon: (props: { size?: number }) => ReactElement
+  /** True when the detail text is SQL and should be token-colored. */
+  sqlish: boolean
+}
 
-function isPlainToolLabel(sql: string): boolean {
-  return PLAIN_TOOL_LABEL_PREFIXES.some((prefix) => sql.startsWith(prefix))
+/** How each tool renders in the transcript, keyed by wire tool name. */
+const TOOL_META: Record<string, ToolMeta> = {
+  run_sql: { label: 'Run SQL', Icon: PlayIcon, sqlish: true },
+  explain_query: { label: 'Explain', Icon: PlayIcon, sqlish: true },
+  describe_table: { label: 'Describe', Icon: SearchIcon, sqlish: false },
+  search_schema: { label: 'Schema', Icon: SearchIcon, sqlish: false },
+  search_knowledge: { label: 'Knowledge', Icon: BookIcon, sqlish: false },
+  save_knowledge: { label: 'Knowledge', Icon: BookIcon, sqlish: false },
+  write_to_editor: { label: 'Editor', Icon: SqlFileIcon, sqlish: true },
+  list_repo_files: { label: 'Codebase', Icon: FolderIcon, sqlish: false },
+  grep_repo: { label: 'Codebase', Icon: FolderIcon, sqlish: false },
+  read_repo_file: { label: 'Codebase', Icon: FolderIcon, sqlish: false },
+  web_search: { label: 'Web', Icon: GlobeIcon, sqlish: false }
+}
+
+function toolMeta(name: string): ToolMeta {
+  if (name.startsWith('mcp__')) {
+    return { label: 'MCP', Icon: PlugIcon, sqlish: false }
+  }
+  return TOOL_META[name] ?? { label: 'Tool', Icon: PlayIcon, sqlish: false }
+}
+
+/** The badge already names the tool, so drop the redundant label prefix. */
+function toolDetail(name: string, sql: string): string {
+  switch (name) {
+    case 'search_knowledge':
+      return sql.replace(/^search knowledge /, '')
+    case 'save_knowledge':
+      return sql.replace(/^(save|update) knowledge /, '$1 ')
+    case 'web_search':
+      return sql.replace(/^web search /, '')
+    case 'describe_table':
+      return sql.replace(/^describe /, '')
+    case 'search_schema':
+      return sql.replace(/^search /, '')
+    case 'list_repo_files':
+    case 'grep_repo':
+    case 'read_repo_file':
+      return sql.replace(/^repo: /, '')
+    default:
+      return sql
+  }
 }
 
 /** Appends delta text to the last assistant message, coalescing text parts. */
@@ -264,7 +324,7 @@ function AssistantText({
         ) : (
           seg.body.trim() && (
             <div key={i} className="chat-prose">
-              {seg.body.trim()}
+              <Markdown text={seg.body.trim()} />
             </div>
           )
         )
@@ -292,7 +352,12 @@ function ContextGauge({
       title={`Context: ${tokens.toLocaleString()} of ${windowSize.toLocaleString()} tokens (${percent}%)`}
     >
       <svg viewBox="0 0 26 26" width={26} height={26}>
-        <circle className="context-gauge__track" cx="13" cy="13" r={GAUGE_RADIUS} />
+        <circle
+          className="context-gauge__track"
+          cx="13"
+          cy="13"
+          r={GAUGE_RADIUS}
+        />
         <circle
           className="context-gauge__fill"
           cx="13"
@@ -323,7 +388,8 @@ export function AgentPanel({
   knowledgeTargetKey,
   onKnowledgeTargetChange,
   knowledgeNav,
-  onKnowledgeNavConsumed
+  onKnowledgeNavConsumed,
+  onOpenKnowledgeRecord
 }: AgentPanelProps): ReactElement {
   const [activeTab, setActiveTab] = useState<'files' | 'agent' | 'knowledge'>(
     'agent'
@@ -377,9 +443,58 @@ export function AgentPanel({
 
   const model =
     AGENT_MODELS.find((m) => m.id === modelId) ?? DEFAULT_AGENT_MODEL
-  const modeOption =
-    AGENT_MODES.find((m) => m.id === mode) ?? AGENT_MODES[0]
+  const modeOption = AGENT_MODES.find((m) => m.id === mode) ?? AGENT_MODES[0]
   const target = targets.find((t) => targetKey(t) === selectedTargetKey) ?? null
+
+  // Knowledge records for the CHAT target — the knowledge tab may be viewing
+  // a different database — so [kb:id] citations in assistant prose resolve to
+  // live records (and pick up renames/deletes via knowledge:changed pushes).
+  const chatKnowledge = useKnowledgeState(
+    target?.connId ?? null,
+    target?.database ?? null
+  )
+  const chatRecordById = useMemo(
+    () => new Map(chatKnowledge.records.map((r) => [r.id, r])),
+    [chatKnowledge.records]
+  )
+  const targetRef = useRef(target)
+  targetRef.current = target
+
+  /** Renders one [kb:id] citation as a chip linking to the record. */
+  const renderKbRef = useCallback(
+    (id: string): ReactNode => {
+      const record = chatRecordById.get(id)
+      if (!record) {
+        return (
+          <span
+            className="kb-cite kb-cite--missing"
+            title="Knowledge record not found — it may have been deleted"
+          >
+            <BookIcon size={9} />
+            knowledge
+          </span>
+        )
+      }
+      const label = isKnownKind(record.kind)
+        ? KIND_LABELS[record.kind]
+        : 'Knowledge'
+      return (
+        <button
+          type="button"
+          className="kb-cite"
+          title={`${label}: ${recordTitle(record)} — click to open in the Knowledge tab`}
+          onClick={() => {
+            const t = targetRef.current
+            if (t) onOpenKnowledgeRecord(t.connId, t.database, record.id)
+          }}
+        >
+          <BookIcon size={9} />
+          {label}
+        </button>
+      )
+    },
+    [chatRecordById, onOpenKnowledgeRecord]
+  )
 
   // Keep the target selection valid as connections come and go.
   useEffect(() => {
@@ -438,6 +553,7 @@ export function AgentPanel({
             appendPart(prev, {
               kind: 'tool',
               toolId: evt.toolId,
+              name: evt.name,
               sql: evt.sql,
               status: 'running',
               summary: ''
@@ -757,7 +873,9 @@ export function AgentPanel({
         }
         if (e.key === 'ArrowUp') {
           e.preventDefault()
-          setSlashIndex((slashSel - 1 + slashMatches.length) % slashMatches.length)
+          setSlashIndex(
+            (slashSel - 1 + slashMatches.length) % slashMatches.length
+          )
           return
         }
         if (e.key === 'Tab') {
@@ -925,84 +1043,100 @@ export function AgentPanel({
               <code>~/.zshrc</code>.
             </div>
           )}
-          <div className="chat__scroll" ref={scrollRef}>
-            {transcript.length === 0 && (
-              <div className="chat__empty">
-                <SparkleIcon size={18} />
-                <p>
-                  {mode === 'read-only'
-                    ? "Describe the data you need and I'll write the SQL. I can see the schema and run read-only queries to verify results. Changing data or schema is blocked."
-                    : "Describe the data you need and I'll write the SQL. I can see the schema of the selected database and your active editor file. I never execute anything — you run the SQL."}
-                </p>
-              </div>
-            )}
-            {transcript.map((msg) => (
-              <div key={msg.id} className={`chat-msg chat-msg--${msg.role}`}>
-                {msg.parts.map((part, i) => {
-                  if (part.kind === 'text') {
-                    return msg.role === 'assistant' ? (
-                      <AssistantText
-                        key={i}
-                        text={part.text}
-                        onInsert={insertSql}
-                        onSaveExemplar={target ? onSaveExemplar : undefined}
-                      />
-                    ) : (
-                      <div key={i} className="chat-prose">
-                        {part.text}
-                      </div>
-                    )
-                  }
-                  if (part.kind === 'tool') {
-                    return (
-                      <div
-                        key={i}
-                        className={`chat-tool chat-tool--${part.status}`}
-                        title={part.sql}
-                      >
-                        <PlayIcon size={9} />
-                        <code>
-                          {isPlainToolLabel(part.sql) ? (
-                            part.sql.slice(0, 60)
-                          ) : (
-                            <SqlCode
-                              sql={stripSqlComments(part.sql)
-                                .replace(/\s+/g, ' ')
-                                .trim()
-                                .slice(0, 60)}
-                            />
+          <KbRefContext.Provider value={renderKbRef}>
+            <div className="chat__scroll" ref={scrollRef}>
+              {transcript.length === 0 && (
+                <div className="chat__empty">
+                  <SparkleIcon size={18} />
+                  <p>
+                    {mode === 'read-only'
+                      ? "Describe the data you need and I'll write the SQL. I can see the schema and run read-only queries to verify results. Changing data or schema is blocked."
+                      : "Describe the data you need and I'll write the SQL. I can see the schema of the selected database and your active editor file. I never execute anything — you run the SQL."}
+                  </p>
+                </div>
+              )}
+              {transcript.map((msg) => (
+                <div key={msg.id} className={`chat-msg chat-msg--${msg.role}`}>
+                  {msg.parts.map((part, i) => {
+                    if (part.kind === 'text') {
+                      return msg.role === 'assistant' ? (
+                        <AssistantText
+                          key={i}
+                          text={part.text}
+                          onInsert={insertSql}
+                          onSaveExemplar={target ? onSaveExemplar : undefined}
+                        />
+                      ) : (
+                        <div key={i} className="chat-prose">
+                          {part.text}
+                        </div>
+                      )
+                    }
+                    if (part.kind === 'tool') {
+                      const meta = toolMeta(part.name)
+                      const detail = toolDetail(part.name, part.sql)
+                      return (
+                        <div
+                          key={i}
+                          className={`chat-tool chat-tool--${part.status}`}
+                          title={part.sql}
+                        >
+                          <span className="chat-tool__kind">
+                            <meta.Icon size={10} />
+                            {meta.label}
+                          </span>
+                          <code>
+                            {meta.sqlish ? (
+                              <SqlCode
+                                sql={stripSqlComments(detail)
+                                  .replace(/\s+/g, ' ')
+                                  .trim()
+                                  .slice(0, 60)}
+                              />
+                            ) : (
+                              detail.slice(0, 60)
+                            )}
+                          </code>
+                          <span className="chat-tool__summary">
+                            {part.status === 'running'
+                              ? 'running…'
+                              : part.summary}
+                          </span>
+                          {part.status !== 'running' && (
+                            <span className="chat-tool__status">
+                              {part.status === 'ok' ? (
+                                <CheckIcon size={11} />
+                              ) : (
+                                <CloseIcon size={11} />
+                              )}
+                            </span>
                           )}
-                        </code>
-                        <span className="chat-tool__summary">
-                          {part.status === 'running'
-                            ? 'running…'
-                            : part.summary}
-                        </span>
-                      </div>
-                    )
-                  }
-                  if (part.kind === 'notice') {
+                        </div>
+                      )
+                    }
+                    if (part.kind === 'notice') {
+                      return (
+                        <div key={i} className="chat-notice">
+                          {part.text}
+                        </div>
+                      )
+                    }
                     return (
-                      <div key={i} className="chat-notice">
+                      <div key={i} className="chat-error">
                         {part.text}
                       </div>
                     )
-                  }
-                  return (
-                    <div key={i} className="chat-error">
-                      {part.text}
-                    </div>
-                  )
-                })}
-              </div>
-            ))}
-            {thinking && busy && (
-              <div className="chat__thinking">Thinking…</div>
-            )}
-            {compacting && (
-              <div className="chat__thinking">Compacting context…</div>
-            )}
-          </div>
+                  })}
+                </div>
+              ))}
+              {thinking && busy && (
+                <div className="chat__thinking">Thinking…</div>
+              )}
+              {compacting && (
+                <div className="chat__thinking">Compacting context…</div>
+              )}
+            </div>
+          </KbRefContext.Provider>
           <div className="chat__composer">
             <div className="composer__box">
               <div className="composer__chips">
