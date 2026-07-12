@@ -8,9 +8,12 @@
   --panel-hi: #313344;
   --border: #3a3d4d;
   --border-soft: #313344;
-  /* Seams between the top-level panel columns. Darker than --border so the
-     boundary stays legible where both sides share the same panel color. */
-  --divider: #15161e;
+  /* Seams between the top-level panel columns. Matches --border so the
+     vertical seams read the same as the horizontal header rules. */
+  --divider: var(--border);
+  /* Second header row (connections filter bar / editor file tabs / agent
+     target bar): one shared height so the seam lines up across columns. */
+  --rail2-h: 45px;
   --text: #eaf2f1;
   --text-dim: #a0a5ae;
   --text-faint: #696d77;
@@ -41,7 +44,6 @@
   --panel-hi: #f1f2f5;
   --border: #d6d9df;
   --border-soft: #e7e9ed;
-  --divider: #b6bbc6;
   --text: #1a1c22;
   --text-dim: #5b606b;
   --text-faint: #8c919c;
@@ -309,9 +311,15 @@ textarea {
 }
 
 .filter-bar {
+  height: var(--rail2-h);
   flex: 0 0 auto;
-  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
   border-bottom: 1px solid var(--border);
+}
+.filter-bar .filter-box {
+  flex: 1;
 }
 .filter-box {
   display: flex;
@@ -342,28 +350,6 @@ textarea {
   min-height: 0;
   overflow: auto;
   padding: 5px 0;
-}
-
-/* Selected object + visible count, at the bottom of the tree column. */
-.conn-footer {
-  flex: 0 0 auto;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border-top: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-faint);
-}
-.conn-footer__sel {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.conn-footer__count {
-  flex: 0 0 auto;
 }
 
 .tree-row:hover {
@@ -505,7 +491,7 @@ textarea {
 
 /* Tier 2: file tabs for the active connection tab. */
 .file-tabbar {
-  height: 37px;
+  height: var(--rail2-h);
   flex: 0 0 auto;
   display: flex;
   align-items: flex-end;
@@ -747,11 +733,12 @@ textarea {
 }
 
 /* Vertical dividers between the connection / editor / agent columns.
-   They overlap the panels' own 1px border with a negative margin so the
-   hit area is comfortable without introducing a double line. */
+   The 3px hit area sits on top of the left panel's 1px border via negative
+   margins; net layout width must stay exactly 1px so the next panel starts
+   after the border instead of painting over it. */
 .col-divider {
   flex: 0 0 3px;
-  margin: 0 -2px;
+  margin: 0 -1px;
   z-index: 1;
   cursor: col-resize;
   background: transparent;
@@ -2241,11 +2228,12 @@ body.is-col-resizing {
   background: transparent;
 }
 .chat__target-bar {
+  height: var(--rail2-h);
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--border);
 }
 .chat__target {

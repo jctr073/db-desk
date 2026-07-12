@@ -24,22 +24,6 @@ import type { ConnectionState } from './useConnectionState'
 const ROW_HEIGHT = 24 // compact
 const SHOW_STATUS_DOTS = true
 
-/** Categories fall through with no prefix, so the footer shows just their label. */
-const KIND_NAMES: Partial<Record<NodeKind, string>> = {
-  connection: 'Connection',
-  database: 'Database',
-  schema: 'Schema',
-  table: 'Table',
-  view: 'View',
-  matview: 'Materialized View',
-  index: 'Index',
-  function: 'Function',
-  sequence: 'Sequence',
-  type: 'Data Type',
-  aggregate: 'Aggregate',
-  column: 'Column'
-}
-
 interface ConnectionPanelProps {
   state: ConnectionState
   onNewQueryFile?: (connId: string, database: string) => void
@@ -145,15 +129,6 @@ export function ConnectionPanel({
     })
   }
 
-  let selText = 'No selection'
-  if (state.selectedNode) {
-    const kindName = KIND_NAMES[state.selectedNode.kind]
-    selText = kindName
-      ? `${kindName}  ·  ${state.selectedNode.label}`
-      : state.selectedNode.label
-  }
-  const rowCountText = `${rows.length} ${rows.length === 1 ? 'item' : 'items'}`
-
   return (
     <section className="conn-panel">
       <div className="panel-header">
@@ -227,11 +202,6 @@ export function ConnectionPanel({
             onRowContextMenu={onRowContextMenu}
           />
         )}
-      </div>
-
-      <div className="conn-footer">
-        <span className="conn-footer__sel">{selText}</span>
-        <span className="conn-footer__count">{rowCountText}</span>
       </div>
 
       {menu && menuNode && (
