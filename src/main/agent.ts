@@ -726,7 +726,7 @@ export function buildSystemPrompt(
   if (req.target) {
     parts.push(
       '- Use search_knowledge to look up locally recorded knowledge about this database — glossary terms, join rules, annotations, exemplar queries, notes. It reads only the local DB Desk store, never the database, so it is available in every mode.',
-      '- Use save_knowledge to record a durable fact the user states about their data — what a column really means, a join rule (including polymorphic joins), a glossary term, or a good example query — so it survives chat resets and helps future conversations. Do not save conversation-local trivia, one-off answers, or anything you are unsure about. To correct or extend an existing record, pass the id from a search_knowledge result so it updates in place rather than duplicating. It writes only the local store, never the database, so it is available in every mode.'
+      '- Use save_knowledge to record a durable fact the user states about their data — what a column really means, a join rule (including polymorphic joins), a glossary term, or a good example query — so it survives chat resets and helps future conversations. Save only what changes how a query would be written, and keep it terse: 1-3 plain sentences, no restating the schema — the whole store is injected into every future prompt under a fixed budget. Do not save conversation-local trivia, one-off answers, or anything you are unsure about. To correct or extend an existing record, pass the id from a search_knowledge result so it updates in place rather than duplicating. It writes only the local store, never the database, so it is available in every mode.'
     )
   }
   if (req.webSearch) {
@@ -932,7 +932,7 @@ const COLUMN_REF_SCHEMA = {
 const SAVE_KNOWLEDGE_TOOL: Anthropic.Tool = {
   name: 'save_knowledge',
   description:
-    'Record a durable fact about this database in the local DB Desk knowledge store so it survives chat resets and informs future conversations. Use it when the user states a lasting truth about their data — what a column really means, a join rule (including polymorphic joins), a glossary term, or a good example query. Do NOT save conversation-local trivia, one-off answers, or anything you are unsure about. To correct or extend an existing record, pass its `id` from a search_knowledge result so it is updated in place instead of duplicated. Records you write are marked as agent-sourced; set `confidence` to reflect how sure you are. Writes only the local store, never the database, so it is available in every access mode.',
+    'Record a durable fact about this database in the local DB Desk knowledge store so it survives chat resets and informs future conversations. Use it when the user states a lasting truth about their data — what a column really means, a join rule (including polymorphic joins), a glossary term, or a good example query. Save only facts that change how a query would be written, and write them terse: 1-3 plain sentences, no markdown emphasis, no restating the schema (the whole store renders into every future prompt under a fixed budget). Do NOT save conversation-local trivia, one-off answers, or anything you are unsure about. To correct or extend an existing record, pass its `id` from a search_knowledge result so it is updated in place instead of duplicated. Records you write are marked as agent-sourced; set `confidence` to reflect how sure you are. Writes only the local store, never the database, so it is available in every access mode.',
   input_schema: {
     type: 'object',
     properties: {

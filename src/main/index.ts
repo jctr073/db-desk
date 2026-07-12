@@ -32,6 +32,11 @@ import { extractExemplarReferences } from './exemplar'
 import type { ConnectParams } from '../shared/db'
 import type { KnowledgeRecordInput } from '../shared/knowledge'
 
+// In development Electron otherwise uses the executable name ("Electron") for
+// the macOS application menu. Set this before the app becomes ready so dev and
+// packaged builds both present the product name consistently.
+app.setName('DB Desk')
+
 let mainWindow: BrowserWindow | null = null
 
 function getRendererUrl(): string | undefined {

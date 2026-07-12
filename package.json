@@ -1,5 +1,6 @@
 {
   "name": "db-desk",
+  "productName": "DB Desk",
   "version": "0.1.0",
   "description": "Mac desktop database client foundation.",
   "private": true,
