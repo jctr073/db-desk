@@ -349,6 +349,16 @@ function sourceTag(rec: KnowledgeRecord): string {
     : ' [agent-recorded]'
 }
 
+/**
+ * Citation marker appended to each record rendered for the model, so it can
+ * cite the records that shaped an answer by writing the tag back in prose
+ * (the renderer turns `[kb:id]` into a link to the record). Omitted in the
+ * 'terms' degradation tier, where every character competes with real content.
+ */
+function idTag(rec: KnowledgeRecord): string {
+  return ` [kb:${singleLine(rec.id)}]`
+}
+
 function quoteValue(value: string): string {
   return `'${singleLine(value).replace(/'/g, "''")}'`
 }
@@ -431,12 +441,15 @@ function renderKnowledge(records: KnowledgeRecord[], detail: KnowledgeDetail): s
   if (relationships.length > 0) {
     lines.push('', 'Relationships (join rules):')
     for (const rel of relationships) {
-      lines.push(`- ${renderRelationship(rel, !terms)}${terms ? '' : sourceTag(rel)}`)
+      const tags = terms ? '' : `${sourceTag(rel)}${idTag(rel)}`
+      lines.push(`- ${renderRelationship(rel, !terms)}${tags}`)
     }
   }
   if (glossary.length > 0) {
     lines.push('', 'Glossary:')
-    for (const g of glossary) lines.push(renderGlossaryTerm(g, detail))
+    for (const g of glossary) {
+      lines.push(`${renderGlossaryTerm(g, detail)}${terms ? '' : idTag(g)}`)
+    }
   }
   if (annotations.length > 0) {
     lines.push('', 'Annotations:')
@@ -444,7 +457,7 @@ function renderKnowledge(records: KnowledgeRecord[], detail: KnowledgeDetail): s
       lines.push(
         terms
           ? `- ${refName(a.target)}`
-          : `- ${refName(a.target)}: ${indentBlock(a.text, '  ')}${sourceTag(a)}`
+          : `- ${refName(a.target)}: ${indentBlock(a.text, '  ')}${sourceTag(a)}${idTag(a)}`
       )
     }
   }
@@ -455,7 +468,7 @@ function renderKnowledge(records: KnowledgeRecord[], detail: KnowledgeDetail): s
         lines.push(`- Q: ${singleLine(e.question)}`)
       } else {
         lines.push(
-          `- Q: ${singleLine(e.question)}${sourceTag(e)}`,
+          `- Q: ${singleLine(e.question)}${sourceTag(e)}${idTag(e)}`,
           `  SQL: ${indentBlock(e.sql, '  ')}`
         )
       }
@@ -468,7 +481,7 @@ function renderKnowledge(records: KnowledgeRecord[], detail: KnowledgeDetail): s
         lines.push(`- ${singleLine(n.title)}`)
       } else {
         lines.push(
-          `- ${singleLine(n.title)}: ${indentBlock(n.body, '  ')}${sourceTag(n)}`
+          `- ${singleLine(n.title)}: ${indentBlock(n.body, '  ')}${sourceTag(n)}${idTag(n)}`
         )
         if ((n.references ?? []).length > 0) {
           lines.push(`  [refs: ${n.references.map(refName).join(', ')}]`)
@@ -665,14 +678,14 @@ export function renderTableKnowledge(
     lines.push('annotations:')
     for (const a of annotations) {
       lines.push(
-        `  ${refName(a.target)}: ${indentBlock(a.text, '    ')}${sourceTag(a)}`
+        `  ${refName(a.target)}: ${indentBlock(a.text, '    ')}${sourceTag(a)}${idTag(a)}`
       )
     }
   }
   if (relationships.length > 0) {
     lines.push('relationships:')
     for (const rel of relationships) {
-      lines.push(`  ${renderRelationship(rel, true)}${sourceTag(rel)}`)
+      lines.push(`  ${renderRelationship(rel, true)}${sourceTag(rel)}${idTag(rel)}`)
     }
   }
   return lines.join('\n')
@@ -726,6 +739,7 @@ export function buildSystemPrompt(
   if (req.target) {
     parts.push(
       '- Use search_knowledge to look up locally recorded knowledge about this database — glossary terms, join rules, annotations, exemplar queries, notes. It reads only the local DB Desk store, never the database, so it is available in every mode.',
+      '- Knowledge records shown to you carry citation tags like [kb:kn-...] — in the Local knowledge section, in describe_table output, and as the id field of search_knowledge hits. When a recorded fact shapes your answer — a join rule you followed, a glossary meaning, an annotation caveat, an exemplar you adapted — cite it by writing its [kb:...] tag inline in your prose right where you rely on it, e.g. "the join is filtered on source, per the recorded join rule [kb:kn-17-ab12]". The UI renders each tag as a link to the record, so the user can see which recorded knowledge you used. Cite only records that actually informed the answer, keep tags out of SQL code, and never invent an id.',
       '- Use save_knowledge to record a durable fact the user states about their data — what a column really means, a join rule (including polymorphic joins), a glossary term, or a good example query — so it survives chat resets and helps future conversations. Save only what changes how a query would be written, and keep it terse: 1-3 plain sentences, no restating the schema — the whole store is injected into every future prompt under a fixed budget. Do not save conversation-local trivia, one-off answers, or anything you are unsure about. To correct or extend an existing record, pass the id from a search_knowledge result so it updates in place rather than duplicating. It writes only the local store, never the database, so it is available in every mode.'
     )
   }

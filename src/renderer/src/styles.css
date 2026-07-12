@@ -372,7 +372,6 @@ textarea {
   max-width: 200px;
 }
 
-
 /* ------------------------------------------------------------------ *
  * Center editor panel                                                  *
  * ------------------------------------------------------------------ */
@@ -1731,8 +1730,58 @@ body.is-col-resizing {
 }
 .chat-msg--assistant .chat-prose {
   color: var(--text);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* --- Rendered markdown (assistant prose, knowledge snippets) --- */
+.chat-prose > * + * {
+  margin-top: 7px;
+}
+.chat-prose > .md-h:not(:first-child) {
+  margin-top: 13px;
+}
+.md-h {
+  font-weight: 650;
+  line-height: 1.4;
+}
+.md-h1 {
+  font-size: 14px;
+}
+.md-h2 {
+  font-size: 13px;
+}
+.md-h3 {
+  font-size: 12.5px;
+}
+.md-h4 {
+  font-size: 12px;
+}
+.md-p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.md-list {
+  margin: 0;
+  padding-left: 17px;
+}
+.md-li {
+  margin: 3px 0;
+}
+.md-li::marker {
+  color: var(--text-faint);
+}
+.md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--panel-hi);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+.md-hr {
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  margin: 4px 0;
 }
 .chat-sql {
   border: 1px solid var(--border);
@@ -1822,6 +1871,52 @@ body.is-col-resizing {
 }
 .chat-tool--error .chat-tool__summary {
   color: var(--red);
+}
+.chat-tool__kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+}
+.chat-tool__status {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.chat-tool--ok .chat-tool__status {
+  color: var(--green);
+}
+.chat-tool--error .chat-tool__status {
+  color: var(--red);
+}
+
+/* Inline [kb:id] knowledge citation chip in assistant prose. */
+.kb-cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: baseline;
+  padding: 0 6px 1px;
+  margin: 0 1px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.kb-cite:hover {
+  border-color: var(--accent-strong);
+}
+.kb-cite--missing {
+  cursor: default;
+  background: transparent;
+  color: var(--text-faint);
 }
 .chat-error {
   padding: 7px 9px;

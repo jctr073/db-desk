@@ -11,6 +11,7 @@ import type {
   UsageHit
 } from '../../../shared/knowledge'
 import { CloseIcon, PlusThinIcon, SearchIcon } from '../components/icons'
+import { InlineMarkdown } from '../components/MarkdownText'
 import type { QueryTarget } from '../components/useQueryRunner'
 import {
   KIND_LABELS,
@@ -71,7 +72,9 @@ export function KnowledgePanel({
 }: KnowledgePanelProps): ReactElement {
   const [search, setSearch] = useState('')
   const [kindFilter, setKindFilter] = useState<KnowledgeKind | 'all'>('all')
-  const [sourceFilter, setSourceFilter] = useState<KnowledgeSource | 'all'>('all')
+  const [sourceFilter, setSourceFilter] = useState<KnowledgeSource | 'all'>(
+    'all'
+  )
   const [usagesRef, setUsagesRef] = useState<ColumnRef | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [newMenu, setNewMenu] = useState<{ x: number; y: number } | null>(null)
@@ -90,13 +93,32 @@ export function KnowledgePanel({
 
   // Introspection backs the ref pickers and dangling-ref warnings.
   useEffect(() => {
-    if (state.connId && state.database) ensureSchema(state.connId, state.database)
+    if (state.connId && state.database)
+      ensureSchema(state.connId, state.database)
   }, [state.connId, state.database, ensureSchema])
 
-  // Tree navigation: "Show usages" / "Add annotation…". A one-shot — the parent
-  // clears `nav` once consumed, so remounting this panel never replays it.
+  // Navigation requests: "Show usages" / "Add annotation…" from the schema
+  // tree, or "open record" from a [kb:id] citation chip in the agent
+  // transcript. A one-shot — the parent clears `nav` once consumed, so
+  // remounting this panel never replays it. The 'record' action may arrive
+  // together with a target switch, so it waits until the records for its
+  // target have actually loaded before resolving the id (or gives up if the
+  // load fails); the ref-based actions carry their payload and act at once.
   useEffect(() => {
     if (!nav) return
+    if (nav.action === 'record') {
+      if (state.loadedKey !== knowledgeTargetKeyOf(nav.connId, nav.database)) {
+        if (state.loadError) onNavConsumed()
+        return
+      }
+      const record = state.records.find((r) => r.id === nav.recordId)
+      if (record && isKnownKind(record.kind)) {
+        setUsagesRef(null)
+        openEditor({ record, kind: record.kind, prefillTarget: null })
+      }
+      onNavConsumed()
+      return
+    }
     if (nav.action === 'usages') {
       setEditor(null)
       setUsagesRef(nav.ref)
@@ -105,7 +127,7 @@ export function KnowledgePanel({
       openEditor({ record: null, kind: 'annotation', prefillTarget: nav.ref })
     }
     onNavConsumed()
-  }, [nav, onNavConsumed])
+  }, [nav, onNavConsumed, state.loadedKey, state.loadError, state.records])
 
   // Tab bar "+" while this tab is active: open the new-record kind chooser.
   // Also a one-shot; the parent resets `newSeq` once we've opened the menu.
@@ -129,7 +151,10 @@ export function KnowledgePanel({
     state.connId && state.database
       ? schemas[state.connId]?.[state.database]
       : undefined
-  const validKeys = useMemo(() => (intro ? buildRefKeySet(intro) : null), [intro])
+  const validKeys = useMemo(
+    () => (intro ? buildRefKeySet(intro) : null),
+    [intro]
+  )
   const recordById = useMemo(
     () => new Map(state.records.map((r) => [r.id, r])),
     [state.records]
@@ -140,7 +165,9 @@ export function KnowledgePanel({
     return state.records
       .filter((record) => isKnownKind(record.kind))
       .filter((record) => kindFilter === 'all' || record.kind === kindFilter)
-      .filter((record) => sourceFilter === 'all' || record.source === sourceFilter)
+      .filter(
+        (record) => sourceFilter === 'all' || record.source === sourceFilter
+      )
       .filter((record) => !q || recordSearchText(record).includes(q))
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }, [state.records, search, kindFilter, sourceFilter])
@@ -167,7 +194,9 @@ export function KnowledgePanel({
     openEditor({ record: null, kind, prefillTarget: null })
   }
 
-  const saveDraft = async (input: Parameters<KnowledgeState['save']>[0]): Promise<void> => {
+  const saveDraft = async (
+    input: Parameters<KnowledgeState['save']>[0]
+  ): Promise<void> => {
     const saved = await state.save(input)
     if (saved) setEditor(null)
   }
@@ -245,7 +274,11 @@ export function KnowledgePanel({
       ) : usagesRef ? (
         <div className="kn-usages">
           <div className="kn-usages__head">
-            <button type="button" className="kn-back" onClick={() => setUsagesRef(null)}>
+            <button
+              type="button"
+              className="kn-back"
+              onClick={() => setUsagesRef(null)}
+            >
               ‹ All records
             </button>
             <span className="kn-usages__title" title={formatRef(usagesRef)}>
@@ -259,8 +292,8 @@ export function KnowledgePanel({
                 <div className="kn-empty__text">No usages recorded.</div>
                 <div className="kn-empty__hint">
                   Annotations, relationships, glossary mappings, exemplars, and
-                  notes that reference this {usagesRef.column ? 'column' : 'table'}{' '}
-                  will appear here.
+                  notes that reference this{' '}
+                  {usagesRef.column ? 'column' : 'table'} will appear here.
                 </div>
               </div>
             )}
@@ -281,7 +314,9 @@ export function KnowledgePanel({
                       onClick={() => record && openRecord(record)}
                     >
                       <span className="kn-usage-hit__summary">
-                        {summarizeUsage(hit, record, usagesRef)}
+                        <InlineMarkdown
+                          text={summarizeUsage(hit, record, usagesRef)}
+                        />
                       </span>
                       <span className="kn-usage-hit__role">{hit.role}</span>
                     </button>
@@ -308,7 +343,9 @@ export function KnowledgePanel({
                 className="toolbar-select kn-filters__select"
                 title="Filter by kind"
                 value={kindFilter}
-                onChange={(e) => setKindFilter(e.target.value as KnowledgeKind | 'all')}
+                onChange={(e) =>
+                  setKindFilter(e.target.value as KnowledgeKind | 'all')
+                }
               >
                 <option value="all">All kinds</option>
                 {KIND_ORDER.map((kind) => (
@@ -357,8 +394,12 @@ export function KnowledgePanel({
                   className="kn-item"
                   onClick={() => openRecord(record)}
                 >
-                  <span className="kn-item__kind">{KIND_LABELS[record.kind]}</span>
-                  <span className="kn-item__title">{recordTitle(record)}</span>
+                  <span className="kn-item__kind">
+                    {KIND_LABELS[record.kind]}
+                  </span>
+                  <span className="kn-item__title">
+                    <InlineMarkdown text={recordTitle(record)} />
+                  </span>
                   {dangling.length > 0 && (
                     <span
                       className="kn-badge kn-badge--warn"
@@ -373,7 +414,10 @@ export function KnowledgePanel({
                     <span className="kn-badge kn-badge--agent">agent</span>
                   )}
                   {record.confidence && (
-                    <span className="kn-badge kn-badge--conf" title="Agent confidence">
+                    <span
+                      className="kn-badge kn-badge--conf"
+                      title="Agent confidence"
+                    >
                       {record.confidence}
                     </span>
                   )}
