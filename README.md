@@ -142,6 +142,23 @@ quick one-shot LLM call, falling back to matching identifiers against the
 live schema if that's unavailable) so the exemplar shows up under "Show
 usages" for the columns it queries.
 
+A codebase can be attached to a connection so the agent can cross-reference
+the app's source alongside the schema. **Attach codebase…** in the agent
+composer opens a native directory picker; the chosen root (and HEAD's short
+commit SHA, when it's a git checkout) is stored main-side, keyed by
+connection id — the renderer never has the filesystem path, only a status.
+Once attached, three read-only tools (`list_repo_files`, `grep_repo`,
+`read_repo_file`) are sandboxed to that root: paths must resolve lexically
+inside it, symlinks are never followed, conventional secret files (`.env*`,
+private keys, `.npmrc`, …) are invisible to all three, and every primitive is
+capped (visits, results, matches, file size) so a monorepo can't wedge the
+main process. A **Scan codebase** action sends a canned prompt that walks the
+agent through migrations, ORM models, query/repository code, and docs, saving
+what it learns to the local knowledge store (verified against the live
+schema first) with provenance like `db/migrate/20240301_add_status.rb@abc1234`.
+The attachment is on by default per chat once set and can be toggled off,
+detached, or repointed to a different directory from the composer.
+
 ## Setup
 
 ```bash
@@ -198,15 +215,17 @@ src/
     files.ts             # query-file persistence (.sql files + metadata.json)
     knowledge.ts         # local knowledge store: CRUD + validation over userData/knowledge/
     exemplar.ts          # exemplar reference extraction (LLM, with identifier-matching fallback)
+    repo.ts              # codebase attachment: sandboxed list/grep/read over a per-connection repo root
     agent.ts             # Anthropic agent loop: key loading, schema summary, streaming tool use
   preload/
-    index.ts             # typed window.dbDesk bridge (db + store + files + agent)
+    index.ts             # typed window.dbDesk bridge (db + store + files + agent + repo)
   shared/
     db.ts                # wire types shared by main, preload, and renderer
     dialect.ts           # per-engine registry: form layout, defaults, agent SQL rules, EXPLAIN syntax
     sql.ts               # statement splitting + auto-LIMIT lexer (main + renderer)
     agent.ts             # AI agent wire types + model/effort catalog
     knowledge.ts         # knowledge record types + column-key normalization + usage index
+    repo.ts              # codebase attachment wire types + the "Scan codebase" canned prompt
   renderer/
     index.html
     src/
