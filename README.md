@@ -105,9 +105,13 @@ Queries are saved as files. Each tab is a `.sql` file persisted under the app's
 user-data directory, with metadata (name, owning connection/database) tracked in
 `queries/metadata.json`. New query files can be created from the editor tab bar's
 `+` button or from the right-click menu on a connection or database in the tree,
-and are auto-named per target (`query1.sql`, `query2.sql`, …). Each tab keeps its
-own edit buffer so switching tabs preserves unsaved changes, with a per-file
-dirty indicator; ⌘S (or the Save button) writes the active file to disk. The
+and are auto-named per target (`query1.sql`, `query2.sql`, …). Right-clicking a
+tab offers **Rename…**, which edits the name inline with validation (no empty,
+slash, or control-character names; duplicate names within the same connection/
+database are rejected; a missing `.sql` suffix is added automatically). Each
+tab keeps its own edit buffer so switching tabs preserves unsaved changes,
+with a per-file dirty indicator; ⌘S (or the Save button) writes the active
+file to disk. The
 right-hand panel's **SQL Files** tab lists all saved files grouped by their
 owning connection and database. The window title and chrome use the native OS
 title bar, and the light/dark theme toggle lives in the bottom status bar.
