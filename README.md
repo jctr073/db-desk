@@ -156,8 +156,8 @@ live schema if that's unavailable) so the exemplar shows up under "Show
 usages" for the columns it queries.
 
 A codebase can be attached to a connection so the agent can cross-reference
-the app's source alongside the schema. **Attach codebase…** in the agent
-composer opens a native directory picker; the chosen root (and HEAD's short
+the app's source alongside the schema. The codebase control beside the agent
+mode picker opens a native directory picker; the chosen root (and HEAD's short
 commit SHA, when it's a git checkout) is stored main-side, keyed by
 connection id — the renderer never has the filesystem path, only a status.
 Once attached, three read-only tools (`list_repo_files`, `grep_repo`,
@@ -170,7 +170,7 @@ agent through migrations, ORM models, query/repository code, and docs, saving
 what it learns to the local knowledge store (verified against the live
 schema first) with provenance like `db/migrate/20240301_add_status.rb@abc1234`.
 The attachment is on by default per chat once set and can be toggled off,
-detached, or repointed to a different directory from the composer.
+detached, or repointed to a different directory from the same control.
 
 ## Setup
 

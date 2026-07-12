@@ -1035,6 +1035,94 @@ export function AgentPanel({
                 </>
               )}
             </div>
+            <div className="mcp-ctl repo-ctl repo-ctl--target">
+              <button
+                type="button"
+                className={`composer__web mcp-ctl__plug${
+                  repoStatus?.root && repoEnabled ? ' is-on' : ''
+                }`}
+                title={
+                  !target
+                    ? 'Connect to a database to attach a codebase'
+                    : !repoStatus?.root
+                      ? 'Attach a local codebase'
+                      : repoEnabled
+                        ? `Codebase attached — ${repoRootName(repoStatus.root)} (on, click to disable)`
+                        : `Codebase attached — ${repoRootName(repoStatus.root)} (off, click to enable)`
+                }
+                disabled={!target}
+                onClick={() => {
+                  if (repoStatus?.root) setRepoEnabled((on) => !on)
+                  else chooseRepo()
+                }}
+              >
+                <FolderIcon size={14} />
+              </button>
+              <button
+                type="button"
+                className="mcp-ctl__chev"
+                title="Codebase options"
+                aria-label="Codebase options"
+                disabled={!target}
+                onClick={() => setRepoMenuOpen((open) => !open)}
+              >
+                <ChevronDownIcon size={10} />
+              </button>
+              {repoMenuOpen && target && (
+                <>
+                  <div
+                    className="ctx-overlay"
+                    onMouseDown={() => setRepoMenuOpen(false)}
+                  />
+                  <div className="model-pop mcp-pop repo-pop">
+                    <div className="model-pop__heading">Codebase</div>
+                    <div className="mcp-pop__empty repo-pop__info">
+                      {repoStatus?.root ? (
+                        <>
+                          {repoStatus.root}
+                          {repoStatus.commit && ` @ ${repoStatus.commit}`}
+                        </>
+                      ) : (
+                        'No codebase attached.'
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="model-pop__row"
+                      disabled={!repoStatus?.root || !repoEnabled}
+                      title="Send the codebase-scan prompt as a chat message"
+                      onClick={() => {
+                        setRepoMenuOpen(false)
+                        scanCodebase()
+                      }}
+                    >
+                      Scan codebase
+                    </button>
+                    <button
+                      type="button"
+                      className="model-pop__row"
+                      onClick={() => {
+                        setRepoMenuOpen(false)
+                        chooseRepo()
+                      }}
+                    >
+                      Change directory…
+                    </button>
+                    <button
+                      type="button"
+                      className="model-pop__row"
+                      disabled={!repoStatus?.root}
+                      onClick={() => {
+                        setRepoMenuOpen(false)
+                        clearRepo()
+                      }}
+                    >
+                      Detach
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           {mcpOpen && <McpSettingsDialog onClose={() => setMcpOpen(false)} />}
           {keyMissing && (
@@ -1387,94 +1475,6 @@ export function AgentPanel({
                           }}
                         >
                           Manage servers…
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div className="mcp-ctl repo-ctl">
-                  <button
-                    type="button"
-                    className={`composer__web mcp-ctl__plug${
-                      repoStatus?.root && repoEnabled ? ' is-on' : ''
-                    }`}
-                    title={
-                      !target
-                        ? 'Connect to a database to attach a codebase'
-                        : !repoStatus?.root
-                          ? 'Attach a local codebase'
-                          : repoEnabled
-                            ? `Codebase attached — ${repoRootName(repoStatus.root)} (on, click to disable)`
-                            : `Codebase attached — ${repoRootName(repoStatus.root)} (off, click to enable)`
-                    }
-                    disabled={!target}
-                    onClick={() => {
-                      if (repoStatus?.root) setRepoEnabled((on) => !on)
-                      else chooseRepo()
-                    }}
-                  >
-                    <FolderIcon size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="mcp-ctl__chev"
-                    title="Codebase options"
-                    aria-label="Codebase options"
-                    disabled={!target}
-                    onClick={() => setRepoMenuOpen((open) => !open)}
-                  >
-                    <ChevronDownIcon size={10} />
-                  </button>
-                  {repoMenuOpen && target && (
-                    <>
-                      <div
-                        className="ctx-overlay"
-                        onMouseDown={() => setRepoMenuOpen(false)}
-                      />
-                      <div className="model-pop mcp-pop repo-pop">
-                        <div className="model-pop__heading">Codebase</div>
-                        <div className="mcp-pop__empty repo-pop__info">
-                          {repoStatus?.root ? (
-                            <>
-                              {repoStatus.root}
-                              {repoStatus.commit && ` @ ${repoStatus.commit}`}
-                            </>
-                          ) : (
-                            'No codebase attached.'
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          className="model-pop__row"
-                          disabled={!repoStatus?.root || !repoEnabled}
-                          title="Send the codebase-scan prompt as a chat message"
-                          onClick={() => {
-                            setRepoMenuOpen(false)
-                            scanCodebase()
-                          }}
-                        >
-                          Scan codebase
-                        </button>
-                        <button
-                          type="button"
-                          className="model-pop__row"
-                          onClick={() => {
-                            setRepoMenuOpen(false)
-                            chooseRepo()
-                          }}
-                        >
-                          Change directory…
-                        </button>
-                        <button
-                          type="button"
-                          className="model-pop__row"
-                          disabled={!repoStatus?.root}
-                          onClick={() => {
-                            setRepoMenuOpen(false)
-                            clearRepo()
-                          }}
-                        >
-                          Detach
                         </button>
                       </div>
                     </>

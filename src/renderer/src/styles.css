@@ -2220,6 +2220,10 @@ body.is-col-resizing {
 .repo-pop__info {
   word-break: break-all;
 }
+.repo-ctl--target .repo-pop {
+  top: 34px;
+  bottom: auto;
+}
 .model-pop__row:disabled {
   opacity: 0.45;
   cursor: default;
