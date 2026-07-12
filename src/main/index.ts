@@ -20,7 +20,8 @@ import {
   saveQueryContent,
   deleteQuery,
   getNextQueryName,
-  deleteQueriesForConnection
+  deleteQueriesForConnection,
+  renameQuery
 } from './files'
 import {
   listRecords,
@@ -153,6 +154,9 @@ function registerFileHandlers(): void {
   ipcMain.handle('files:read', (_event, id: string) => loadQueryContent(id))
   ipcMain.handle('files:save', (_event, id: string, content: string) =>
     saveQueryContent(id, content)
+  )
+  ipcMain.handle('files:rename', (_event, id: string, name: string) =>
+    renameQuery(id, name)
   )
   ipcMain.handle('files:delete', (_event, id: string) => deleteQuery(id))
   ipcMain.handle('files:getNextName', (_event, connId: string | null, database: string | null) =>

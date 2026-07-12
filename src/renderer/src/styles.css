@@ -8,9 +8,12 @@
   --panel-hi: #313344;
   --border: #3a3d4d;
   --border-soft: #313344;
-  /* Seams between the top-level panel columns. Darker than --border so the
-     boundary stays legible where both sides share the same panel color. */
-  --divider: #15161e;
+  /* Seams between the top-level panel columns. Matches --border so the
+     vertical seams read the same as the horizontal header rules. */
+  --divider: var(--border);
+  /* Second header row (connections filter bar / editor file tabs / agent
+     target bar): one shared height so the seam lines up across columns. */
+  --rail2-h: 45px;
   --text: #eaf2f1;
   --text-dim: #a0a5ae;
   --text-faint: #696d77;
@@ -21,6 +24,7 @@
   --green: #bad761;
   --amber: #ffd76d;
   --red: #ff657a;
+  --teal: #3fb6a0;
   --stripe: rgba(255, 255, 255, 0.025);
   --shadow: rgba(15, 16, 24, 0.55);
   /* SQL syntax tokens — keep in sync with the Monaco theme in SqlEditor.tsx. */
@@ -40,7 +44,6 @@
   --panel-hi: #f1f2f5;
   --border: #d6d9df;
   --border-soft: #e7e9ed;
-  --divider: #b6bbc6;
   --text: #1a1c22;
   --text-dim: #5b606b;
   --text-faint: #8c919c;
@@ -51,6 +54,7 @@
   --green: #1f9d4d;
   --amber: #b7861c;
   --red: #d64545;
+  --teal: #0f8a76;
   --stripe: rgba(0, 0, 0, 0.022);
   --shadow: rgba(30, 40, 70, 0.18);
   --sql-kw: #d64545;
@@ -177,10 +181,6 @@ textarea {
   color: var(--text-faint);
   flex: 0 1 auto;
 }
-.statusbar__count {
-  flex: 0 0 auto;
-  color: var(--text-faint);
-}
 .statusbar__divider {
   flex: 0 0 auto;
   width: 1px;
@@ -259,13 +259,17 @@ textarea {
   min-height: 0;
 }
 
+/* Panel headers form one continuous 44px rail across all three columns:
+   same height, titlebar background, and bottom seam (see .editor-tabbar
+   and .agent-tabbar). */
 .panel-header {
-  height: 38px;
+  height: 44px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 8px 0 12px;
+  padding: 0 8px 0 14px;
+  background: var(--titlebar);
   border-bottom: 1px solid var(--border);
 }
 .panel-header__title {
@@ -307,9 +311,15 @@ textarea {
 }
 
 .filter-bar {
+  height: var(--rail2-h);
   flex: 0 0 auto;
-  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
   border-bottom: 1px solid var(--border);
+}
+.filter-bar .filter-box {
+  flex: 1;
 }
 .filter-box {
   display: flex;
@@ -383,43 +393,121 @@ textarea {
   background: var(--bg);
   border-right: 1px solid var(--divider);
 }
+/* Tier 1 of the editor column's header rail: connection-level tabs. */
 .editor-tabbar {
   height: 44px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
   background: var(--titlebar);
   overflow: hidden;
 }
-/* File tabs scroll on their own so the target / Run / kebab controls
-   stay pinned to the right edge however narrow the panel gets. */
+/* Connection tabs scroll on their own so the Run / kebab controls stay
+   pinned to the right edge however narrow the panel gets. */
 .editor-tabbar__tabs {
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   overflow-x: auto;
   overflow-y: hidden;
 }
 .editor-tabbar__tabs::-webkit-scrollbar {
   height: 0;
 }
-.editor-tabs-group {
-  display: flex;
-  gap: 3px;
-  align-items: flex-end;
-  align-self: flex-end;
+/* One tab per (connection, database) that has open files. */
+.conn-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
   flex: 0 0 auto;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  border-radius: 8px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
 }
-.editor-tabs-group + .editor-tabs-group {
-  margin-left: 10px;
-  padding-left: 10px;
-  border-left: 1px solid var(--border);
+.conn-tab:hover {
+  background: var(--panel-hi);
+}
+.conn-tab.is-active {
+  color: var(--text);
+  background: var(--panel-hi);
+  border-color: var(--accent);
+}
+.conn-tab__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 2px var(--titlebar);
+}
+.conn-tab__icon {
+  display: inline-flex;
+  color: var(--text-faint);
+}
+.conn-tab.is-active .conn-tab__icon {
+  color: var(--accent-strong);
+}
+.conn-tab__name {
+  font-weight: 600;
+}
+.conn-tab__sep {
+  color: var(--text-faint);
+}
+.conn-tab__db {
+  color: var(--text-dim);
+}
+.conn-tab.is-active .conn-tab__db {
+  color: var(--text);
+}
+.conn-tab__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: var(--panel-hi);
+  color: var(--text-faint);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+.conn-tab.is-active .conn-tab__count {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+/* Tier 2: file tabs for the active connection tab. */
+.file-tabbar {
+  height: var(--rail2-h);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 0 10px;
+  background: var(--titlebar);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.file-tabbar__hint {
+  align-self: center;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .editor-tab {
   display: flex;
@@ -441,6 +529,17 @@ textarea {
 }
 .editor-tab:hover {
   color: var(--text);
+}
+.editor-tab__rename {
+  width: 120px;
+  height: 21px;
+  padding: 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+  background: var(--panel-hi);
+  color: var(--text);
+  font: inherit;
 }
 .editor-tabbar__new {
   align-self: flex-end;
@@ -574,52 +673,8 @@ textarea {
 }
 
 /* ------------------------------------------------------------------ *
- * Editor bar controls: connection pill, kebab menu, popovers           *
+ * Editor bar controls: kebab menu, popovers                            *
  * ------------------------------------------------------------------ */
-.target-pill {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--panel-hi);
-  color: var(--text);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.target-pill:hover:not(:disabled),
-.target-pill.is-open {
-  border-color: var(--accent);
-}
-.target-pill:disabled {
-  color: var(--text-faint);
-  cursor: default;
-}
-.target-pill__dot {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 0 2px var(--titlebar);
-}
-.target-pill__dot.is-off {
-  background: var(--text-faint);
-}
-.target-pill__icon {
-  display: inline-flex;
-  color: var(--text-dim);
-}
-.target-pill__conn {
-  font-weight: 600;
-}
-.target-pill__sep {
-  color: var(--text-faint);
-}
 .pill-chev {
   display: inline-flex;
   color: var(--text-faint);
@@ -657,48 +712,6 @@ textarea {
   color: var(--text-faint);
   font-size: 11px;
 }
-.target-menu {
-  width: 250px;
-}
-.target-menu__group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px 4px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  color: var(--text-faint);
-}
-.target-menu__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--green);
-}
-.target-menu__item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 9px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 12.5px;
-  font-weight: 500;
-  text-align: left;
-  cursor: pointer;
-}
-.target-menu__item:hover {
-  background: var(--row-hover);
-}
-.target-menu__item.is-active {
-  background: var(--accent-soft);
-  color: var(--text);
-  font-weight: 600;
-}
 .menu-check {
   margin-left: auto;
   display: inline-flex;
@@ -720,11 +733,12 @@ textarea {
 }
 
 /* Vertical dividers between the connection / editor / agent columns.
-   They overlap the panels' own 1px border with a negative margin so the
-   hit area is comfortable without introducing a double line. */
+   The 3px hit area sits on top of the left panel's 1px border via negative
+   margins; net layout width must stay exactly 1px so the next panel starts
+   after the border instead of painting over it. */
 .col-divider {
   flex: 0 0 3px;
-  margin: 0 -2px;
+  margin: 0 -1px;
   z-index: 1;
   cursor: col-resize;
   background: transparent;
@@ -760,6 +774,14 @@ body.is-col-resizing {
   gap: 3px;
   padding: 0 8px;
   border-bottom: 1px solid var(--border);
+}
+.results-cap {
+  flex: 0 0 auto;
+  padding: 0 6px 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
 }
 .results-tab {
   display: inline-flex;
@@ -1163,17 +1185,19 @@ body.is-col-resizing {
   min-height: 0;
   background: var(--panel);
 }
+/* Right column's segment of the 44px header rail (see .panel-header). */
 .agent-tabbar {
-  height: 38px;
+  height: 44px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 0 8px;
+  background: var(--titlebar);
   border-bottom: 1px solid var(--border);
 }
 .agent-tab {
-  height: 38px;
+  height: 44px;
   padding: 0 12px;
   border: none;
   background: transparent;
@@ -1192,6 +1216,25 @@ body.is-col-resizing {
 }
 .agent-tabbar__spacer {
   flex: 1;
+}
+/* Titled cap strip naming a panel's content and its target, e.g.
+   "KNOWLEDGE · wcap_dev / wcap". */
+.panel-cap {
+  flex: 0 0 auto;
+  height: 27px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  background: var(--titlebar);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .files-panel {
   flex: 1;
@@ -2185,11 +2228,12 @@ body.is-col-resizing {
   background: transparent;
 }
 .chat__target-bar {
+  height: var(--rail2-h);
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--border);
 }
 .chat__target {

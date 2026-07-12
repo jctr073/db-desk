@@ -24,22 +24,6 @@ import type { ConnectionState } from './useConnectionState'
 const ROW_HEIGHT = 24 // compact
 const SHOW_STATUS_DOTS = true
 
-/** Categories fall through with no prefix, so the footer shows just their label. */
-const KIND_NAMES: Partial<Record<NodeKind, string>> = {
-  connection: 'Connection',
-  database: 'Database',
-  schema: 'Schema',
-  table: 'Table',
-  view: 'View',
-  matview: 'Materialized View',
-  index: 'Index',
-  function: 'Function',
-  sequence: 'Sequence',
-  type: 'Data Type',
-  aggregate: 'Aggregate',
-  column: 'Column'
-}
-
 interface ConnectionPanelProps {
   state: ConnectionState
   onNewQueryFile?: (connId: string, database: string) => void
@@ -54,8 +38,6 @@ interface ConnectionPanelProps {
   ) => void
   /** Ids of nodes that have local knowledge attached (dot badge). */
   knowledgeIds?: Set<string>
-  /** Report the selected node + object count up to the app status bar. */
-  onStatus?: (sel: string, count: string) => void
 }
 
 /** Tree kinds that can ride along to the agent thread as context chips. */
@@ -106,8 +88,7 @@ export function ConnectionPanel({
   onNewQueryFile,
   onAddToAgentThread,
   onKnowledgeAction,
-  knowledgeIds,
-  onStatus
+  knowledgeIds
 }: ConnectionPanelProps): ReactElement {
   const rows = useMemo(
     () => flattenTree(state.tree, { expanded: state.expanded, filter: state.filter }),
@@ -147,19 +128,6 @@ export function ConnectionPanel({
       nodeKind: node.kind as MenuKind
     })
   }
-
-  let selText = 'No selection'
-  if (state.selectedNode) {
-    const kindName = KIND_NAMES[state.selectedNode.kind]
-    selText = kindName
-      ? `${kindName}  ·  ${state.selectedNode.label}`
-      : state.selectedNode.label
-  }
-  const rowCountText = `${rows.length} ${rows.length === 1 ? 'item' : 'items'}`
-
-  useEffect(() => {
-    onStatus?.(selText, rowCountText)
-  }, [selText, rowCountText, onStatus])
 
   return (
     <section className="conn-panel">

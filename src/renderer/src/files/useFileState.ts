@@ -17,6 +17,7 @@ export interface FileState {
   selectFile: (id: string) => void
   createFile: (connId: string | null, database: string | null) => void
   saveFile: (id: string, content: string) => void
+  renameFile: (id: string, name: string) => Promise<boolean>
   deleteFile: (id: string) => void
   clearLoadError: () => void
 }
@@ -66,6 +67,19 @@ export function useFileState(): FileState {
     }
   }, [])
 
+  const renameFile = useCallback(async (id: string, name: string) => {
+    try {
+      const renamed = await window.dbDesk.files.rename(id, name)
+      setFiles((prev) => prev.map((file) => (file.id === id ? renamed : file)))
+      return true
+    } catch (error) {
+      setLoadError(
+        `Failed to rename file: ${error instanceof Error ? error.message : String(error)}`
+      )
+      return false
+    }
+  }, [])
+
   const deleteFile = useCallback(async (id: string) => {
     try {
       await window.dbDesk.files.delete(id)
@@ -90,6 +104,7 @@ export function useFileState(): FileState {
     selectFile,
     createFile,
     saveFile,
+    renameFile,
     deleteFile,
     clearLoadError
   }

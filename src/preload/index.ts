@@ -84,6 +84,17 @@ const api = Object.freeze({
     read: (id: string): Promise<string> => ipcRenderer.invoke('files:read', id),
     save: (id: string, content: string): Promise<void> =>
       ipcRenderer.invoke('files:save', id, content),
+    rename: (
+      id: string,
+      name: string
+    ): Promise<{
+      id: string
+      name: string
+      connId: string | null
+      database: string | null
+      createdAt: number
+      updatedAt: number
+    }> => ipcRenderer.invoke('files:rename', id, name),
     delete: (id: string): Promise<void> =>
       ipcRenderer.invoke('files:delete', id),
     getNextName: (

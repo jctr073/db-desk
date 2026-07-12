@@ -208,6 +208,9 @@ export function KnowledgePanel({
   }
 
   const noTarget = !state.connId || !state.database
+  const capTarget = targets.find(
+    (t) => knowledgeTargetKeyOf(t.connId, t.database) === targetKey
+  )
 
   return (
     <div className="knowledge">
@@ -244,6 +247,12 @@ export function KnowledgePanel({
           New
         </button>
       </div>
+
+      {capTarget && (
+        <div className="panel-cap">
+          KNOWLEDGE · {capTarget.connName} / {capTarget.database}
+        </div>
+      )}
 
       {state.loadError && (
         <div className="load-error" role="alert">
