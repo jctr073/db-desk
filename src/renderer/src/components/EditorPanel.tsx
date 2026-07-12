@@ -21,10 +21,12 @@ import {
   PlayIcon,
   PlusThinIcon,
   SaveIcon,
+  SparkleIcon,
   SqlFileIcon,
   CloseIcon
 } from './icons'
 import { ResultsPanel } from './ResultsPanel'
+import { SaveExemplarDialog } from './SaveExemplarDialog'
 import { SqlEditor } from './SqlEditor'
 import type { QueryRunner, QueryTarget } from './useQueryRunner'
 import type { EditorBridge } from './editorBridge'
@@ -75,6 +77,8 @@ export function EditorPanel({
   const [dirtyIds, setDirtyIds] = useState<ReadonlySet<string>>(new Set())
   /** Which toolbar popover is open: the connection target or the kebab. */
   const [menu, setMenu] = useState<'target' | 'actions' | null>(null)
+  /** Captured SQL for the "Save as exemplar" dialog; null = closed. */
+  const [exemplarSql, setExemplarSql] = useState<string | null>(null)
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const splitRef = useRef<HTMLDivElement | null>(null)
   const targetBtnRef = useRef<HTMLButtonElement | null>(null)
@@ -204,6 +208,24 @@ export function EditorPanel({
   useEffect(() => {
     runRef.current = runCurrent
   })
+
+  /** Capture the query at the cursor (or selection, or whole buffer) to save. */
+  const openExemplar = useCallback(() => {
+    const ed = editorRef.current
+    const model = ed?.getModel()
+    if (!ed || !model) return
+    const selection = ed.getSelection()
+    let sql: string | null
+    if (selection && !selection.isEmpty()) {
+      sql = model.getValueInRange(selection)
+    } else {
+      const position = ed.getPosition()
+      const offset = position ? model.getOffsetAt(position) : 0
+      sql = statementAtOffset(model.getValue(), offset)?.text ?? null
+    }
+    if (!sql?.trim()) sql = model.getValue()
+    setExemplarSql(sql.trim())
+  }, [])
 
   const saveFileById = useCallback(
     (id: string | null) => {
@@ -487,8 +509,35 @@ export function EditorPanel({
               <span>Save file</span>
               <span className="toolbar-menu__kbd">⌘S</span>
             </button>
+            <button
+              className="toolbar-menu__item"
+              type="button"
+              role="menuitem"
+              disabled={!target}
+              title={
+                target
+                  ? 'Save the current query as a reusable exemplar'
+                  : 'Connect to a database to save an exemplar'
+              }
+              onClick={() => {
+                setMenu(null)
+                openExemplar()
+              }}
+            >
+              <SparkleIcon />
+              <span>Save as exemplar…</span>
+            </button>
           </div>
         </>
+      )}
+      {exemplarSql !== null && target && (
+        <SaveExemplarDialog
+          connId={target.connId}
+          database={target.database}
+          targetLabel={`${target.connName} / ${target.database}`}
+          initialSql={exemplarSql}
+          onClose={() => setExemplarSql(null)}
+        />
       )}
       <div className="editor-split" ref={splitRef}>
         <div className="editor-host">

@@ -11,6 +11,7 @@ import {
 } from './db'
 import { registerAgentHandlers } from './agent'
 import { registerMcpHandlers, stopAllMcpServers } from './mcp'
+import { clearRepoRoot, registerRepoHandlers } from './repo'
 import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
 import {
   listQueries,
@@ -21,7 +22,15 @@ import {
   getNextQueryName,
   deleteQueriesForConnection
 } from './files'
+import {
+  listRecords,
+  saveRecord,
+  deleteRecord,
+  deleteForConnection as deleteKnowledgeForConnection
+} from './knowledge'
+import { extractExemplarReferences } from './exemplar'
 import type { ConnectParams } from '../shared/db'
+import type { KnowledgeRecordInput } from '../shared/knowledge'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -119,7 +128,12 @@ function registerDbHandlers(): void {
       savePassword: boolean
     ) => saveConnection(id, name, params, savePassword)
   )
-  ipcMain.handle('store:delete', (_event, id: string) => deleteSaved(id))
+  ipcMain.handle('store:delete', (_event, id: string) => {
+    // A deleted connection's repo attachment has nothing to hang off; drop it
+    // with the profile (mirrors how the renderer clears queries/knowledge).
+    clearRepoRoot(id)
+    return deleteSaved(id)
+  })
 }
 
 function registerFileHandlers(): void {
@@ -144,11 +158,72 @@ function registerFileHandlers(): void {
   )
 }
 
+function registerKnowledgeHandlers(getWindow: () => BrowserWindow | null): void {
+  const broadcast = (connId: string, database: string): void => {
+    const win = getWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('knowledge:changed', { connId, database })
+    }
+  }
+
+  ipcMain.handle('knowledge:list', (_event, connId: string, database: string) =>
+    listRecords(connId, database)
+  )
+  ipcMain.handle(
+    'knowledge:save',
+    (
+      _event,
+      connId: string,
+      database: string,
+      record: KnowledgeRecordInput
+    ) => {
+      const saved = saveRecord(connId, database, record)
+      broadcast(connId, database)
+      return saved
+    }
+  )
+  ipcMain.handle(
+    'knowledge:saveExemplar',
+    async (
+      _event,
+      connId: string,
+      database: string,
+      question: string,
+      sql: string
+    ) => {
+      // Reference extraction happens once, here at save time (never at click
+      // time): the LLM path when a key is available, else text matching.
+      const references = await extractExemplarReferences(connId, database, sql)
+      const saved = saveRecord(connId, database, {
+        kind: 'exemplar',
+        source: 'human',
+        question,
+        sql,
+        references
+      })
+      broadcast(connId, database)
+      return saved
+    }
+  )
+  ipcMain.handle(
+    'knowledge:delete',
+    (_event, connId: string, database: string, id: string) => {
+      deleteRecord(connId, database, id)
+      broadcast(connId, database)
+    }
+  )
+  ipcMain.handle('knowledge:deleteForConnection', (_event, connId: string) =>
+    deleteKnowledgeForConnection(connId)
+  )
+}
+
 app.whenReady().then(() => {
   registerDbHandlers()
   registerFileHandlers()
+  registerKnowledgeHandlers(() => mainWindow)
   registerAgentHandlers(() => mainWindow)
   registerMcpHandlers(() => mainWindow)
+  registerRepoHandlers(() => mainWindow)
   createWindow()
 
   app.on('activate', () => {

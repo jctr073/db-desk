@@ -3,6 +3,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement } f
 
 import { agentContextKey } from '../../shared/agent'
 import type { AgentContextItem } from '../../shared/agent'
+import type { ColumnRef } from '../../shared/knowledge'
 import { AgentPanel } from './components/AgentPanel'
 import { EditorPanel } from './components/EditorPanel'
 import { StatusBar } from './components/StatusBar'
@@ -14,6 +15,13 @@ import { NewConnectionDialog } from './connections/NewConnectionDialog'
 import { useConnectionState } from './connections/useConnectionState'
 import { useTheme } from './theme'
 import { useFileState } from './files/useFileState'
+import { knowledgeBadgeIds } from './knowledge/treeBadges'
+import {
+  knowledgeTargetKeyOf,
+  useKnowledgeIndexes,
+  useKnowledgeState
+} from './knowledge/useKnowledgeState'
+import type { KnowledgeNav } from './knowledge/useKnowledgeState'
 
 const CONN_MIN = 200
 const CONN_MAX = 560
@@ -132,6 +140,71 @@ export function App(): ReactElement {
     return out
   }, [connections.tree])
 
+  // Which (connection, database) the knowledge tab looks at. Owned here so
+  // the connections tree can show knowledge badges for the same target.
+  const [knTargetKey, setKnTargetKey] = useState<string | null>(null)
+  useEffect(() => {
+    if (
+      knTargetKey &&
+      targets.some((t) => knowledgeTargetKeyOf(t.connId, t.database) === knTargetKey)
+    ) {
+      return
+    }
+    const fallback = targets.find((t) => t.primary) ?? targets[0]
+    setKnTargetKey(
+      fallback ? knowledgeTargetKeyOf(fallback.connId, fallback.database) : null
+    )
+  }, [targets, knTargetKey])
+  const knTarget =
+    targets.find(
+      (t) => knowledgeTargetKeyOf(t.connId, t.database) === knTargetKey
+    ) ?? null
+
+  const knowledge = useKnowledgeState(
+    knTarget?.connId ?? null,
+    knTarget?.database ?? null
+  )
+
+  // "Show usages" / "Add annotation…" requests routed from the schema tree.
+  // A one-shot: KnowledgePanel clears it once consumed (via onNavConsumed) so a
+  // tab switch away and back can't replay the last action.
+  const [knowledgeNav, setKnowledgeNav] = useState<KnowledgeNav | null>(null)
+  const knNavSeq = useRef(0)
+  const onKnowledgeAction = useCallback(
+    (
+      action: 'usages' | 'annotate',
+      connId: string,
+      database: string,
+      ref: ColumnRef
+    ) => {
+      setKnTargetKey(knowledgeTargetKeyOf(connId, database))
+      setKnowledgeNav({ seq: ++knNavSeq.current, action, connId, database, ref })
+    },
+    []
+  )
+  const clearKnowledgeNav = useCallback(() => setKnowledgeNav(null), [])
+
+  // Live usage indexes for every connected database, so the tree badges
+  // knowledge across all of them (not just the tab's current target).
+  const knowledgeTargets = useMemo(
+    () => targets.map((t) => ({ connId: t.connId, database: t.database })),
+    [targets]
+  )
+  const knowledgeIndexes = useKnowledgeIndexes(knowledgeTargets)
+
+  /** Tree nodes with knowledge attached, for the dot badges (O(1) per node). */
+  const knowledgeIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const t of targets) {
+      const index = knowledgeIndexes.get(knowledgeTargetKeyOf(t.connId, t.database))
+      if (!index) continue
+      for (const id of knowledgeBadgeIds(connections.tree, t.connId, t.database, index)) {
+        ids.add(id)
+      }
+    }
+    return ids
+  }, [connections.tree, targets, knowledgeIndexes])
+
   const rootId = connections.selected?.split('/')[0]
   const activeConn = rootId
     ? connections.tree.find((node) => node.id === rootId)
@@ -163,6 +236,8 @@ export function App(): ReactElement {
             files.createFile(connId, database)
           }}
           onAddToAgentThread={addAgentContext}
+          onKnowledgeAction={onKnowledgeAction}
+          knowledgeIds={knowledgeIds}
           onStatus={onConnStatus}
         />
         <div
@@ -198,6 +273,11 @@ export function App(): ReactElement {
           onRemoveContext={removeAgentContext}
           schemas={connections.schemas}
           ensureSchema={connections.ensureSchema}
+          knowledge={knowledge}
+          knowledgeTargetKey={knTargetKey}
+          onKnowledgeTargetChange={setKnTargetKey}
+          knowledgeNav={knowledgeNav}
+          onKnowledgeNavConsumed={clearKnowledgeNav}
         />
       </div>
       <StatusBar

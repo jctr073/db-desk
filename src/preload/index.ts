@@ -17,6 +17,8 @@ import type {
   TestResult
 } from '../shared/db'
 import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
+import type { KnowledgeRecord, KnowledgeRecordInput } from '../shared/knowledge'
+import type { RepoStatus } from '../shared/repo'
 
 const api = Object.freeze({
   appName: 'DB Desk',
@@ -113,6 +115,52 @@ const api = Object.freeze({
         ipcRenderer.removeListener('mcp:changed', listener)
       }
     }
+  }),
+  knowledge: Object.freeze({
+    list: (connId: string, database: string): Promise<KnowledgeRecord[]> =>
+      ipcRenderer.invoke('knowledge:list', connId, database),
+    save: (
+      connId: string,
+      database: string,
+      record: KnowledgeRecordInput
+    ): Promise<KnowledgeRecord> =>
+      ipcRenderer.invoke('knowledge:save', connId, database, record),
+    /**
+     * Save a question→SQL exemplar; the main process extracts the SQL's
+     * structured references at save time so it participates in usage lookups.
+     */
+    saveExemplar: (
+      connId: string,
+      database: string,
+      question: string,
+      sql: string
+    ): Promise<KnowledgeRecord> =>
+      ipcRenderer.invoke('knowledge:saveExemplar', connId, database, question, sql),
+    remove: (connId: string, database: string, id: string): Promise<void> =>
+      ipcRenderer.invoke('knowledge:delete', connId, database, id),
+    deleteForConnection: (connId: string): Promise<void> =>
+      ipcRenderer.invoke('knowledge:deleteForConnection', connId),
+    /** Subscribe to knowledge-change pushes; returns an unsubscribe function. */
+    onChanged: (
+      callback: (change: { connId: string; database: string }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        change: { connId: string; database: string }
+      ): void => callback(change)
+      ipcRenderer.on('knowledge:changed', listener)
+      return () => {
+        ipcRenderer.removeListener('knowledge:changed', listener)
+      }
+    }
+  }),
+  repo: Object.freeze({
+    get: (connId: string): Promise<RepoStatus> =>
+      ipcRenderer.invoke('repo:get', connId),
+    choose: (connId: string): Promise<RepoStatus> =>
+      ipcRenderer.invoke('repo:choose', connId),
+    clear: (connId: string): Promise<RepoStatus> =>
+      ipcRenderer.invoke('repo:clear', connId)
   }),
   agent: Object.freeze({
     keyStatus: (): Promise<AgentKeyStatus> =>

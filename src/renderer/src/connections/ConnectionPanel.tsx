@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import type { MouseEvent, ReactElement } from 'react'
 
 import type { AgentContextItem } from '../../../shared/agent'
+import type { ColumnRef } from '../../../shared/knowledge'
+import { formatRef } from '../knowledge/format'
+import { treeNodeRef } from '../knowledge/treeBadges'
 import {
   ChevronUpIcon,
   CloseIcon,
@@ -42,6 +45,15 @@ interface ConnectionPanelProps {
   onNewQueryFile?: (connId: string, database: string) => void
   /** Attach a schema/table/view to the AI agent thread as a context chip. */
   onAddToAgentThread?: (item: AgentContextItem) => void
+  /** "Show usages" / "Add annotation…" on a table or column node. */
+  onKnowledgeAction?: (
+    action: 'usages' | 'annotate',
+    connId: string,
+    database: string,
+    ref: ColumnRef
+  ) => void
+  /** Ids of nodes that have local knowledge attached (dot badge). */
+  knowledgeIds?: Set<string>
   /** Report the selected node + object count up to the app status bar. */
   onStatus?: (sel: string, count: string) => void
 }
@@ -49,7 +61,17 @@ interface ConnectionPanelProps {
 /** Tree kinds that can ride along to the agent thread as context chips. */
 const AGENT_CONTEXT_KINDS = new Set<NodeKind>(['schema', 'table', 'view', 'matview'])
 
-type MenuKind = 'connection' | 'database' | 'schema' | 'table' | 'view' | 'matview'
+/** Tree kinds the knowledge actions (usages/annotation) apply to. */
+const KNOWLEDGE_KINDS = new Set<NodeKind>(['table', 'view', 'matview', 'column'])
+
+type MenuKind =
+  | 'connection'
+  | 'database'
+  | 'schema'
+  | 'table'
+  | 'view'
+  | 'matview'
+  | 'column'
 
 interface MenuState {
   x: number
@@ -83,6 +105,8 @@ export function ConnectionPanel({
   state,
   onNewQueryFile,
   onAddToAgentThread,
+  onKnowledgeAction,
+  knowledgeIds,
   onStatus
 }: ConnectionPanelProps): ReactElement {
   const rows = useMemo(
@@ -93,6 +117,10 @@ export function ConnectionPanel({
   const [menu, setMenu] = useState<MenuState | null>(null)
   const menuNode = menu ? findNode(menu.nodeId, state.tree) : null
   const menuContextItem = menuNode ? contextItemFor(menuNode) : null
+  const menuRef =
+    menuNode && KNOWLEDGE_KINDS.has(menuNode.kind)
+      ? treeNodeRef(menuNode, state.tree)
+      : null
 
   useEffect(() => {
     if (!menu) return
@@ -107,6 +135,7 @@ export function ConnectionPanel({
     const isMenuKind =
       node.kind === 'connection' ||
       node.kind === 'database' ||
+      node.kind === 'column' ||
       AGENT_CONTEXT_KINDS.has(node.kind)
     if (!isMenuKind) return
     event.preventDefault()
@@ -200,6 +229,7 @@ export function ConnectionPanel({
             mode={state.mode}
             rowHeight={ROW_HEIGHT}
             showStatusDots={SHOW_STATUS_DOTS}
+            knowledgeIds={knowledgeIds}
             onRowClick={state.toggleRow}
             onRowContextMenu={onRowContextMenu}
           />
@@ -248,6 +278,53 @@ export function ConnectionPanel({
                 >
                   Copy name
                 </button>
+              </>
+            )}
+            {menuRef && (
+              <>
+                {menuContextItem && <div className="ctx-menu__sep" />}
+                <button
+                  className="ctx-menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    onKnowledgeAction?.(
+                      'usages',
+                      menuRef.connId,
+                      menuRef.database,
+                      menuRef.ref
+                    )
+                    setMenu(null)
+                  }}
+                >
+                  Show usages
+                </button>
+                <button
+                  className="ctx-menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    onKnowledgeAction?.(
+                      'annotate',
+                      menuRef.connId,
+                      menuRef.database,
+                      menuRef.ref
+                    )
+                    setMenu(null)
+                  }}
+                >
+                  Add annotation…
+                </button>
+                {menu.nodeKind === 'column' && (
+                  <button
+                    className="ctx-menu__item"
+                    role="menuitem"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(formatRef(menuRef.ref))
+                      setMenu(null)
+                    }}
+                  >
+                    Copy name
+                  </button>
+                )}
               </>
             )}
             {menu.nodeKind === 'database' && (

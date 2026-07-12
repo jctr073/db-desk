@@ -112,6 +112,53 @@ right-hand panel's **SQL Files** tab lists all saved files grouped by their
 owning connection and database. The window title and chrome use the native OS
 title bar, and the light/dark theme toggle lives in the bottom status bar.
 
+The right-hand panel's **Knowledge** tab is a local knowledge store for
+whatever the schema alone can't say: column/table annotations, join
+relationships (including polymorphic joins — a discriminator column mapping
+to different target tables per value), a business glossary of terms and
+synonyms, exemplar question→SQL pairs, and free-form notes. Records are
+plain, pretty-printed JSON, one file per (connection, database) under
+`<userData>/knowledge/<connId>/<databaseSlug>.json` — not a database, holds
+no secrets, and is safe to read, diff, or check into a team's own repo. The AI agent
+reads this store two ways: a `## Local knowledge` section is rendered into
+its system prompt (relationships first, since join rules are highest-stakes,
+then glossary, annotations, and exemplars, degrading gracefully under a char
+budget on large stores) and a `search_knowledge` tool lets it look up specific
+terms, joins, or annotations on demand. It also writes to the store: a
+`save_knowledge` tool lets the agent record a durable fact stated mid-chat
+(e.g. "that column is actually the admission date") so it survives a chat
+reset instead of being lost; agent-written records are tagged with a
+`source: agent` badge and a confidence level in the Knowledge tab and remain
+fully editable and deletable like any human-authored record. Both tools touch
+only the local store, never the database, so they work in every access mode,
+including Metadata Only. In the schema tree, a right-click on a table or
+column offers **Show usages** (everything in the knowledge store that
+references it, grouped by kind) and **Add annotation…**, and nodes with any
+knowledge attached show a small dot badge. Queries can be captured as
+exemplars too — a **Save as exemplar…** action on the editor toolbar and on
+SQL code blocks in agent replies opens a dialog to pair the query with a
+question; on save, the columns and tables it touches are extracted (via a
+quick one-shot LLM call, falling back to matching identifiers against the
+live schema if that's unavailable) so the exemplar shows up under "Show
+usages" for the columns it queries.
+
+A codebase can be attached to a connection so the agent can cross-reference
+the app's source alongside the schema. **Attach codebase…** in the agent
+composer opens a native directory picker; the chosen root (and HEAD's short
+commit SHA, when it's a git checkout) is stored main-side, keyed by
+connection id — the renderer never has the filesystem path, only a status.
+Once attached, three read-only tools (`list_repo_files`, `grep_repo`,
+`read_repo_file`) are sandboxed to that root: paths must resolve lexically
+inside it, symlinks are never followed, conventional secret files (`.env*`,
+private keys, `.npmrc`, …) are invisible to all three, and every primitive is
+capped (visits, results, matches, file size) so a monorepo can't wedge the
+main process. A **Scan codebase** action sends a canned prompt that walks the
+agent through migrations, ORM models, query/repository code, and docs, saving
+what it learns to the local knowledge store (verified against the live
+schema first) with provenance like `db/migrate/20240301_add_status.rb@abc1234`.
+The attachment is on by default per chat once set and can be toggled off,
+detached, or repointed to a different directory from the composer.
+
 ## Setup
 
 ```bash
@@ -166,14 +213,19 @@ src/
       databricks.ts      # Databricks SQL warehouse driver: introspection + query execution
     store.ts             # saved-connection persistence (safeStorage-encrypted)
     files.ts             # query-file persistence (.sql files + metadata.json)
+    knowledge.ts         # local knowledge store: CRUD + validation over userData/knowledge/
+    exemplar.ts          # exemplar reference extraction (LLM, with identifier-matching fallback)
+    repo.ts              # codebase attachment: sandboxed list/grep/read over a per-connection repo root
     agent.ts             # Anthropic agent loop: key loading, schema summary, streaming tool use
   preload/
-    index.ts             # typed window.dbDesk bridge (db + store + files + agent)
+    index.ts             # typed window.dbDesk bridge (db + store + files + agent + repo)
   shared/
     db.ts                # wire types shared by main, preload, and renderer
     dialect.ts           # per-engine registry: form layout, defaults, agent SQL rules, EXPLAIN syntax
     sql.ts               # statement splitting + auto-LIMIT lexer (main + renderer)
     agent.ts             # AI agent wire types + model/effort catalog
+    knowledge.ts         # knowledge record types + column-key normalization + usage index
+    repo.ts              # codebase attachment wire types + the "Scan codebase" canned prompt
   renderer/
     index.html
     src/
@@ -184,15 +236,23 @@ src/
       components/
         StatusBar.tsx      # bottom bar: theme toggle
         EditorPanel.tsx    # tab bar, target/limit toolbar, editor + results split
-        AgentPanel.tsx     # right pane: SQL Files list + AI Agent chat (model/effort picker, prompt-to-SQL)
+        AgentPanel.tsx     # right pane: SQL Files list + AI Agent chat + Knowledge tab
         FilesPanel.tsx     # saved query files grouped by connection/database
         SqlEditor.tsx
         ResultsPanel.tsx   # result tabs (live + pinned), grid, status bar
+        SaveExemplarDialog.tsx # "Save as exemplar…" from the editor or an agent SQL reply
         useQueryRunner.ts  # result-tab state machine + query dispatch
         editorBridge.ts    # imperative handle (active SQL + insert-at-cursor) used by the AI Agent
         icons.tsx          # shared UI icons
       files/
         useFileState.ts    # query-file list/select/create/save/delete state
+      knowledge/
+        useKnowledgeState.ts  # live records + usage index for the active (connection, database)
+        KnowledgePanel.tsx    # record list/filters, "Show usages" view, new-record menu
+        RecordEditor.tsx      # kind-specific forms (annotation/relationship/glossary/exemplar/note)
+        RefInput.tsx          # schema/table/column ref picker used by the forms
+        format.ts             # record titles/summaries, search text, dangling-ref checks
+        treeBadges.ts         # which schema-tree nodes get the "has knowledge" dot badge
       connections/
         types.ts
         treeData.ts        # tree construction from introspection results
