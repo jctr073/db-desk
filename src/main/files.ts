@@ -155,6 +155,44 @@ export function updateQueryMetadata(
   return file
 }
 
+export function renameQuery(id: string, requestedName: string): QueryFile {
+  const name = requestedName.trim()
+  if (!name) throw new Error('File name cannot be empty')
+  const hasControlCharacter = [...name].some((char) => char.charCodeAt(0) < 32)
+  if (
+    name === '.' ||
+    name === '..' ||
+    /[\\/]/.test(name) ||
+    hasControlCharacter
+  ) {
+    throw new Error('File name cannot contain slashes or control characters')
+  }
+
+  const normalizedName = /\.sql$/i.test(name) ? name : `${name}.sql`
+  if (normalizedName.length > 255) {
+    throw new Error('File name must be 255 characters or fewer')
+  }
+
+  const metadata = loadMetadata()
+  const file = metadata.find((candidate) => candidate.id === id)
+  if (!file) throw new Error(`Query file not found: ${id}`)
+
+  const duplicate = metadata.some(
+    (candidate) =>
+      candidate.id !== id &&
+      candidate.connId === file.connId &&
+      candidate.database === file.database &&
+      candidate.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase()
+  )
+  if (duplicate) {
+    throw new Error(
+      `A file named ${normalizedName} already exists in this tab group`
+    )
+  }
+
+  return updateQueryMetadata(id, normalizedName)
+}
+
 export function deleteQuery(id: string): void {
   ensureDir()
   const metadata = loadMetadata()

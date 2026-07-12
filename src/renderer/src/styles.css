@@ -544,6 +544,17 @@ textarea {
 .editor-tab:hover {
   color: var(--text);
 }
+.editor-tab__rename {
+  width: 120px;
+  height: 21px;
+  padding: 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+  background: var(--panel-hi);
+  color: var(--text);
+  font: inherit;
+}
 .editor-tabbar__new {
   align-self: flex-end;
   margin-bottom: 4px;

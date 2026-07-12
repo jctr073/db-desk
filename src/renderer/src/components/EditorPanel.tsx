@@ -2,6 +2,7 @@ import type { OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
+  MouseEvent as ReactMouseEvent,
   MutableRefObject,
   PointerEvent as ReactPointerEvent,
   ReactElement
@@ -66,6 +67,12 @@ interface FileGroup {
   files: QueryFile[]
 }
 
+interface TabMenu {
+  fileId: string
+  x: number
+  y: number
+}
+
 function groupKeyOf(connId: string | null, database: string | null): string {
   return `${connId ?? ''}\u0000${database ?? ''}`
 }
@@ -114,11 +121,16 @@ export function EditorPanel({
   const [resultsPct, setResultsPct] = useState(50)
   const [dirtyIds, setDirtyIds] = useState<ReadonlySet<string>>(new Set())
   const [actionsOpen, setActionsOpen] = useState(false)
+  const [tabMenu, setTabMenu] = useState<TabMenu | null>(null)
+  const [renamingFileId, setRenamingFileId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   /** Captured SQL for the "Save as exemplar" dialog; null = closed. */
   const [exemplarSql, setExemplarSql] = useState<string | null>(null)
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const splitRef = useRef<HTMLDivElement | null>(null)
   const actionsBtnRef = useRef<HTMLButtonElement | null>(null)
+  const renameInputRef = useRef<HTMLInputElement | null>(null)
+  const cancelRenameRef = useRef(false)
 
   // Per-file buffers so switching tabs preserves unsaved edits.
   const buffersRef = useRef(new Map<string, string>())
@@ -256,6 +268,25 @@ export function EditorPanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [actionsOpen])
 
+  useEffect(() => {
+    if (!tabMenu) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setTabMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [tabMenu])
+
+  useEffect(() => {
+    const input = renameInputRef.current
+    if (!renamingFileId || !input) return
+    input.focus()
+    const extensionStart = input.value.toLocaleLowerCase().endsWith('.sql')
+      ? input.value.length - 4
+      : input.value.length
+    input.setSelectionRange(0, extensionStart)
+  }, [renamingFileId])
+
   // Completion reads the active target's schema through this ref so the
   // provider (registered once) always sees the latest introspection.
   const activeSchema = target
@@ -378,6 +409,34 @@ export function EditorPanel({
     [files.deleteFile]
   )
 
+  const openTabMenu = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>, file: QueryFile) => {
+      event.preventDefault()
+      files.selectFile(file.id)
+      setTabMenu({ fileId: file.id, x: event.clientX, y: event.clientY })
+    },
+    [files.selectFile]
+  )
+
+  const startRename = useCallback((file: QueryFile) => {
+    setTabMenu(null)
+    cancelRenameRef.current = false
+    setRenameDraft(file.name)
+    setRenamingFileId(file.id)
+  }, [])
+
+  const commitRename = useCallback(() => {
+    if (cancelRenameRef.current) {
+      cancelRenameRef.current = false
+      return
+    }
+    if (!renamingFileId) return
+    const id = renamingFileId
+    const name = renameDraft
+    setRenamingFileId(null)
+    void files.renameFile(id, name)
+  }, [files.renameFile, renameDraft, renamingFileId])
+
   const startResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
     const host = splitRef.current
@@ -480,10 +539,33 @@ export function EditorPanel({
             key={file.id}
             className={`editor-tab${files.selectedFileId === file.id ? ' is-active' : ''}`}
             onClick={() => files.selectFile(file.id)}
+            onContextMenu={(event) => openTabMenu(event, file)}
             title={`${file.name} · ${file.connId ?? 'no connection'}/${file.database || '(connection level)'}`}
           >
             <SqlFileIcon />
-            {file.name}
+            {renamingFileId === file.id ? (
+              <input
+                ref={renameInputRef}
+                className="editor-tab__rename"
+                value={renameDraft}
+                aria-label={`Rename ${file.name}`}
+                onChange={(event) => setRenameDraft(event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                onBlur={commitRename}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    commitRename()
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault()
+                    cancelRenameRef.current = true
+                    setRenamingFileId(null)
+                  }
+                }}
+              />
+            ) : (
+              file.name
+            )}
             {dirtyIds.has(file.id) && (
               <span className="editor-tab__dot" title="Unsaved changes" />
             )}
@@ -522,6 +604,50 @@ export function EditorPanel({
           <span className="file-tabbar__hint">{activeTabHint}</span>
         )}
       </div>
+      {files.loadError && (
+        <div className="load-error" role="alert">
+          <span className="load-error__text">{files.loadError}</span>
+          <button
+            className="load-error__close"
+            onClick={files.clearLoadError}
+            title="Dismiss"
+            type="button"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+      )}
+      {tabMenu && (
+        <div
+          className="ctx-overlay"
+          onMouseDown={() => setTabMenu(null)}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setTabMenu(null)
+          }}
+        >
+          <div
+            className="ctx-menu"
+            role="menu"
+            style={{ left: tabMenu.x, top: tabMenu.y }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              className="ctx-menu__item"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const file = files.files.find(
+                  (candidate) => candidate.id === tabMenu.fileId
+                )
+                if (file) startRename(file)
+              }}
+            >
+              Rename…
+            </button>
+          </div>
+        </div>
+      )}
       {actionsOpen && actionsBtnRef.current && (
         <>
           <div className="ctx-overlay" onClick={() => setActionsOpen(false)} />
