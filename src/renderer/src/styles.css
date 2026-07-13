@@ -1628,6 +1628,12 @@ body.is-grid-col-resizing {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
 }
+.text-input--error {
+  border-color: var(--red);
+}
+.text-input--error:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 20%, transparent);
+}
 
 .dtabs {
   display: flex;

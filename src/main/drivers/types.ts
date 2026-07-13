@@ -37,10 +37,18 @@ export interface Driver {
   disconnectAll(): Promise<void>
   /** Server version captured at connect time; null when the connection is gone. */
   getServerVersion(connId: string): string | null
+  /**
+   * The `database` argument names which database to act against. On
+   * multi-database engines (Databricks) it selects the catalog; on
+   * single-database engines (PostgreSQL) the connection is pinned to one
+   * database, so any name other than that pinned database is rejected. An
+   * empty string means the connection's own/pinned database.
+   */
   introspectDatabase(
     connId: string,
     database: string
   ): Promise<DbResult<DatabaseIntrospection>>
+  /** See introspectDatabase for how `database` is interpreted per engine. */
   runQuery(
     connId: string,
     database: string,
@@ -48,13 +56,19 @@ export interface Driver {
     limit: number | null,
     options?: RunQueryOptions
   ): Promise<DbResult<QueryResult>>
-  /** Full detail for one relation, as plain text for the agent. */
+  /**
+   * Full detail for one relation, as plain text for the agent. See
+   * introspectDatabase for how `database` is interpreted per engine.
+   */
   describeTable(
     connId: string,
     database: string,
     relationName: string
   ): Promise<DbResult<string>>
-  /** Case-insensitive name search over relations/columns/functions, as text. */
+  /**
+   * Case-insensitive name search over relations/columns/functions, as text.
+   * See introspectDatabase for how `database` is interpreted per engine.
+   */
   searchSchema(
     connId: string,
     database: string,

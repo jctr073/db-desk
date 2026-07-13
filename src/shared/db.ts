@@ -81,7 +81,11 @@ export interface ConnectResult {
   serverVersion: string
   /** Database the connection was opened against (fully introspected). */
   connectedDatabase: DatabaseIntrospection
-  /** Every connectable, non-template database on the server. */
+  /**
+   * Databases this connection can reach. Multi-database engines (Databricks)
+   * list every catalog; single-database engines (PostgreSQL) are pinned to
+   * the one they connected to, so this is exactly [connectedDatabase.name].
+   */
   databases: string[]
 }
 

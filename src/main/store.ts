@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { normalizeConnectionUrl } from '../shared/connectionUrl'
 import type { ConnectionType } from '../shared/dialect'
 import type { ConnectParams, SavedConnection } from '../shared/db'
+import { wipeAll as wipeKnowledge } from './knowledge'
 
 /**
  * On-disk shape of a saved connection. `secret` is the password (or access
@@ -28,20 +29,71 @@ interface StoredRecord {
   secret?: string
 }
 
+/**
+ * On-disk file format, versioned since the fresh-start reset below (v2).
+ * `version` is checked exactly (not `>=`), so a future v3 migration has an
+ * unambiguous "this is still v2" signal to key off of.
+ */
+interface StoredFile {
+  version: number
+  connections: StoredRecord[]
+}
+
+const STORE_VERSION = 2
+
 let cache: StoredRecord[] | null = null
 
 function storePath(): string {
   return join(app.getPath('userData'), 'connections.json')
 }
 
+function isStoredFile(value: unknown): value is StoredFile {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    (value as StoredFile).version === STORE_VERSION &&
+    Array.isArray((value as StoredFile).connections)
+  )
+}
+
 function load(): StoredRecord[] {
   if (cache) return cache
+  let parsed: unknown
   try {
-    const parsed: unknown = JSON.parse(readFileSync(storePath(), 'utf8'))
-    cache = Array.isArray(parsed) ? (parsed as StoredRecord[]) : []
+    parsed = JSON.parse(readFileSync(storePath(), 'utf8'))
   } catch {
+    // Missing file (first run) or unparseable JSON: start from an empty,
+    // current-version store. Nothing to migrate, so nothing to persist yet —
+    // the next save() call will write a proper version-2 file.
     cache = []
+    return cache
   }
+  if (isStoredFile(parsed)) {
+    cache = parsed.connections
+    return cache
+  }
+  if (Array.isArray(parsed)) {
+    // Pre-version-2 files were a bare array of StoredRecord, written before
+    // PostgreSQL connections became pinned to a single database chosen at
+    // connect time. Those records' `database`/`url` fields predate that
+    // change, and silently reinterpreting them under the new single-database
+    // model risks reconnecting a saved connection to the wrong database. The
+    // user has approved a clean break instead (this is a pre-1.0 app): drop
+    // every saved connection and its associated knowledge base, then start
+    // over on an empty, versioned store. Running this here (rather than in
+    // index.ts) makes the reset lazy — it fires exactly once, the first time
+    // anything touches the connection store after upgrading — and writing
+    // the empty version-2 file immediately below is what makes it a one-time
+    // event: the next load() sees a version-2 file and takes the branch
+    // above instead of this one.
+    wipeKnowledge()
+    cache = []
+    persist(cache)
+    return cache
+  }
+  // Recognizable JSON but neither shape (e.g. `{}`, a number, `null`):
+  // treat like a corrupt file rather than guessing at intent.
+  cache = []
   return cache
 }
 
@@ -49,8 +101,9 @@ function persist(records: StoredRecord[]): void {
   cache = records
   const path = storePath()
   mkdirSync(dirname(path), { recursive: true })
+  const file: StoredFile = { version: STORE_VERSION, connections: records }
   // Owner-only: the file holds connection metadata and encrypted secrets.
-  writeFileSync(path, JSON.stringify(records, null, 2), {
+  writeFileSync(path, JSON.stringify(file, null, 2), {
     encoding: 'utf8',
     mode: 0o600
   })

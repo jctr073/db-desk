@@ -18,7 +18,11 @@ semantics; Databricks connects to a SQL warehouse by server hostname, HTTP path,
 catalog, and personal access token. Creating a connection introspects the
 catalog and populates the tree with actual databases, schemas, tables, columns,
 views, materialized views, indexes, functions, sequences, types, and aggregates.
-Sibling databases are introspected lazily on first expand. Connections persist
+A PostgreSQL connection is pinned to the single database chosen at connect time
+(the database field is required); the main process rejects queries or
+introspection against any other database on the server. Databricks keeps the
+multi-catalog model: sibling catalogs are introspected lazily on first expand.
+Connections persist
 across sessions (passwords encrypted at rest via Electron `safeStorage`) and are
 restored offline on launch — reconnect, disconnect, refresh (re-introspect the
 connection's loaded databases to pick up schema changes), and remove are

@@ -41,6 +41,13 @@ export interface DialectInfo {
   engine: string
   /** What the engine calls a top-level database ("database" / "catalog"). */
   databaseTerm: string
+  /**
+   * True when one connection exposes every database/catalog on the server
+   * (Databricks). False pins the connection to the single database chosen
+   * at connect time (PostgreSQL): no sibling enumeration, and the main
+   * process rejects queries or introspection against any other database.
+   */
+  multiDatabase: boolean
   /** Subtitle shown in the connection dialog header. */
   dialogSubtitle: string
   /** True when a single connection URL is a supported input format. */
@@ -65,6 +72,7 @@ const POSTGRES: DialectInfo = {
   label: 'PostgreSQL',
   engine: 'PostgreSQL',
   databaseTerm: 'database',
+  multiDatabase: false,
   dialogSubtitle: 'Connect to a PostgreSQL database',
   supportsUrl: true,
   urlExample: 'postgresql://user:password@host:port/database',
@@ -104,6 +112,7 @@ const DATABRICKS: DialectInfo = {
   label: 'Databricks',
   engine: 'Databricks SQL',
   databaseTerm: 'catalog',
+  multiDatabase: true,
   dialogSubtitle: 'Connect to a Databricks SQL warehouse',
   supportsUrl: false,
   urlExample: '',
