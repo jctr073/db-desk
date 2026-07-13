@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent,
+  ReactElement
+} from 'react'
 
 import type { QueryResult } from '../../../shared/db'
 import {
@@ -11,6 +16,10 @@ import {
   RowsIcon,
   SparkleIcon
 } from './icons'
+import {
+  selectGridHeaders,
+  type GridSelectionModifiers
+} from './resultGridSelection'
 import type { ResultTab } from './useQueryRunner'
 
 interface ResultsPanelProps {
@@ -41,6 +50,9 @@ const TAB_SLOT_PX = 150
     spacer, limit pill and rerun control. */
 const BAR_RESERVED_PX = 310
 
+const MIN_RESULT_COLUMN_WIDTH = 64
+const COLUMN_KEYBOARD_RESIZE_STEP = 12
+
 function statusLine(tab: ResultTab): string {
   const result = tab.result
   if (!result) return ''
@@ -62,26 +74,215 @@ function statusLine(tab: ResultTab): string {
 }
 
 function ResultGrid({ result }: { result: QueryResult }): ReactElement {
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(() => new Set())
+  const [selectedColumns, setSelectedColumns] = useState<Set<number>>(
+    () => new Set()
+  )
+  const [columnWidths, setColumnWidths] = useState<Record<number, number>>({})
+  const rowSelectionAnchorRef = useRef<number | null>(null)
+  const columnSelectionAnchorRef = useRef<number | null>(null)
+  const resizeRef = useRef<{
+    column: number
+    pointerId: number
+    startX: number
+    startWidth: number
+  } | null>(null)
+
+  useEffect(() => {
+    setSelectedRows(new Set())
+    setSelectedColumns(new Set())
+    setColumnWidths({})
+    rowSelectionAnchorRef.current = null
+    columnSelectionAnchorRef.current = null
+  }, [result])
+
+  useEffect(
+    () => () => document.body.classList.remove('is-grid-col-resizing'),
+    []
+  )
+
+  const selectRow = (row: number, modifiers: GridSelectionModifiers): void => {
+    setSelectedRows((selected) =>
+      selectGridHeaders(selected, row, rowSelectionAnchorRef.current, modifiers)
+    )
+    if (!modifiers.shiftKey || rowSelectionAnchorRef.current === null) {
+      rowSelectionAnchorRef.current = row
+    }
+    setSelectedColumns(new Set())
+    columnSelectionAnchorRef.current = null
+  }
+
+  const selectColumn = (
+    column: number,
+    modifiers: GridSelectionModifiers
+  ): void => {
+    setSelectedColumns((selected) =>
+      selectGridHeaders(
+        selected,
+        column,
+        columnSelectionAnchorRef.current,
+        modifiers
+      )
+    )
+    if (!modifiers.shiftKey || columnSelectionAnchorRef.current === null) {
+      columnSelectionAnchorRef.current = column
+    }
+    setSelectedRows(new Set())
+    rowSelectionAnchorRef.current = null
+  }
+
+  const activateWithKeyboard = (
+    event: ReactKeyboardEvent,
+    activate: (modifiers: GridSelectionModifiers) => void
+  ): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    activate(event)
+  }
+
+  const resizeColumn = (column: number, width: number): void => {
+    setColumnWidths((widths) => ({
+      ...widths,
+      [column]: Math.max(MIN_RESULT_COLUMN_WIDTH, Math.round(width))
+    }))
+  }
+
+  const startColumnResize = (
+    event: PointerEvent<HTMLSpanElement>,
+    column: number
+  ): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    resizeRef.current = {
+      column,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth:
+        event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    document.body.classList.add('is-grid-col-resizing')
+  }
+
+  const continueColumnResize = (event: PointerEvent<HTMLSpanElement>): void => {
+    const resize = resizeRef.current
+    if (!resize || resize.pointerId !== event.pointerId) return
+    resizeColumn(
+      resize.column,
+      resize.startWidth + event.clientX - resize.startX
+    )
+  }
+
+  const finishColumnResize = (event: PointerEvent<HTMLSpanElement>): void => {
+    if (resizeRef.current?.pointerId !== event.pointerId) return
+    resizeRef.current = null
+    document.body.classList.remove('is-grid-col-resizing')
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const resizeColumnWithKeyboard = (
+    event: ReactKeyboardEvent<HTMLSpanElement>,
+    column: number
+  ): void => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    event.stopPropagation()
+    const currentWidth =
+      columnWidths[column] ??
+      event.currentTarget.parentElement?.getBoundingClientRect().width ??
+      MIN_RESULT_COLUMN_WIDTH
+    const direction = event.key === 'ArrowLeft' ? -1 : 1
+    resizeColumn(column, currentWidth + direction * COLUMN_KEYBOARD_RESIZE_STEP)
+  }
+
   return (
     <div className="grid-scroll">
-      <table className="result-grid">
+      <table className="result-grid" role="grid" aria-multiselectable="true">
         <thead>
           <tr>
             <th className="result-grid__rownum" aria-label="Row number" />
             {result.fields.map((field, i) => (
-              <th key={i}>
-                {field.name}
-                <span className="result-grid__type">{field.dataType}</span>
+              <th
+                key={i}
+                className={selectedColumns.has(i) ? 'is-selected' : undefined}
+                style={
+                  columnWidths[i] === undefined
+                    ? undefined
+                    : {
+                        width: columnWidths[i],
+                        minWidth: columnWidths[i],
+                        maxWidth: columnWidths[i]
+                      }
+                }
+                aria-selected={selectedColumns.has(i)}
+                tabIndex={0}
+                onClick={(event: ReactMouseEvent) => selectColumn(i, event)}
+                onKeyDown={(event) =>
+                  activateWithKeyboard(event, (modifiers) =>
+                    selectColumn(i, modifiers)
+                  )
+                }
+              >
+                <span className="result-grid__heading">
+                  <span className="result-grid__name">{field.name}</span>
+                  <span className="result-grid__type">{field.dataType}</span>
+                </span>
+                <span
+                  className="result-grid__resize-handle"
+                  role="separator"
+                  aria-label={`Resize ${field.name} column`}
+                  aria-orientation="vertical"
+                  tabIndex={0}
+                  onClick={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => startColumnResize(event, i)}
+                  onPointerMove={continueColumnResize}
+                  onPointerUp={finishColumnResize}
+                  onPointerCancel={finishColumnResize}
+                  onKeyDown={(event) => resizeColumnWithKeyboard(event, i)}
+                />
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {result.rows.map((row, r) => (
-            <tr key={r}>
-              <td className="result-grid__rownum">{r + 1}</td>
+            <tr
+              key={r}
+              className={selectedRows.has(r) ? 'is-selected' : undefined}
+              aria-selected={selectedRows.has(r)}
+            >
+              <td
+                className="result-grid__rownum"
+                role="rowheader"
+                tabIndex={0}
+                onClick={(event: ReactMouseEvent) => selectRow(r, event)}
+                onKeyDown={(event) =>
+                  activateWithKeyboard(event, (modifiers) =>
+                    selectRow(r, modifiers)
+                  )
+                }
+              >
+                {r + 1}
+              </td>
               {row.map((cell, c) => (
-                <td key={c} className={cell === null ? 'is-null' : undefined}>
+                <td
+                  key={c}
+                  className={
+                    `${cell === null ? 'is-null' : ''}${selectedColumns.has(c) ? ' is-selected-column' : ''}`.trim() ||
+                    undefined
+                  }
+                  style={
+                    columnWidths[c] === undefined
+                      ? undefined
+                      : {
+                          width: columnWidths[c],
+                          minWidth: columnWidths[c],
+                          maxWidth: columnWidths[c]
+                        }
+                  }
+                >
                   {cell === null ? 'NULL' : String(cell)}
                 </td>
               ))}
@@ -177,7 +378,10 @@ export function ResultsPanel({
     if (!bar) return
     const observer = new ResizeObserver(() => {
       setMaxVisible(
-        Math.max(2, Math.floor((bar.clientWidth - BAR_RESERVED_PX) / TAB_SLOT_PX))
+        Math.max(
+          2,
+          Math.floor((bar.clientWidth - BAR_RESERVED_PX) / TAB_SLOT_PX)
+        )
       )
     })
     observer.observe(bar)
@@ -223,9 +427,7 @@ export function ResultsPanel({
 
   if (contentOnly) {
     return (
-      <div className="results-panel">
-        {active && <TabBody tab={active} />}
-      </div>
+      <div className="results-panel">{active && <TabBody tab={active} />}</div>
     )
   }
 

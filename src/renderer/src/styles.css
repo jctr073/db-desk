@@ -1124,7 +1124,7 @@ body.is-col-resizing {
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: 5px 10px;
+  padding: 5px 14px 5px 10px;
   background: var(--panel-hi);
   border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border-soft);
@@ -1132,12 +1132,49 @@ body.is-col-resizing {
   font-weight: 600;
   white-space: nowrap;
   color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.result-grid th:focus-visible,
+.result-grid td.result-grid__rownum:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+.result-grid__heading {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+}
+.result-grid__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .result-grid__type {
+  flex: 0 0 auto;
   margin-left: 7px;
   font-size: 10px;
   font-weight: 400;
   color: var(--text-faint);
+}
+.result-grid__resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  z-index: 2;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.result-grid__resize-handle:hover,
+.result-grid__resize-handle:focus-visible {
+  background: var(--accent);
+}
+body.is-grid-col-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 .result-grid td {
   padding: 3px 10px;
@@ -1155,6 +1192,16 @@ body.is-col-resizing {
 .result-grid tbody tr:hover td {
   background: var(--row-hover);
 }
+.result-grid th.is-selected,
+.result-grid tbody tr td.is-selected-column,
+.result-grid tbody tr.is-selected td,
+.result-grid tbody tr.is-selected:hover td {
+  background: color-mix(in srgb, var(--accent) 20%, var(--panel));
+}
+.result-grid th.is-selected {
+  box-shadow: inset 0 -2px var(--accent);
+  color: var(--accent-strong);
+}
 .result-grid td.is-null {
   color: var(--text-faint);
   font-style: italic;
@@ -1166,6 +1213,14 @@ body.is-col-resizing {
   background: var(--panel-hi);
   font-style: normal;
   min-width: 34px;
+}
+.result-grid td.result-grid__rownum {
+  cursor: pointer;
+  user-select: none;
+}
+.result-grid tbody tr.is-selected td.result-grid__rownum {
+  color: var(--accent-strong);
+  box-shadow: inset 2px 0 var(--accent);
 }
 .grid-empty {
   padding: 18px;
