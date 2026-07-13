@@ -8,6 +8,13 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 
+import {
+  defaultExtension,
+  FILE_KINDS,
+  supportedExtension
+} from '../shared/files'
+import type { FileKind } from '../shared/files'
+
 export interface QueryFile {
   id: string
   name: string
@@ -101,18 +108,41 @@ export function getNextQueryName(
   connId: string | null,
   database: string | null
 ): string {
+  return getNextFileName(connId, database, 'sql')
+}
+
+export function getNextFileName(
+  connId: string | null,
+  database: string | null,
+  kind: FileKind
+): string {
   const metadata = loadMetadata()
+
+  const stem: Record<FileKind, string> = {
+    sql: 'query',
+    markdown: 'notes',
+    json: 'data',
+    text: 'text'
+  }
+  const prefix = stem[kind]
+  const extension = defaultExtension(kind)
 
   let maxNum = 0
   for (const file of metadata) {
     if (file.connId === connId && file.database === database) {
-      const match = file.name.match(/query(\d+)/)
+      const match = file.name.match(
+        new RegExp(`^${prefix}(\\d+)${extension.replace('.', '\\.')}$`, 'i')
+      )
       if (match) {
         maxNum = Math.max(maxNum, parseInt(match[1], 10))
       }
     }
   }
-  return `query${maxNum + 1}.sql`
+  return `${prefix}${maxNum + 1}${extension}`
+}
+
+export function isFileKind(value: unknown): value is FileKind {
+  return typeof value === 'string' && FILE_KINDS.includes(value as FileKind)
 }
 
 export function loadQueryContent(id: string): string {
@@ -168,14 +198,21 @@ export function renameQuery(id: string, requestedName: string): QueryFile {
     throw new Error('File name cannot contain slashes or control characters')
   }
 
-  const normalizedName = /\.sql$/i.test(name) ? name : `${name}.sql`
-  if (normalizedName.length > 255) {
-    throw new Error('File name must be 255 characters or fewer')
-  }
-
   const metadata = loadMetadata()
   const file = metadata.find((candidate) => candidate.id === id)
   if (!file) throw new Error(`Query file not found: ${id}`)
+
+  const hasExtension = /\.[^.]+$/.test(name)
+  const requestedExtension = hasExtension ? supportedExtension(name) : null
+  if (hasExtension && !requestedExtension) {
+    throw new Error('Supported file types are SQL, Markdown, JSON, and text')
+  }
+  const normalizedName = requestedExtension
+    ? name
+    : `${name}${supportedExtension(file.name) ?? '.sql'}`
+  if (normalizedName.length > 255) {
+    throw new Error('File name must be 255 characters or fewer')
+  }
 
   const duplicate = metadata.some(
     (candidate) =>

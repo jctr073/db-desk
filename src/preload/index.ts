@@ -18,6 +18,7 @@ import type {
 } from '../shared/db'
 import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
 import type { KnowledgeRecord, KnowledgeRecordInput } from '../shared/knowledge'
+import type { FileKind } from '../shared/files'
 import type { RepoStatus } from '../shared/repo'
 import type {
   ChooseExportResult,
@@ -94,7 +95,8 @@ const api = Object.freeze({
     > => ipcRenderer.invoke('files:list'),
     create: (
       connId: string | null,
-      database: string | null
+      database: string | null,
+      kind: FileKind = 'sql'
     ): Promise<{
       id: string
       name: string
@@ -102,7 +104,7 @@ const api = Object.freeze({
       database: string | null
       createdAt: number
       updatedAt: number
-    }> => ipcRenderer.invoke('files:create', connId, database),
+    }> => ipcRenderer.invoke('files:create', connId, database, kind),
     read: (id: string): Promise<string> => ipcRenderer.invoke('files:read', id),
     save: (id: string, content: string): Promise<void> =>
       ipcRenderer.invoke('files:save', id, content),

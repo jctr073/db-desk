@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import type { FileKind } from '../../../shared/files'
+
 export interface QueryFile {
   id: string
   name: string
@@ -16,7 +18,11 @@ export interface FileState {
   loadError: string | null
 
   selectFile: (id: string) => void
-  createFile: (connId: string | null, database: string | null) => void
+  createFile: (
+    connId: string | null,
+    database: string | null,
+    kind?: FileKind
+  ) => void
   saveFile: (id: string, content: string) => Promise<boolean>
   renameFile: (id: string, name: string) => Promise<boolean>
   closeFiles: (ids: readonly string[]) => void
@@ -68,9 +74,13 @@ export function useFileState(): FileState {
   }, [])
 
   const createFile = useCallback(
-    async (connId: string | null, database: string | null) => {
+    async (
+      connId: string | null,
+      database: string | null,
+      kind: FileKind = 'sql'
+    ) => {
       try {
-        const newFile = await window.dbDesk.files.create(connId, database)
+        const newFile = await window.dbDesk.files.create(connId, database, kind)
         setFiles((prev) => [...prev, newFile])
         setOpenFileIds((prev) => new Set(prev).add(newFile.id))
         setSelectedFileId(newFile.id)

@@ -16,12 +16,14 @@ import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
 import {
   listQueries,
   createQuery,
+  getNextFileName,
   loadQueryContent,
   saveQueryContent,
   deleteQuery,
   getNextQueryName,
   deleteQueriesForConnection,
-  renameQuery
+  renameQuery,
+  isFileKind
 } from './files'
 import {
   listRecords,
@@ -172,8 +174,14 @@ function registerFileHandlers(): void {
   ipcMain.handle('files:list', () => listQueries())
   ipcMain.handle(
     'files:create',
-    (_event, connId: string | null, database: string | null) => {
-      const name = getNextQueryName(connId, database)
+    (
+      _event,
+      connId: string | null,
+      database: string | null,
+      requestedKind: unknown = 'sql'
+    ) => {
+      const kind = isFileKind(requestedKind) ? requestedKind : 'sql'
+      const name = getNextFileName(connId, database, kind)
       return createQuery(name, connId, database)
     }
   )
