@@ -57,6 +57,14 @@ SELECTs get an automatic `LIMIT 500` (configurable in the toolbar, including no
 limit); statements that can't take an appended LIMIT are truncated to the same
 cap after execution.
 
+Grid columns can be resized by dragging a header's edge (or with the arrow keys
+on the focused resize handle), and clicking row numbers or column headers
+selects rows or columns with the usual Shift range and ⌘ toggle modifiers. An
+**Export** control saves the active result as CSV, tab-delimited text, or JSON:
+with rows selected only the selection is written; otherwise CSV/TSV exports
+re-run the query read-only without the grid limit so the file holds the full
+result set, while JSON exports the rows currently loaded in the grid.
+
 The right-hand panel's **AI Agent** tab turns prompts into SQL. It reads
 `CLAUDE_API_KEY` from `~/.zshrc` (re-read on every request, so no restart is
 needed after editing it), and offers a model and reasoning-effort picker,
