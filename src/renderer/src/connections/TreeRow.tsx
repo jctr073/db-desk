@@ -85,6 +85,7 @@ interface TreeRowProps {
   /** Show the knowledge dot: local knowledge is attached to this node. */
   hasKnowledge?: boolean
   onClick: () => void
+  onDoubleClick?: () => void
   onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void
 }
 
@@ -99,6 +100,7 @@ export function TreeRow({
   showStatusDots,
   hasKnowledge = false,
   onClick,
+  onDoubleClick,
   onContextMenu
 }: TreeRowProps): ReactElement {
   const isContainer = CONTAINER_KINDS.has(node.kind)
@@ -236,7 +238,12 @@ export function TreeRow({
       aria-selected={selected}
       className="tree-row"
       style={rowStyle}
-      onClick={onClick}
+      onClick={(event) => {
+        // A double-click also emits two click events. Keep the first click's
+        // normal selection/expansion behavior without immediately undoing it.
+        if (event.detail === 1) onClick()
+      }}
+      onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
     >
       {guides.map((g, i) => (

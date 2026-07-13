@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 
 import type { QueryResult } from '../../../shared/db'
+import type { ConnectionType } from '../../../shared/dialect'
 
 /** A (connection, database) pair a query can execute against. */
 export interface QueryTarget {
@@ -9,6 +10,7 @@ export interface QueryTarget {
   database: string
   /** True for the database the connection was originally opened against. */
   primary: boolean
+  connectionType?: ConnectionType
 }
 
 export interface ResultTab {
@@ -17,7 +19,7 @@ export interface ResultTab {
   pinned: boolean
   running: boolean
   /** Who initiated the run; 'ai' tabs are grouped under one AI Agent tab. */
-  source: 'user' | 'ai'
+  source: 'user' | 'ai' | 'preview'
   /** Best-effort main table name, for compact run chips. */
   hint: string
   /** Statement text as sent (before any auto-LIMIT). */
@@ -30,9 +32,11 @@ export interface ResultTab {
 export interface QueryRunner {
   tabs: ResultTab[]
   activeTabId: string | null
-  setActiveTab: (id: string) => void
+  setActiveTab: (id: string | null) => void
   /** Execute into the live (unpinned) tab, creating it if needed. */
   run: (sql: string, target: QueryTarget, limit: number | null) => void
+  /** Open (or refresh) a named, pinned relation preview tab. */
+  preview: (sql: string, title: string, target: QueryTarget) => void
   /** Re-execute a tab's stored query in place. */
   rerun: (id: string, limit: number | null) => void
   /** Display an already-executed result (e.g. an AI agent run) as a pinned tab. */
@@ -144,6 +148,39 @@ export function useQueryRunner(): QueryRunner {
     [tabs, execute]
   )
 
+  const preview = useCallback(
+    (sql: string, title: string, target: QueryTarget) => {
+      const existing = tabs.find(
+        (tab) =>
+          tab.source === 'preview' &&
+          tab.sql === sql &&
+          tab.target.connId === target.connId &&
+          tab.target.database === target.database
+      )
+      const id = existing?.id ?? `r${++tabSeq}`
+      const next: ResultTab = {
+        id,
+        title,
+        pinned: true,
+        running: true,
+        source: 'preview',
+        hint: tableHint(sql),
+        sql,
+        target,
+        result: null,
+        error: null
+      }
+      setTabs((prev) =>
+        existing
+          ? prev.map((tab) => (tab.id === id ? next : tab))
+          : [...prev, next]
+      )
+      setActiveTabId(id)
+      void execute(id, sql, target, 100)
+    },
+    [tabs, execute]
+  )
+
   const showResult = useCallback(
     (
       sql: string,
@@ -224,6 +261,7 @@ export function useQueryRunner(): QueryRunner {
     activeTabId,
     setActiveTab: setActiveTabId,
     run,
+    preview,
     rerun,
     showResult,
     pin,

@@ -25,6 +25,10 @@ interface ResultsPanelProps {
   onCloseAll: () => void
   onPin: (id: string) => void
   onRerun: (id: string) => void
+  /** Hide the editable limit picker (relation previews always use 100). */
+  showLimitControl?: boolean
+  /** Render only the active result body, for a workspace-level preview tab. */
+  contentOnly?: boolean
   /** Report the active result's summary + target up to the app status bar. */
   onStatus?: (text: string, target: string) => void
 }
@@ -130,6 +134,8 @@ export function ResultsPanel({
   onCloseAll,
   onPin,
   onRerun,
+  showLimitControl = true,
+  contentOnly = false,
   onStatus
 }: ResultsPanelProps): ReactElement {
   const active = tabs.find((tab) => tab.id === activeTabId) ?? null
@@ -215,6 +221,14 @@ export function ResultsPanel({
     ? limitBtnRef.current?.getBoundingClientRect()
     : undefined
 
+  if (contentOnly) {
+    return (
+      <div className="results-panel">
+        {active && <TabBody tab={active} />}
+      </div>
+    )
+  }
+
   return (
     <div className="results-panel">
       <div className="results-tabbar" ref={barRef}>
@@ -292,24 +306,26 @@ export function ResultsPanel({
           </button>
         )}
         <div className="editor-tabbar__spacer" />
-        <button
-          ref={limitBtnRef}
-          className={`limit-pill${limitOpen ? ' is-open' : ''}`}
-          title="Automatic row limit for SELECT queries"
-          type="button"
-          onClick={() => setLimitOpen((open) => !open)}
-        >
-          <span className="limit-pill__icon">
-            <RowsIcon />
-          </span>
-          <span className="limit-pill__word">limit</span>
-          <span className="limit-pill__value">
-            {limit === null ? 'none' : limit}
-          </span>
-          <span className="pill-chev">
-            <ChevronDownIcon size={10} />
-          </span>
-        </button>
+        {showLimitControl && (
+          <button
+            ref={limitBtnRef}
+            className={`limit-pill${limitOpen ? ' is-open' : ''}`}
+            title="Automatic row limit for SELECT queries"
+            type="button"
+            onClick={() => setLimitOpen((open) => !open)}
+          >
+            <span className="limit-pill__icon">
+              <RowsIcon />
+            </span>
+            <span className="limit-pill__word">limit</span>
+            <span className="limit-pill__value">
+              {limit === null ? 'none' : limit}
+            </span>
+            <span className="pill-chev">
+              <ChevronDownIcon size={10} />
+            </span>
+          </button>
+        )}
         {active && !active.running && (
           <button
             className="icon-btn icon-btn--sm"
@@ -347,7 +363,7 @@ export function ResultsPanel({
           </button>
         </div>
       )}
-      {limitOpen && limitRect && (
+      {showLimitControl && limitOpen && limitRect && (
         <>
           <div className="ctx-overlay" onClick={() => setLimitOpen(false)} />
           <div

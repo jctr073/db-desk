@@ -34,6 +34,7 @@ export interface TreeNode {
   // connection
   subtitle?: string
   status?: ConnectionStatus
+  connectionType?: ConnectionType
 
   // database / connection
   /** True when the database's schema has not been introspected yet. */

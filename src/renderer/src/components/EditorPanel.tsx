@@ -27,6 +27,7 @@ import { ResultsPanel } from './ResultsPanel'
 import { SaveExemplarDialog } from './SaveExemplarDialog'
 import { SqlEditor } from './SqlEditor'
 import type { QueryRunner, QueryTarget } from './useQueryRunner'
+import type { ResultTab } from './useQueryRunner'
 import type { EditorBridge } from './editorBridge'
 import type { FileState, QueryFile } from '../files/useFileState'
 
@@ -65,6 +66,7 @@ interface FileGroup {
   connId: string | null
   database: string | null
   files: QueryFile[]
+  previews: ResultTab[]
 }
 
 interface TabMenu {
@@ -145,15 +147,50 @@ export function EditorPanel({
       const key = groupKeyOf(file.connId, file.database)
       let group = map.get(key)
       if (!group) {
-        group = { key, connId: file.connId, database: file.database, files: [] }
+        group = {
+          key,
+          connId: file.connId,
+          database: file.database,
+          files: [],
+          previews: []
+        }
         map.set(key, group)
       }
       group.files.push(file)
     }
+    for (const tab of runner.tabs) {
+      if (tab.source !== 'preview') continue
+      const key = groupKeyOf(tab.target.connId, tab.target.database)
+      let group = map.get(key)
+      if (!group) {
+        group = {
+          key,
+          connId: tab.target.connId,
+          database: tab.target.database,
+          files: [],
+          previews: []
+        }
+        map.set(key, group)
+      }
+      group.previews.push(tab)
+    }
     return [...map.values()]
-  }, [files.files])
+  }, [files.files, runner.tabs])
+
+  const activeResultTab =
+    runner.tabs.find((tab) => tab.id === runner.activeTabId) ?? null
+  const activePreview =
+    activeResultTab?.source === 'preview' ? activeResultTab : null
+  const activePreviewGroup = activePreview
+    ? groups.find(
+        (group) =>
+          group.connId === activePreview.target.connId &&
+          group.database === activePreview.target.database
+      )
+    : null
 
   const activeGroup =
+    activePreviewGroup ??
     (files.selectedFileId
       ? groups.find((g) => g.files.some((f) => f.id === files.selectedFileId))
       : null) ??
@@ -164,6 +201,22 @@ export function EditorPanel({
   const activeFile = files.selectedFileId
     ? files.files.find((f) => f.id === files.selectedFileId)
     : null
+
+  const queryTabs = runner.tabs.filter((tab) => tab.source !== 'preview')
+
+  const leavePreview = useCallback(() => {
+    if (!activePreview) return
+    const fallback = queryTabs[queryTabs.length - 1]
+    runner.setActiveTab(fallback?.id ?? null)
+  }, [activePreview, queryTabs, runner])
+
+  const selectFile = useCallback(
+    (id: string) => {
+      files.selectFile(id)
+      leavePreview()
+    },
+    [files.selectFile, leavePreview]
+  )
 
   // Switching back to a connection tab restores the file that was open there.
   const lastFileByGroup = useRef(new Map<string, string>())
@@ -177,9 +230,13 @@ export function EditorPanel({
     (group: FileGroup) => {
       const remembered = lastFileByGroup.current.get(group.key)
       const file = group.files.find((f) => f.id === remembered) ?? group.files[0]
-      if (file) files.selectFile(file.id)
+      if (file) {
+        selectFile(file.id)
+      } else if (group.previews[0]) {
+        runner.setActiveTab(group.previews[0].id)
+      }
     },
-    [files.selectFile]
+    [selectFile, runner]
   )
 
   /** Connection id → tab dot color, assigned in connection (tree) order. */
@@ -194,8 +251,8 @@ export function EditorPanel({
   }, [targets])
 
   useEffect(() => {
-    onTargetChange?.(target)
-  }, [target, onTargetChange])
+    onTargetChange?.(activePreview?.target ?? target)
+  }, [activePreview?.target, target, onTargetChange])
   // The panel never unmounts in practice, but don't leave a stale target up.
   useEffect(() => () => onTargetChange?.(null), [onTargetChange])
 
@@ -412,10 +469,10 @@ export function EditorPanel({
   const openTabMenu = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>, file: QueryFile) => {
       event.preventDefault()
-      files.selectFile(file.id)
+      selectFile(file.id)
       setTabMenu({ fileId: file.id, x: event.clientX, y: event.clientY })
     },
-    [files.selectFile]
+    [selectFile]
   )
 
   const startRename = useCallback((file: QueryFile) => {
@@ -459,7 +516,7 @@ export function EditorPanel({
     group.connId ? (connNames[group.connId] ?? group.connId) : 'Scratch'
 
   const activeTabHint = activeGroup
-    ? `${activeGroup.files.length} open · ${groupName(activeGroup)}${
+    ? `${activeGroup.files.length + activeGroup.previews.length} open · ${groupName(activeGroup)}${
         target && activeGroup.connId ? ` / ${target.database}` : ''
       }`
     : ''
@@ -503,42 +560,48 @@ export function EditorPanel({
                     <span className="conn-tab__db">{group.database}</span>
                   </>
                 )}
-                <span className="conn-tab__count">{group.files.length}</span>
+                <span className="conn-tab__count">
+                  {group.files.length + group.previews.length}
+                </span>
               </button>
             )
           })}
         </div>
-        <button
-          className="btn-run btn-run--bar"
-          type="button"
-          disabled={!target}
-          title={
-            target
-              ? `Run statement at cursor (⌘⏎) — ${target.connName} / ${target.database}`
-              : 'Connect to a database to run queries'
-          }
-          onClick={runCurrent}
-        >
-          <PlayIcon />
-          Run
-          <span className="btn-run__kbd">⌘⏎</span>
-        </button>
-        <button
-          ref={actionsBtnRef}
-          className={`btn-kebab${actionsOpen ? ' is-open' : ''}`}
-          type="button"
-          title="More actions"
-          onClick={() => setActionsOpen((open) => !open)}
-        >
-          <KebabIcon />
-        </button>
+        {!activePreview && (
+          <>
+            <button
+              className="btn-run btn-run--bar"
+              type="button"
+              disabled={!target}
+              title={
+                target
+                  ? `Run statement at cursor (⌘⏎) — ${target.connName} / ${target.database}`
+                  : 'Connect to a database to run queries'
+              }
+              onClick={runCurrent}
+            >
+              <PlayIcon />
+              Run
+              <span className="btn-run__kbd">⌘⏎</span>
+            </button>
+            <button
+              ref={actionsBtnRef}
+              className={`btn-kebab${actionsOpen ? ' is-open' : ''}`}
+              type="button"
+              title="More actions"
+              onClick={() => setActionsOpen((open) => !open)}
+            >
+              <KebabIcon />
+            </button>
+          </>
+        )}
       </div>
       <div className="file-tabbar">
         {(activeGroup?.files ?? []).map((file) => (
           <div
             key={file.id}
-            className={`editor-tab${files.selectedFileId === file.id ? ' is-active' : ''}`}
-            onClick={() => files.selectFile(file.id)}
+            className={`editor-tab${!activePreview && files.selectedFileId === file.id ? ' is-active' : ''}`}
+            onClick={() => selectFile(file.id)}
             onContextMenu={(event) => openTabMenu(event, file)}
             title={`${file.name} · ${file.connId ?? 'no connection'}/${file.database || '(connection level)'}`}
           >
@@ -582,6 +645,31 @@ export function EditorPanel({
             </button>
           </div>
         ))}
+        {(activeGroup?.previews ?? []).map((tab) => (
+          <div
+            key={tab.id}
+            className={`editor-tab${activePreview?.id === tab.id ? ' is-active' : ''}`}
+            onClick={() => runner.setActiveTab(tab.id)}
+            title={`${tab.title} · ${tab.target.connName}/${tab.target.database}`}
+            role="tab"
+            aria-selected={activePreview?.id === tab.id}
+          >
+            <DatabaseIcon size={13} />
+            {tab.title}
+            {tab.running && <span className="spinner spinner--xs" />}
+            <button
+              className="editor-tab__close"
+              onClick={(event) => {
+                event.stopPropagation()
+                runner.closeTab(tab.id)
+              }}
+              title="Close data preview"
+              type="button"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+        ))}
         <button
           className="icon-btn icon-btn--sm editor-tabbar__new"
           title={
@@ -590,12 +678,13 @@ export function EditorPanel({
               : 'New query'
           }
           type="button"
-          onClick={() =>
+          onClick={() => {
             files.createFile(
               activeGroup?.connId ?? null,
               activeGroup?.database ?? null
             )
-          }
+            leavePreview()
+          }}
         >
           <PlusThinIcon />
         </button>
@@ -648,7 +737,7 @@ export function EditorPanel({
           </div>
         </div>
       )}
-      {actionsOpen && actionsBtnRef.current && (
+      {!activePreview && actionsOpen && actionsBtnRef.current && (
         <>
           <div className="ctx-overlay" onClick={() => setActionsOpen(false)} />
           <div
@@ -712,38 +801,58 @@ export function EditorPanel({
           onClose={() => setExemplarSql(null)}
         />
       )}
-      <div className="editor-split" ref={splitRef}>
-        <div className="editor-host">
-          <SqlEditor theme={theme} onMount={handleMount} />
-        </div>
-        {runner.tabs.length > 0 && (
-          <>
-            <div
-              className="split-divider"
-              onPointerDown={startResize}
-              role="separator"
-            />
-            <div
-              className="results-host"
-              style={{ flex: `0 0 ${resultsPct}%` }}
-            >
-              <ResultsPanel
-                tabs={runner.tabs}
-                activeTabId={runner.activeTabId}
-                limit={limit}
-                onLimitChange={setLimit}
-                onSelect={runner.setActiveTab}
-                onClose={runner.closeTab}
-                onCloseMany={runner.closeTabs}
-                onCloseAll={runner.closeAll}
-                onPin={runner.pin}
-                onRerun={(id) => runner.rerun(id, limit)}
-                onStatus={onQueryStatus}
+      {activePreview ? (
+        <ResultsPanel
+          tabs={[activePreview]}
+          activeTabId={activePreview.id}
+          limit={100}
+          onLimitChange={() => {}}
+          onSelect={runner.setActiveTab}
+          onClose={runner.closeTab}
+          onCloseMany={runner.closeTabs}
+          onCloseAll={runner.closeAll}
+          onPin={runner.pin}
+          onRerun={(id) => runner.rerun(id, 100)}
+          showLimitControl={false}
+          contentOnly
+          onStatus={onQueryStatus}
+        />
+      ) : (
+        <div className="editor-split" ref={splitRef}>
+          <div className="editor-host">
+            <SqlEditor theme={theme} onMount={handleMount} />
+          </div>
+          {queryTabs.length > 0 && (
+            <>
+              <div
+                className="split-divider"
+                onPointerDown={startResize}
+                role="separator"
               />
-            </div>
-          </>
-        )}
-      </div>
+              <div
+                className="results-host"
+                style={{ flex: `0 0 ${resultsPct}%` }}
+              >
+                <ResultsPanel
+                  tabs={queryTabs}
+                  activeTabId={runner.activeTabId}
+                  limit={limit}
+                  onLimitChange={setLimit}
+                  onSelect={runner.setActiveTab}
+                  onClose={runner.closeTab}
+                  onCloseMany={runner.closeTabs}
+                  onCloseAll={() =>
+                    runner.closeTabs(queryTabs.map((tab) => tab.id))
+                  }
+                  onPin={runner.pin}
+                  onRerun={(id) => runner.rerun(id, limit)}
+                  onStatus={onQueryStatus}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </section>
   )
 }

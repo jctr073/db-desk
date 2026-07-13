@@ -206,6 +206,7 @@ export function savedConnectionNode(saved: SavedConnection): TreeNode {
     key: saved.id,
     label: connectionLabel(saved),
     subtitle: connectionSubtitle(saved, saved.useUrl),
+    connectionType: saved.type,
     status: 'offline'
   }
   assignIds(conn, '')
@@ -249,6 +250,7 @@ export function connectionNodeFromResult(
     key: saved.id,
     label: connectionLabel(saved),
     subtitle: connectionSubtitle(saved, saved.useUrl),
+    connectionType: saved.type,
     status: 'online',
     children: names.map((name) =>
       name === connected.name

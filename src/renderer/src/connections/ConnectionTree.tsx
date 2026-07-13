@@ -12,6 +12,7 @@ interface ConnectionTreeProps {
   /** Ids of nodes that have local knowledge attached (dot badge). */
   knowledgeIds?: Set<string>
   onRowClick: (id: string, expandable: boolean) => void
+  onRowDoubleClick?: (node: TreeNode) => void
   onRowContextMenu: (node: TreeNode, event: MouseEvent<HTMLDivElement>) => void
 }
 
@@ -23,6 +24,7 @@ export function ConnectionTree({
   showStatusDots,
   knowledgeIds,
   onRowClick,
+  onRowDoubleClick,
   onRowContextMenu
 }: ConnectionTreeProps): ReactElement {
   return (
@@ -40,6 +42,7 @@ export function ConnectionTree({
           showStatusDots={showStatusDots}
           hasKnowledge={knowledgeIds?.has(row.node.id) ?? false}
           onClick={() => onRowClick(row.node.id, row.expandable)}
+          onDoubleClick={() => onRowDoubleClick?.(row.node)}
           onContextMenu={(event) => onRowContextMenu(row.node, event)}
         />
       ))}

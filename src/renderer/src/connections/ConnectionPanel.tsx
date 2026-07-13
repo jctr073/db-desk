@@ -27,6 +27,8 @@ const SHOW_STATUS_DOTS = true
 interface ConnectionPanelProps {
   state: ConnectionState
   onNewQueryFile?: (connId: string, database: string) => void
+  /** Open a full-height, read-only 100-row preview for a relation. */
+  onOpenDataPreview?: (item: AgentContextItem) => void
   /** Attach a schema/table/view to the AI agent thread as a context chip. */
   onAddToAgentThread?: (item: AgentContextItem) => void
   /** "Show usages" / "Add annotation…" on a table or column node. */
@@ -86,6 +88,7 @@ function contextItemFor(node: TreeNode): AgentContextItem | null {
 export function ConnectionPanel({
   state,
   onNewQueryFile,
+  onOpenDataPreview,
   onAddToAgentThread,
   onKnowledgeAction,
   knowledgeIds
@@ -199,6 +202,10 @@ export function ConnectionPanel({
             showStatusDots={SHOW_STATUS_DOTS}
             knowledgeIds={knowledgeIds}
             onRowClick={state.toggleRow}
+            onRowDoubleClick={(node) => {
+              const item = contextItemFor(node)
+              if (item && item.kind !== 'schema') onOpenDataPreview?.(item)
+            }}
             onRowContextMenu={onRowContextMenu}
           />
         )}

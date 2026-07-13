@@ -122,12 +122,33 @@ export function App(): ReactElement {
           connId: conn.id,
           connName: conn.label,
           database: db.label,
-          primary: !db.lazy
+          primary: !db.lazy,
+          connectionType: conn.connectionType
         })
       }
     }
     return out
   }, [connections.tree])
+
+  const openDataPreview = useCallback(
+    (item: AgentContextItem) => {
+      if (item.kind === 'schema') return
+      const target = targets.find(
+        (candidate) =>
+          candidate.connId === item.connId &&
+          candidate.database === item.database
+      )
+      if (!target) return
+      const quote = target.connectionType === 'databricks' ? '`' : '"'
+      const quoted = (name: string): string =>
+        `${quote}${name.replaceAll(quote, quote + quote)}${quote}`
+      const relation = item.schema
+        ? `${quoted(item.schema)}.${quoted(item.name)}`
+        : quoted(item.name)
+      runner.preview(`SELECT * FROM ${relation}`, item.name, target)
+    },
+    [runner, targets]
+  )
 
   /** Connection id → display name, for labelling file groups. */
   const connNames = useMemo(() => {
@@ -247,6 +268,7 @@ export function App(): ReactElement {
           onNewQueryFile={(connId, database) => {
             files.createFile(connId, database)
           }}
+          onOpenDataPreview={openDataPreview}
           onAddToAgentThread={addAgentContext}
           onKnowledgeAction={onKnowledgeAction}
           knowledgeIds={knowledgeIds}
