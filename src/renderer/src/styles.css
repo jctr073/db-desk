@@ -3,7 +3,7 @@
  * ------------------------------------------------------------------ */
 :root {
   --bg: #282a3a;
-  --titlebar: #1e1f2b;
+  --titlebar: #1e1f2a;
   --panel: #222430;
   --panel-hi: #313344;
   --border: #3a3d4d;
@@ -147,6 +147,23 @@ textarea {
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+}
+
+/* Custom window title bar. The native one is hidden (hiddenInset), so this
+   strip provides the drag region and the centered window title. Height keeps
+   the text vertically aligned with the macOS traffic lights. */
+.titlebar {
+  height: 38px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--titlebar);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-dim);
+  -webkit-app-region: drag;
+  user-select: none;
 }
 
 .main-row {

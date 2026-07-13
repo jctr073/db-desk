@@ -253,6 +253,7 @@ export function App(): ReactElement {
 
   return (
     <div className="app">
+      <div className="titlebar">DB Desk</div>
       <div
         className="main-row"
         ref={mainRowRef}
