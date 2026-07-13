@@ -65,6 +65,7 @@ const NODE_SVGS: Partial<Record<IconKey, ReactNode>> = {
 const GLYPHS: Partial<Record<IconKey, string>> = {
   function: 'ƒ', // ƒ
   type: '{}',
+  enumValue: '•',
   aggregate: 'Σ' // Σ
 }
 

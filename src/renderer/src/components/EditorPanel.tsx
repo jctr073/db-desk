@@ -75,6 +75,14 @@ interface TabMenu {
   y: number
 }
 
+interface PendingClose {
+  label: string
+  fileIds: string[]
+  resultTabIds: string[]
+  dirtyFiles: QueryFile[]
+  groupKey: string | null
+}
+
 function groupKeyOf(connId: string | null, database: string | null): string {
   return `${connId ?? ''}\u0000${database ?? ''}`
 }
@@ -126,6 +134,8 @@ export function EditorPanel({
   const [tabMenu, setTabMenu] = useState<TabMenu | null>(null)
   const [renamingFileId, setRenamingFileId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
+  const [pendingClose, setPendingClose] = useState<PendingClose | null>(null)
+  const [savingBeforeClose, setSavingBeforeClose] = useState(false)
   /** Captured SQL for the "Save as exemplar" dialog; null = closed. */
   const [exemplarSql, setExemplarSql] = useState<string | null>(null)
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
@@ -144,6 +154,7 @@ export function EditorPanel({
   const groups = useMemo(() => {
     const map = new Map<string, FileGroup>()
     for (const file of files.files) {
+      if (!files.openFileIds.has(file.id)) continue
       const key = groupKeyOf(file.connId, file.database)
       let group = map.get(key)
       if (!group) {
@@ -175,7 +186,7 @@ export function EditorPanel({
       group.previews.push(tab)
     }
     return [...map.values()]
-  }, [files.files, runner.tabs])
+  }, [files.files, files.openFileIds, runner.tabs])
 
   const activeResultTab =
     runner.tabs.find((tab) => tab.id === runner.activeTabId) ?? null
@@ -201,6 +212,13 @@ export function EditorPanel({
   const activeFile = files.selectedFileId
     ? files.files.find((f) => f.id === files.selectedFileId)
     : null
+
+  /** Display name for a group's connection tab. */
+  const groupName = useCallback(
+    (group: FileGroup): string =>
+      group.connId ? (connNames[group.connId] ?? group.connId) : 'Scratch',
+    [connNames]
+  )
 
   const queryTabs = runner.tabs.filter((tab) => tab.source !== 'preview')
 
@@ -229,7 +247,8 @@ export function EditorPanel({
   const selectGroup = useCallback(
     (group: FileGroup) => {
       const remembered = lastFileByGroup.current.get(group.key)
-      const file = group.files.find((f) => f.id === remembered) ?? group.files[0]
+      const file =
+        group.files.find((f) => f.id === remembered) ?? group.files[0]
       if (file) {
         selectFile(file.id)
       } else if (group.previews[0]) {
@@ -299,7 +318,10 @@ export function EditorPanel({
   // Swap the editor buffer when the selected file changes.
   useEffect(() => {
     const id = files.selectedFileId
-    if (!id) return
+    if (!id) {
+      setEditorValue('')
+      return
+    }
     const cached = buffersRef.current.get(id)
     if (cached !== undefined) {
       setEditorValue(cached)
@@ -333,6 +355,15 @@ export function EditorPanel({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [tabMenu])
+
+  useEffect(() => {
+    if (!pendingClose || savingBeforeClose) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setPendingClose(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pendingClose, savingBeforeClose])
 
   useEffect(() => {
     const input = renameInputRef.current
@@ -399,17 +430,19 @@ export function EditorPanel({
   }, [])
 
   const saveFileById = useCallback(
-    (id: string | null) => {
-      if (!id) return
+    async (id: string | null): Promise<boolean> => {
+      if (!id) return false
       const content = buffersRef.current.get(id)
-      if (content === undefined) return
-      files.saveFile(id, content)
+      if (content === undefined) return false
+      const saved = await files.saveFile(id, content)
+      if (!saved) return false
       setDirtyIds((prev) => {
         if (!prev.has(id)) return prev
         const next = new Set(prev)
         next.delete(id)
         return next
       })
+      return true
     },
     [files.saveFile]
   )
@@ -418,7 +451,7 @@ export function EditorPanel({
   // saves the currently selected file.
   const saveRef = useRef<() => void>(() => {})
   useEffect(() => {
-    saveRef.current = () => saveFileById(activeFileIdRef.current)
+    saveRef.current = () => void saveFileById(activeFileIdRef.current)
   }, [saveFileById])
 
   const handleMount = useCallback<OnMount>((ed, monaco) => {
@@ -452,19 +485,88 @@ export function EditorPanel({
     ensureSqlLanguageFeatures(monaco, () => schemaRef.current)
   }, [])
 
-  const closeFile = useCallback(
-    (id: string) => {
-      buffersRef.current.delete(id)
+  const finishClose = useCallback(
+    (closing: PendingClose) => {
+      for (const id of closing.fileIds) buffersRef.current.delete(id)
       setDirtyIds((prev) => {
-        if (!prev.has(id)) return prev
         const next = new Set(prev)
-        next.delete(id)
+        for (const id of closing.fileIds) next.delete(id)
         return next
       })
-      files.deleteFile(id)
+      files.closeFiles(closing.fileIds)
+      runner.closeTabs(closing.resultTabIds)
+      if (closing.groupKey) lastFileByGroup.current.delete(closing.groupKey)
+      setTabMenu((menu) =>
+        menu && closing.fileIds.includes(menu.fileId) ? null : menu
+      )
+      setPendingClose(null)
     },
-    [files.deleteFile]
+    [files.closeFiles, runner]
   )
+
+  const requestClose = useCallback(
+    (
+      fileIds: string[],
+      resultTabIds: string[],
+      label: string,
+      groupKey: string | null = null
+    ) => {
+      const closingIds = new Set(fileIds)
+      const dirtyFiles = files.files.filter(
+        (file) => closingIds.has(file.id) && dirtyIds.has(file.id)
+      )
+      const closing = {
+        label,
+        fileIds,
+        resultTabIds,
+        dirtyFiles,
+        groupKey
+      }
+      if (dirtyFiles.length === 0) finishClose(closing)
+      else setPendingClose(closing)
+    },
+    [dirtyIds, files.files, finishClose]
+  )
+
+  const closeFile = useCallback(
+    (file: QueryFile) => requestClose([file.id], [], file.name),
+    [requestClose]
+  )
+
+  const closeGroup = useCallback(
+    (group: FileGroup) => {
+      const groupTarget = resolveTarget(group, targets)
+      const resultTabIds = runner.tabs
+        .filter(
+          (tab) =>
+            group.connId !== null &&
+            groupTarget !== null &&
+            tab.target.connId === group.connId &&
+            tab.target.database === groupTarget.database
+        )
+        .map((tab) => tab.id)
+      requestClose(
+        group.files.map((file) => file.id),
+        resultTabIds,
+        `${groupName(group)}${groupTarget ? ` / ${groupTarget.database}` : ''}`,
+        group.key
+      )
+    },
+    [groupName, requestClose, runner.tabs, targets]
+  )
+
+  const saveAndClose = useCallback(async () => {
+    if (!pendingClose || savingBeforeClose) return
+    setSavingBeforeClose(true)
+    for (const file of pendingClose.dirtyFiles) {
+      if (!(await saveFileById(file.id))) {
+        setSavingBeforeClose(false)
+        return
+      }
+    }
+    setSavingBeforeClose(false)
+    finishClose(pendingClose)
+  }, [finishClose, pendingClose, saveFileById, savingBeforeClose])
 
   const openTabMenu = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>, file: QueryFile) => {
@@ -511,10 +613,6 @@ export function EditorPanel({
     window.addEventListener('pointerup', up)
   }, [])
 
-  /** Display name for a group's connection tab. */
-  const groupName = (group: FileGroup): string =>
-    group.connId ? (connNames[group.connId] ?? group.connId) : 'Scratch'
-
   const activeTabHint = activeGroup
     ? `${activeGroup.files.length + activeGroup.previews.length} open · ${groupName(activeGroup)}${
         target && activeGroup.connId ? ` / ${target.database}` : ''
@@ -524,7 +622,11 @@ export function EditorPanel({
   return (
     <section className="editor-panel">
       <div className="editor-tabbar">
-        <div className="editor-tabbar__tabs">
+        <div
+          className="editor-tabbar__tabs"
+          role="tablist"
+          aria-label="Query connections"
+        >
           {groups.map((group) => {
             const isActive = group.key === activeGroup?.key
             const groupTarget = resolveTarget(group, targets)
@@ -532,10 +634,12 @@ export function EditorPanel({
               ? (connColors.get(group.connId) ?? 'var(--text-faint)')
               : 'var(--text-faint)'
             return (
-              <button
+              <div
                 key={group.key}
-                type="button"
                 className={`conn-tab${isActive ? ' is-active' : ''}`}
+                role="tab"
+                aria-selected={isActive}
+                tabIndex={0}
                 title={
                   group.connId
                     ? groupTarget
@@ -544,6 +648,11 @@ export function EditorPanel({
                     : 'Files not tied to a connection'
                 }
                 onClick={() => selectGroup(group)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return
+                  event.preventDefault()
+                  selectGroup(group)
+                }}
               >
                 <span
                   className="conn-tab__dot"
@@ -563,7 +672,20 @@ export function EditorPanel({
                 <span className="conn-tab__count">
                   {group.files.length + group.previews.length}
                 </span>
-              </button>
+                <button
+                  className="conn-tab__close"
+                  type="button"
+                  title={`Close ${groupName(group)}${groupTarget ? ` / ${groupTarget.database}` : ''}`}
+                  aria-label={`Close ${groupName(group)}${groupTarget ? ` / ${groupTarget.database}` : ''}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    closeGroup(group)
+                  }}
+                  onKeyDown={(event) => event.stopPropagation()}
+                >
+                  <CloseIcon />
+                </button>
+              </div>
             )
           })}
         </div>
@@ -636,7 +758,7 @@ export function EditorPanel({
               className="editor-tab__close"
               onClick={(e) => {
                 e.stopPropagation()
-                closeFile(file.id)
+                closeFile(file)
               }}
               title="Close tab"
               type="button"
@@ -704,6 +826,79 @@ export function EditorPanel({
           >
             <CloseIcon />
           </button>
+        </div>
+      )}
+      {pendingClose && (
+        <div className="dialog-overlay">
+          <div
+            className="dialog close-queries-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Save query changes"
+          >
+            <div className="dialog__header">
+              <span className="dialog__icon">
+                <SaveIcon />
+              </span>
+              <div className="dialog__titles">
+                <div className="dialog__title">Save changes?</div>
+                <div className="dialog__subtitle">{pendingClose.label}</div>
+              </div>
+            </div>
+            <div className="dialog__body close-queries-dialog__body">
+              {pendingClose.dirtyFiles.length === 1 ? (
+                <p>
+                  <strong>{pendingClose.dirtyFiles[0].name}</strong> has unsaved
+                  changes. Save them before closing?
+                </p>
+              ) : (
+                <>
+                  <p>
+                    {pendingClose.dirtyFiles.length} query tabs have unsaved
+                    changes. Save them before closing?
+                  </p>
+                  <ul className="close-queries-dialog__files">
+                    {pendingClose.dirtyFiles.map((file) => (
+                      <li key={file.id}>{file.name}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+            <div className="dialog__footer">
+              <button
+                className="btn-cancel close-queries-dialog__discard"
+                type="button"
+                disabled={savingBeforeClose}
+                onClick={() => finishClose(pendingClose)}
+              >
+                Don’t Save
+              </button>
+              <div className="test-msg" />
+              <button
+                className="btn-cancel"
+                type="button"
+                disabled={savingBeforeClose}
+                onClick={() => setPendingClose(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                type="button"
+                autoFocus
+                disabled={savingBeforeClose}
+                onClick={() => void saveAndClose()}
+              >
+                {savingBeforeClose && <span className="spinner" />}
+                {savingBeforeClose
+                  ? 'Saving…'
+                  : pendingClose.dirtyFiles.length === 1
+                    ? 'Save'
+                    : 'Save All'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {tabMenu && (

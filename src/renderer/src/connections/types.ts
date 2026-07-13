@@ -16,6 +16,7 @@ export type NodeKind =
   | 'function'
   | 'sequence'
   | 'type'
+  | 'enumValue'
   | 'aggregate'
   | 'column'
 

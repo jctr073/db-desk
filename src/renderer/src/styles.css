@@ -440,6 +440,10 @@ textarea {
 .conn-tab:hover {
   background: var(--panel-hi);
 }
+.conn-tab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
 .conn-tab.is-active {
   color: var(--text);
   background: var(--panel-hi);
@@ -487,6 +491,25 @@ textarea {
 .conn-tab.is-active .conn-tab__count {
   background: var(--accent-soft);
   color: var(--accent-strong);
+}
+.conn-tab__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-right: -5px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.conn-tab__close:hover,
+.conn-tab__close:focus-visible {
+  background: var(--row-hover);
+  color: var(--text);
 }
 
 /* Tier 2: file tabs for the active connection tab. */
@@ -1741,6 +1764,30 @@ body.is-grid-col-resizing {
   height: 32px;
   padding: 0 17px;
   font-size: 12.5px;
+}
+.close-queries-dialog {
+  width: 430px;
+}
+.close-queries-dialog__body {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.close-queries-dialog__body p {
+  margin: 0;
+}
+.close-queries-dialog__body strong {
+  color: var(--text);
+}
+.close-queries-dialog__files {
+  max-height: 120px;
+  margin: 10px 0 0;
+  padding-left: 22px;
+  overflow: auto;
+  color: var(--text);
+}
+.close-queries-dialog__discard {
+  color: var(--red);
 }
 .btn-test {
   display: inline-flex;

@@ -162,7 +162,16 @@ function schemaNode(
           id: '',
           kind: 'type' as const,
           label: type.name,
-          meta: type.kind
+          meta: type.kind,
+          children:
+            type.kind === 'enum' && type.values?.length
+              ? type.values.map((value, index) => ({
+                  id: '',
+                  kind: 'enumValue' as const,
+                  key: `value-${index}`,
+                  label: value
+                }))
+              : undefined
         }))
       },
       {
