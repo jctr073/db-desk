@@ -29,5 +29,7 @@ export function selectGridHeaders(
     return next
   }
 
+  if (selected.size === 1 && selected.has(index)) return new Set()
+
   return new Set([index])
 }

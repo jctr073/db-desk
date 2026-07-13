@@ -1324,6 +1324,10 @@ body.is-grid-col-resizing {
   cursor: pointer;
   user-select: none;
 }
+.result-grid th.result-grid__corner {
+  left: 0;
+  z-index: 3;
+}
 .result-grid tbody tr.is-selected td.result-grid__rownum {
   color: var(--accent-strong);
   box-shadow: inset 2px 0 var(--accent);

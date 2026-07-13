@@ -145,7 +145,9 @@ function ResultGrid({
     )
     setSelectedRows(next)
     onSelectedRowsChange(next)
-    if (!modifiers.shiftKey || rowSelectionAnchorRef.current === null) {
+    if (next.size === 0) {
+      rowSelectionAnchorRef.current = null
+    } else if (!modifiers.shiftKey || rowSelectionAnchorRef.current === null) {
       rowSelectionAnchorRef.current = row
     }
     setSelectedColumns(new Set())
@@ -156,21 +158,35 @@ function ResultGrid({
     column: number,
     modifiers: GridSelectionModifiers
   ): void => {
-    setSelectedColumns((selected) =>
-      selectGridHeaders(
-        selected,
-        column,
-        columnSelectionAnchorRef.current,
-        modifiers
-      )
+    const next = selectGridHeaders(
+      selectedColumns,
+      column,
+      columnSelectionAnchorRef.current,
+      modifiers
     )
-    if (!modifiers.shiftKey || columnSelectionAnchorRef.current === null) {
+    setSelectedColumns(next)
+    if (next.size === 0) {
+      columnSelectionAnchorRef.current = null
+    } else if (
+      !modifiers.shiftKey ||
+      columnSelectionAnchorRef.current === null
+    ) {
       columnSelectionAnchorRef.current = column
     }
     const noRows = new Set<number>()
     setSelectedRows(noRows)
     onSelectedRowsChange(noRows)
     rowSelectionAnchorRef.current = null
+  }
+
+  const selectAll = (): void => {
+    const allRows = new Set(result.rows.map((_, index) => index))
+    const allColumns = new Set(result.fields.map((_, index) => index))
+    setSelectedRows(allRows)
+    setSelectedColumns(allColumns)
+    onSelectedRowsChange(allRows)
+    rowSelectionAnchorRef.current = null
+    columnSelectionAnchorRef.current = null
   }
 
   const activateWithKeyboard = (
@@ -239,12 +255,25 @@ function ResultGrid({
     resizeColumn(column, currentWidth + direction * COLUMN_KEYBOARD_RESIZE_STEP)
   }
 
+  const allSelected =
+    result.fields.length > 0 &&
+    selectedRows.size === result.rows.length &&
+    selectedColumns.size === result.fields.length
+
   return (
     <div className="grid-scroll">
       <table className="result-grid" role="grid" aria-multiselectable="true">
         <thead>
           <tr>
-            <th className="result-grid__rownum" aria-label="Row number" />
+            <th
+              className={`result-grid__rownum result-grid__corner${allSelected ? ' is-selected' : ''}`}
+              aria-label="Select all cells"
+              aria-selected={allSelected}
+              title="Select all"
+              tabIndex={0}
+              onClick={selectAll}
+              onKeyDown={(event) => activateWithKeyboard(event, selectAll)}
+            />
             {result.fields.map((field, i) => (
               <th
                 key={i}
