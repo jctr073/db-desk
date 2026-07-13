@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 
 import { CONNECTION_TYPES, DIALECTS, dialectFor } from '../../../shared/dialect'
 import { CheckIcon, CloseIcon, DatabaseIcon, EyeIcon } from '../components/icons'
+import { databaseFieldError } from './connectionValidation'
 import type { ConnectionState } from './useConnectionState'
 
 interface NewConnectionDialogProps {
@@ -26,6 +27,12 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
   const layout = dialect.form
   const isParams = state.dialogTab === 'params' || !dialect.supportsUrl
   const editing = state.editingId !== null
+  const dbError = databaseFieldError(
+    dialect,
+    isParams,
+    state.form.database,
+    state.form.url
+  )
 
   const secretField = (
     <div style={{ flex: 1 }}>
@@ -169,10 +176,16 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
                 </label>
                 <input
                   id="conn-db"
-                  className="text-input"
+                  className={`text-input${dbError ? ' text-input--error' : ''}`}
+                  aria-invalid={!!dbError}
                   value={state.form.database}
                   onChange={(event) => state.updateForm('database', event.target.value)}
                 />
+                {dbError && (
+                  <div className="mcp-form-error" role="alert">
+                    {dbError}
+                  </div>
+                )}
               </div>
               <div className="field-row" style={{ marginTop: 11 }}>
                 {layout.showUser && (
@@ -198,13 +211,19 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
               </label>
               <input
                 id="conn-url"
-                className="text-input text-input--mono"
+                className={`text-input text-input--mono${dbError ? ' text-input--error' : ''}`}
+                aria-invalid={!!dbError}
                 value={state.form.url}
                 onChange={(event) => state.updateForm('url', event.target.value)}
               />
               <div className="url-hint">
                 Format: <span className="url-hint__mono">{dialect.urlExample}</span>
               </div>
+              {dbError && (
+                <div className="mcp-form-error" role="alert">
+                  {dbError}
+                </div>
+              )}
             </div>
           )}
 
@@ -246,7 +265,8 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
           <button
             className="btn-primary"
             onClick={state.connect}
-            disabled={state.connecting}
+            disabled={state.connecting || !!dbError}
+            title={dbError ?? undefined}
             type="button"
           >
             {state.connecting && <span className="spinner" />}

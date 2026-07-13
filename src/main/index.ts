@@ -67,6 +67,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: 'DB Desk',
+    titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

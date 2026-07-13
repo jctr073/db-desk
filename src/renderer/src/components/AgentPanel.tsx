@@ -491,7 +491,6 @@ export function AgentPanel({
     targets.find(
       (t) => knowledgeTargetKeyOf(t.connId, t.database) === knowledgeTargetKey
     ) ?? null
-  const repoStatus = target ? (repoStatuses[target.connId] ?? null) : null
   const knowledgeRepoStatus = knowledgeTarget
     ? (repoStatuses[knowledgeTarget.connId] ?? null)
     : null
@@ -1273,25 +1272,6 @@ export function AgentPanel({
                 </>
               )}
             </div>
-            <button
-              type="button"
-              className={`composer__web${
-                repoStatus?.root && repoEnabled ? ' is-on' : ''
-              }`}
-              title={
-                !target
-                  ? 'Connect to a database to use a codebase'
-                  : !repoStatus?.root
-                    ? 'Attach a codebase from the Knowledge tab'
-                    : repoEnabled
-                      ? `Codebase attached — ${repoRootName(repoStatus.root)} (on, click to disable)`
-                      : `Codebase attached — ${repoRootName(repoStatus.root)} (off, click to enable)`
-              }
-              disabled={!target || !repoStatus?.root}
-              onClick={() => setRepoEnabled((on) => !on)}
-            >
-              <FolderIcon size={14} />
-            </button>
           </div>
           <div className="chat__session-bar">
             <div className="chat-history-ctl">

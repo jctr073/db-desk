@@ -12,6 +12,14 @@ describe('selectGridHeaders', () => {
     expect([...selectGridHeaders(new Set([0, 2]), 4, 2, plain)]).toEqual([4])
   })
 
+  it('clears a sole selection when its header is clicked again', () => {
+    expect([...selectGridHeaders(new Set([4]), 4, 4, plain)]).toEqual([])
+  })
+
+  it('keeps a clicked header when it is part of a larger selection', () => {
+    expect([...selectGridHeaders(new Set([2, 4]), 4, 2, plain)]).toEqual([4])
+  })
+
   it('toggles one header on a Command-click', () => {
     expect([...selectGridHeaders(new Set([0, 2]), 4, 2, command)]).toEqual([
       0, 2, 4

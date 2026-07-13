@@ -18,7 +18,10 @@ import type {
   TestResult,
   TypeInfo
 } from '../../shared/db'
-import { normalizeConnectionUrl } from '../../shared/connectionUrl'
+import {
+  normalizeConnectionUrl,
+  parseConnectionUrl
+} from '../../shared/connectionUrl'
 import { applyAutoLimit } from '../../shared/sql'
 import type { Driver, RunQueryOptions } from './types'
 
@@ -26,17 +29,20 @@ const CONNECT_TIMEOUT_MS = 8000
 
 interface ManagedConnection {
   params: ConnectParams
-  /** Pool against the database the user originally connected to. */
+  /**
+   * The single pool for this connection. A PostgreSQL connection is pinned to
+   * exactly one database, chosen at connect time — there are no sibling pools
+   * and no path to any other database on the server.
+   */
   pool: Pool
+  /** The one database this connection is pinned to (from current_database()). */
   database: string
   /**
-   * TLS override the connection was established with; extra pools inherit
-   * it. null defers to the connection URL's own sslmode (verify-ca/
-   * verify-full/disable), which propagates to extra pools via the URL.
+   * TLS override the connection was established with. null defers to the
+   * connection URL's own sslmode (verify-ca/verify-full/disable), which pg
+   * enforces as written.
    */
   ssl: SslOverride
-  /** Lazily created pools for queries against sibling databases. */
-  extraPools: Map<string, Pool>
   /** Cache of type OID → name lookups shared by every result on this server. */
   typeNames: Map<number, string>
   /** Server version string captured at connect time, e.g. "16.2". */
@@ -55,24 +61,18 @@ type SslOverride = boolean | null
 
 function clientConfig(
   params: ConnectParams,
-  databaseOverride?: string,
   ssl: SslOverride = null
 ): ClientConfig {
   let config: ClientConfig
   if (params.useUrl && params.url.trim()) {
     let connectionString = normalizeConnectionUrl(params.url)
-    if (databaseOverride || ssl !== null) {
+    if (ssl !== null) {
       try {
         const url = new URL(connectionString)
-        if (databaseOverride) {
-          url.pathname = `/${encodeURIComponent(databaseOverride)}`
-        }
-        if (ssl !== null) {
-          // pg lets a parsed sslmode override explicit ssl config, so the
-          // param must go for the override below to take effect.
-          url.searchParams.delete('sslmode')
-          url.searchParams.delete('ssl')
-        }
+        // pg lets a parsed sslmode override explicit ssl config, so the
+        // param must go for the override below to take effect.
+        url.searchParams.delete('sslmode')
+        url.searchParams.delete('ssl')
         connectionString = url.toString()
       } catch {
         // not WHATWG-parseable; hand it to pg untouched
@@ -83,7 +83,10 @@ function clientConfig(
     config = {
       host: params.host.trim() || 'localhost',
       port: Number(params.port) || 5432,
-      database: databaseOverride ?? (params.database.trim() || 'postgres'),
+      // No silent fallback: connect() rejects an empty database up front, so
+      // the only caller reaching here without one is the connectivity test,
+      // where undefined lets pg apply its own default.
+      database: params.database.trim() || undefined,
       user: params.user.trim() || undefined,
       password: params.password || undefined,
       connectionTimeoutMillis: CONNECT_TIMEOUT_MS
@@ -92,6 +95,42 @@ function clientConfig(
   if (ssl === true) config.ssl = { rejectUnauthorized: false }
   if (ssl === false) config.ssl = false
   return config
+}
+
+/**
+ * The database a set of ConnectParams pins to: the form field, or the URL
+ * path in URL mode. Empty/whitespace means the user named none — PostgreSQL
+ * connections require one (unlike Databricks' multi-catalog model), so
+ * connect() rejects that up front. An unparseable URL returns null: the
+ * missing-database message would misdiagnose it, so the check steps aside
+ * and lets pg report the malformed URL itself.
+ */
+function resolveDatabase(params: ConnectParams): string | null {
+  if (params.useUrl && params.url.trim()) {
+    const parsed = parseConnectionUrl(params.url)
+    return parsed ? parsed.database.trim() : null
+  }
+  return params.database.trim()
+}
+
+/**
+ * A PostgreSQL connection is pinned to the single database chosen at connect
+ * time; unlike Databricks it never reaches sibling databases. Every entry
+ * point that takes a `database` argument runs it through this guard: an empty
+ * arg means "the pinned database", and any other name is a hard error rather
+ * than a silent cross-database query.
+ */
+function pinnedDatabase(
+  managed: ManagedConnection,
+  database: string
+): DbResult<string> {
+  if (!database.trim() || database === managed.database) {
+    return { ok: true, data: managed.database }
+  }
+  return {
+    ok: false,
+    error: `This connection is pinned to database "${managed.database}".`
+  }
 }
 
 /** sslmode requested explicitly in a connection URL; null when absent. */
@@ -404,7 +443,7 @@ async function testOnce(
   sslOverride: SslOverride,
   sslActive: boolean = sslOverride ?? false
 ): Promise<DbResult<TestResult>> {
-  const client = new Client(clientConfig(params, undefined, sslOverride))
+  const client = new Client(clientConfig(params, sslOverride))
   const started = Date.now()
   try {
     await client.connect()
@@ -449,7 +488,7 @@ async function connectOnce(
   params: ConnectParams,
   ssl: SslOverride
 ): Promise<DbResult<ConnectResult>> {
-  const pool = new Pool({ ...clientConfig(params, undefined, ssl), max: 4 })
+  const pool = new Pool({ ...clientConfig(params, ssl), max: 4 })
   let client: PoolClient | undefined
   try {
     client = await pool.connect()
@@ -457,18 +496,12 @@ async function connectOnce(
       'SELECT current_database() AS db, version() AS version'
     )
     const database = meta.rows[0].db
-    const dbRes = await client.query<{ datname: string }>(
-      `SELECT datname FROM pg_database
-        WHERE datallowconn AND NOT datistemplate
-        ORDER BY datname`
-    )
     const connectedDatabase = await introspectWith(client, database)
     connections.set(connId, {
       params,
       pool,
       database,
       ssl,
-      extraPools: new Map(),
       typeNames: new Map(),
       serverVersion: parseServerVersion(meta.rows[0].version)
     })
@@ -477,7 +510,9 @@ async function connectOnce(
       data: {
         serverVersion: parseServerVersion(meta.rows[0].version),
         connectedDatabase,
-        databases: dbRes.rows.map((row) => row.datname)
+        // Pinned to exactly one database; no sibling enumeration. The field
+        // stays plural for the multi-database engines (Databricks) that fill it.
+        databases: [database]
       }
     }
   } catch (err) {
@@ -495,6 +530,12 @@ export async function connect(
   if (connections.has(connId)) {
     return { ok: false, error: `Connection "${connId}" already exists` }
   }
+  if (resolveDatabase(params) === '') {
+    return {
+      ok: false,
+      error: 'A database is required for PostgreSQL connections.'
+    }
+  }
   switch (sslStrategy(params)) {
     case 'plain':
     case 'verify':
@@ -510,40 +551,29 @@ export async function connect(
   }
 }
 
-/** Introspect any database on an established connection's server. */
+/**
+ * Introspect the connection's pinned database. A mismatched `database`
+ * argument is rejected — this connection cannot reach any other database on
+ * the server.
+ */
 export async function introspectDatabase(
   connId: string,
   database: string
 ): Promise<DbResult<DatabaseIntrospection>> {
   const managed = connections.get(connId)
   if (!managed) return { ok: false, error: 'Connection no longer exists' }
+  const pinned = pinnedDatabase(managed, database)
+  if (!pinned.ok) return pinned
 
-  if (database === managed.database) {
-    let client: PoolClient | undefined
-    try {
-      client = await managed.pool.connect()
-      return { ok: true, data: await introspectWith(client, database) }
-    } catch (err) {
-      return { ok: false, error: errorMessage(err) }
-    } finally {
-      client?.release()
-    }
-  }
-
-  // Other databases require their own session; use a short-lived client.
-  const client = new Client(clientConfig(managed.params, database, managed.ssl))
+  let client: PoolClient | undefined
   try {
-    await client.connect()
-    return { ok: true, data: await introspectWith(client, database) }
+    client = await managed.pool.connect()
+    return { ok: true, data: await introspectWith(client, managed.database) }
   } catch (err) {
     return { ok: false, error: errorMessage(err) }
   } finally {
-    void client.end().catch(() => {})
+    client?.release()
   }
-}
-
-function allPools(managed: ManagedConnection): Pool[] {
-  return [managed.pool, ...managed.extraPools.values()]
 }
 
 /** Server version captured at connect time; null when the connection is gone. */
@@ -555,13 +585,13 @@ export async function disconnect(connId: string): Promise<DbResult<null>> {
   const managed = connections.get(connId)
   if (managed) {
     connections.delete(connId)
-    for (const pool of allPools(managed)) void pool.end().catch(() => {})
+    void managed.pool.end().catch(() => {})
   }
   return { ok: true, data: null }
 }
 
 export async function disconnectAll(): Promise<void> {
-  const pools = [...connections.values()].flatMap(allPools)
+  const pools = [...connections.values()].map((managed) => managed.pool)
   connections.clear()
   await Promise.allSettled(pools.map((pool) => pool.end()))
 }
@@ -652,19 +682,6 @@ function serializeCell(value: unknown): CellValue {
   }
 }
 
-function poolFor(managed: ManagedConnection, database: string): Pool {
-  if (database === managed.database) return managed.pool
-  let pool = managed.extraPools.get(database)
-  if (!pool) {
-    pool = new Pool({
-      ...clientConfig(managed.params, database, managed.ssl),
-      max: 2
-    })
-    managed.extraPools.set(database, pool)
-  }
-  return pool
-}
-
 /** Resolve field type names, hitting pg_type only for OIDs not yet cached. */
 async function resolveFields(
   client: ClientBase,
@@ -736,6 +753,8 @@ async function runQuery(
 ): Promise<DbResult<QueryResult>> {
   const managed = connections.get(connId)
   if (!managed) return { ok: false, error: 'Connection no longer exists' }
+  const pinned = pinnedDatabase(managed, database)
+  if (!pinned.ok) return pinned
 
   const prepared =
     limit === null ? { text: sql, applied: false } : applyAutoLimit(sql, limit)
@@ -744,7 +763,7 @@ async function runQuery(
   if (options.readOnly) sessionSettings.push('default_transaction_read_only')
   if (options.timeoutMs) sessionSettings.push('statement_timeout')
   try {
-    client = await poolFor(managed, database).connect()
+    client = await managed.pool.connect()
     const pid = (client as unknown as { processID?: number }).processID
     if (pid && options.onCancel) {
       options.onCancel(() => void cancelBackend(managed, pid))
@@ -820,9 +839,11 @@ async function withClient<T>(
 ): Promise<DbResult<T>> {
   const managed = connections.get(connId)
   if (!managed) return { ok: false, error: 'Connection no longer exists' }
+  const pinned = pinnedDatabase(managed, database)
+  if (!pinned.ok) return pinned
   let client: PoolClient | undefined
   try {
-    client = await poolFor(managed, database).connect()
+    client = await managed.pool.connect()
     return { ok: true, data: await fn(client) }
   } catch (err) {
     return { ok: false, error: errorMessage(err) }

@@ -17,8 +17,13 @@ automatically and honoring any explicit `sslmode` in a URL, following libpq
 semantics; Databricks connects to a SQL warehouse by server hostname, HTTP path,
 catalog, and personal access token. Creating a connection introspects the
 catalog and populates the tree with actual databases, schemas, tables, columns,
-views, materialized views, indexes, functions, sequences, types, and aggregates.
-Sibling databases are introspected lazily on first expand. Connections persist
+views, materialized views, indexes, functions, sequences, types, and aggregates
+(enum types expand to list their values).
+A PostgreSQL connection is pinned to the single database chosen at connect time
+(the database field is required); the main process rejects queries or
+introspection against any other database on the server. Databricks keeps the
+multi-catalog model: sibling catalogs are introspected lazily on first expand.
+Connections persist
 across sessions (passwords encrypted at rest via Electron `safeStorage`) and are
 restored offline on launch — reconnect, disconnect, refresh (re-introspect the
 connection's loaded databases to pick up schema changes), and remove are
@@ -59,7 +64,9 @@ cap after execution.
 
 Grid columns can be resized by dragging a header's edge (or with the arrow keys
 on the focused resize handle), and clicking row numbers or column headers
-selects rows or columns with the usual Shift range and ⌘ toggle modifiers. An
+selects rows or columns with the usual Shift range and ⌘ toggle modifiers;
+the top-left corner cell selects the whole grid, and clicking the sole
+selected header again deselects it. An
 **Export** control saves the active result as CSV, tab-delimited text, or JSON:
 with rows selected only the selection is written; otherwise CSV/TSV exports
 re-run the query read-only without the grid limit so the file holds the full
@@ -144,10 +151,13 @@ slash, or control-character names; duplicate names within the same connection/
 database are rejected; a missing `.sql` suffix is added automatically). Each
 tab keeps its own edit buffer so switching tabs preserves unsaved changes,
 with a per-file dirty indicator; ⌘S (or the Save button) writes the active
-file to disk. The
+file to disk. Tabs can be closed individually (the tab's ×) or a whole
+connection/database group at once; closing dirty tabs prompts to save or
+discard the changes, and closed files stay saved on disk. The
 right-hand panel's **SQL Files** tab lists all saved files grouped by their
-owning connection and database. The window title and chrome use the native OS
-title bar, and the light/dark theme toggle lives in the bottom status bar.
+owning connection and database, and reopens closed files on click. The window
+uses a custom title bar (centered title, themed to match the app), and the
+light/dark theme toggle lives in the bottom status bar.
 
 The right-hand panel's **Knowledge** tab is a local knowledge store for
 whatever the schema alone can't say: column/table annotations, join

@@ -372,3 +372,20 @@ export function deleteForConnection(connId: string): void {
     if (key.startsWith(prefix)) cache.delete(key)
   }
 }
+
+/**
+ * Delete the entire knowledge store and clear the in-memory cache. Takes no
+ * arguments and derives its target from `knowledgeDir()` alone, so — unlike
+ * `deleteForConnection` — there is no caller-supplied path segment and it can
+ * never be aimed anywhere outside `<userData>/knowledge`. Used by store.ts to
+ * wipe knowledge as part of the one-time fresh-start reset when
+ * `connections.json` is found in its pre-version-2 (pre-single-database)
+ * shape. A missing directory is not an error: there may be nothing to wipe.
+ */
+export function wipeAll(): void {
+  const dir = knowledgeDir()
+  if (existsSync(dir)) {
+    rmSync(dir, { recursive: true, force: true })
+  }
+  cache.clear()
+}
