@@ -30,7 +30,13 @@ import {
   deleteForConnection as deleteKnowledgeForConnection
 } from './knowledge'
 import { extractExemplarReferences } from './exemplar'
+import {
+  chooseExportDestination,
+  discardExportDestination,
+  writeExportDestination
+} from './dataExport'
 import type { ConnectParams } from '../shared/db'
+import type { DataExportFormat } from '../shared/export'
 import type { KnowledgeRecordInput } from '../shared/knowledge'
 
 // In development Electron otherwise uses the executable name ("Electron") for
@@ -116,6 +122,11 @@ function registerDbHandlers(): void {
       limit: number | null
     ) => runQuery(connId, database, sql, limit)
   )
+  ipcMain.handle(
+    'db:queryForExport',
+    (_event, connId: string, database: string, sql: string) =>
+      runQuery(connId, database, sql, null, { readOnly: true })
+  )
   ipcMain.handle('db:connectSaved', (_event, connId: string) => {
     const params = savedParams(connId)
     if (!params)
@@ -142,6 +153,20 @@ function registerDbHandlers(): void {
   })
 }
 
+function registerExportHandlers(): void {
+  ipcMain.handle(
+    'export:choose',
+    (_event, suggestedName: string, format: DataExportFormat) =>
+      chooseExportDestination(mainWindow, suggestedName, format)
+  )
+  ipcMain.handle('export:write', (_event, token: string, contents: string) =>
+    writeExportDestination(token, contents)
+  )
+  ipcMain.handle('export:discard', (_event, token: string) =>
+    discardExportDestination(token)
+  )
+}
+
 function registerFileHandlers(): void {
   ipcMain.handle('files:list', () => listQueries())
   ipcMain.handle(
@@ -159,15 +184,19 @@ function registerFileHandlers(): void {
     renameQuery(id, name)
   )
   ipcMain.handle('files:delete', (_event, id: string) => deleteQuery(id))
-  ipcMain.handle('files:getNextName', (_event, connId: string | null, database: string | null) =>
-    getNextQueryName(connId, database)
+  ipcMain.handle(
+    'files:getNextName',
+    (_event, connId: string | null, database: string | null) =>
+      getNextQueryName(connId, database)
   )
   ipcMain.handle('files:deleteForConnection', (_event, connId: string) =>
     deleteQueriesForConnection(connId)
   )
 }
 
-function registerKnowledgeHandlers(getWindow: () => BrowserWindow | null): void {
+function registerKnowledgeHandlers(
+  getWindow: () => BrowserWindow | null
+): void {
   const broadcast = (connId: string, database: string): void => {
     const win = getWindow()
     if (win && !win.isDestroyed()) {
@@ -228,6 +257,7 @@ function registerKnowledgeHandlers(getWindow: () => BrowserWindow | null): void 
 
 app.whenReady().then(() => {
   registerDbHandlers()
+  registerExportHandlers()
   registerFileHandlers()
   registerKnowledgeHandlers(() => mainWindow)
   registerAgentHandlers(() => mainWindow)

@@ -1040,6 +1040,112 @@ body.is-col-resizing {
 .limit-menu__item:hover {
   background: var(--row-hover);
 }
+
+.export-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--panel-hi);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.export-pill:hover,
+.export-pill.is-open {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.export-pill:disabled {
+  cursor: default;
+}
+.results-content-actions {
+  min-height: 33px;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+.export-menu {
+  z-index: 61;
+  width: 230px;
+  padding: 5px;
+}
+.export-menu__scope {
+  padding: 5px 8px 7px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.export-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.export-menu__item:hover {
+  background: var(--accent-soft);
+}
+.export-menu__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+.export-menu__extension {
+  margin-left: 5px;
+  color: var(--text-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+.export-menu__detail {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.result-export-error {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 29px;
+  padding: 5px 9px 5px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--red) 45%, var(--border));
+  background: color-mix(in srgb, var(--red) 9%, var(--panel));
+  color: var(--red);
+  font-size: 11.5px;
+}
+.result-export-error span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.result-export-error button {
+  display: inline-flex;
+  padding: 3px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
 .limit-menu__item.is-active {
   background: var(--accent-soft);
   color: var(--text);
@@ -1124,7 +1230,7 @@ body.is-col-resizing {
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: 5px 10px;
+  padding: 5px 14px 5px 10px;
   background: var(--panel-hi);
   border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border-soft);
@@ -1132,12 +1238,49 @@ body.is-col-resizing {
   font-weight: 600;
   white-space: nowrap;
   color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.result-grid th:focus-visible,
+.result-grid td.result-grid__rownum:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+.result-grid__heading {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+}
+.result-grid__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .result-grid__type {
+  flex: 0 0 auto;
   margin-left: 7px;
   font-size: 10px;
   font-weight: 400;
   color: var(--text-faint);
+}
+.result-grid__resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  z-index: 2;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.result-grid__resize-handle:hover,
+.result-grid__resize-handle:focus-visible {
+  background: var(--accent);
+}
+body.is-grid-col-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 .result-grid td {
   padding: 3px 10px;
@@ -1155,6 +1298,16 @@ body.is-col-resizing {
 .result-grid tbody tr:hover td {
   background: var(--row-hover);
 }
+.result-grid th.is-selected,
+.result-grid tbody tr td.is-selected-column,
+.result-grid tbody tr.is-selected td,
+.result-grid tbody tr.is-selected:hover td {
+  background: color-mix(in srgb, var(--accent) 20%, var(--panel));
+}
+.result-grid th.is-selected {
+  box-shadow: inset 0 -2px var(--accent);
+  color: var(--accent-strong);
+}
 .result-grid td.is-null {
   color: var(--text-faint);
   font-style: italic;
@@ -1166,6 +1319,14 @@ body.is-col-resizing {
   background: var(--panel-hi);
   font-style: normal;
   min-width: 34px;
+}
+.result-grid td.result-grid__rownum {
+  cursor: pointer;
+  user-select: none;
+}
+.result-grid tbody tr.is-selected td.result-grid__rownum {
+  color: var(--accent-strong);
+  box-shadow: inset 2px 0 var(--accent);
 }
 .grid-empty {
   padding: 18px;

@@ -1,16 +1,32 @@
-import { useEffect, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent,
+  ReactElement
+} from 'react'
 
 import type { QueryResult } from '../../../shared/db'
+import type { DataExportFormat } from '../../../shared/export'
 import {
   CheckIcon,
   ChevronDownIcon,
   CloseIcon,
+  ExportIcon,
   PinIcon,
   RefreshIcon,
   RowsIcon,
   SparkleIcon
 } from './icons'
+import {
+  exportNeedsFullQuery,
+  selectedResultRows,
+  serializeResult
+} from './resultExport'
+import {
+  selectGridHeaders,
+  type GridSelectionModifiers
+} from './resultGridSelection'
 import type { ResultTab } from './useQueryRunner'
 
 interface ResultsPanelProps {
@@ -39,7 +55,29 @@ const LIMIT_CHOICES: (number | null)[] = [100, 500, 1000, 5000, null]
 const TAB_SLOT_PX = 150
 /** Space kept free for the RESULTS cap, AI group tab, overflow button,
     spacer, limit pill and rerun control. */
-const BAR_RESERVED_PX = 310
+const BAR_RESERVED_PX = 385
+
+const MIN_RESULT_COLUMN_WIDTH = 64
+const COLUMN_KEYBOARD_RESIZE_STEP = 12
+
+const EXPORT_FORMATS: Array<{
+  format: DataExportFormat
+  label: string
+  extension: string
+}> = [
+  { format: 'csv', label: 'CSV', extension: '.csv' },
+  { format: 'tsv', label: 'Tab-delimited', extension: '.tsv' },
+  { format: 'json', label: 'JSON', extension: '.json' }
+]
+
+function exportFileBase(tab: ResultTab): string {
+  const candidate = tab.hint || tab.title || 'query-results'
+  const safe = candidate
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return safe || 'query-results'
+}
 
 function statusLine(tab: ResultTab): string {
   const result = tab.result
@@ -61,27 +99,232 @@ function statusLine(tab: ResultTab): string {
   return `${result.command || 'OK'} · ${parts.join(' · ')}`
 }
 
-function ResultGrid({ result }: { result: QueryResult }): ReactElement {
+interface ResultGridProps {
+  result: QueryResult
+  onSelectedRowsChange: (rows: ReadonlySet<number>) => void
+}
+
+function ResultGrid({
+  result,
+  onSelectedRowsChange
+}: ResultGridProps): ReactElement {
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(() => new Set())
+  const [selectedColumns, setSelectedColumns] = useState<Set<number>>(
+    () => new Set()
+  )
+  const [columnWidths, setColumnWidths] = useState<Record<number, number>>({})
+  const rowSelectionAnchorRef = useRef<number | null>(null)
+  const columnSelectionAnchorRef = useRef<number | null>(null)
+  const resizeRef = useRef<{
+    column: number
+    pointerId: number
+    startX: number
+    startWidth: number
+  } | null>(null)
+
+  useEffect(() => {
+    setSelectedRows(new Set())
+    setSelectedColumns(new Set())
+    setColumnWidths({})
+    rowSelectionAnchorRef.current = null
+    columnSelectionAnchorRef.current = null
+    onSelectedRowsChange(new Set())
+  }, [result, onSelectedRowsChange])
+
+  useEffect(
+    () => () => document.body.classList.remove('is-grid-col-resizing'),
+    []
+  )
+
+  const selectRow = (row: number, modifiers: GridSelectionModifiers): void => {
+    const next = selectGridHeaders(
+      selectedRows,
+      row,
+      rowSelectionAnchorRef.current,
+      modifiers
+    )
+    setSelectedRows(next)
+    onSelectedRowsChange(next)
+    if (!modifiers.shiftKey || rowSelectionAnchorRef.current === null) {
+      rowSelectionAnchorRef.current = row
+    }
+    setSelectedColumns(new Set())
+    columnSelectionAnchorRef.current = null
+  }
+
+  const selectColumn = (
+    column: number,
+    modifiers: GridSelectionModifiers
+  ): void => {
+    setSelectedColumns((selected) =>
+      selectGridHeaders(
+        selected,
+        column,
+        columnSelectionAnchorRef.current,
+        modifiers
+      )
+    )
+    if (!modifiers.shiftKey || columnSelectionAnchorRef.current === null) {
+      columnSelectionAnchorRef.current = column
+    }
+    const noRows = new Set<number>()
+    setSelectedRows(noRows)
+    onSelectedRowsChange(noRows)
+    rowSelectionAnchorRef.current = null
+  }
+
+  const activateWithKeyboard = (
+    event: ReactKeyboardEvent,
+    activate: (modifiers: GridSelectionModifiers) => void
+  ): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    activate(event)
+  }
+
+  const resizeColumn = (column: number, width: number): void => {
+    setColumnWidths((widths) => ({
+      ...widths,
+      [column]: Math.max(MIN_RESULT_COLUMN_WIDTH, Math.round(width))
+    }))
+  }
+
+  const startColumnResize = (
+    event: PointerEvent<HTMLSpanElement>,
+    column: number
+  ): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    resizeRef.current = {
+      column,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth:
+        event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    document.body.classList.add('is-grid-col-resizing')
+  }
+
+  const continueColumnResize = (event: PointerEvent<HTMLSpanElement>): void => {
+    const resize = resizeRef.current
+    if (!resize || resize.pointerId !== event.pointerId) return
+    resizeColumn(
+      resize.column,
+      resize.startWidth + event.clientX - resize.startX
+    )
+  }
+
+  const finishColumnResize = (event: PointerEvent<HTMLSpanElement>): void => {
+    if (resizeRef.current?.pointerId !== event.pointerId) return
+    resizeRef.current = null
+    document.body.classList.remove('is-grid-col-resizing')
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const resizeColumnWithKeyboard = (
+    event: ReactKeyboardEvent<HTMLSpanElement>,
+    column: number
+  ): void => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    event.stopPropagation()
+    const currentWidth =
+      columnWidths[column] ??
+      event.currentTarget.parentElement?.getBoundingClientRect().width ??
+      MIN_RESULT_COLUMN_WIDTH
+    const direction = event.key === 'ArrowLeft' ? -1 : 1
+    resizeColumn(column, currentWidth + direction * COLUMN_KEYBOARD_RESIZE_STEP)
+  }
+
   return (
     <div className="grid-scroll">
-      <table className="result-grid">
+      <table className="result-grid" role="grid" aria-multiselectable="true">
         <thead>
           <tr>
             <th className="result-grid__rownum" aria-label="Row number" />
             {result.fields.map((field, i) => (
-              <th key={i}>
-                {field.name}
-                <span className="result-grid__type">{field.dataType}</span>
+              <th
+                key={i}
+                className={selectedColumns.has(i) ? 'is-selected' : undefined}
+                style={
+                  columnWidths[i] === undefined
+                    ? undefined
+                    : {
+                        width: columnWidths[i],
+                        minWidth: columnWidths[i],
+                        maxWidth: columnWidths[i]
+                      }
+                }
+                aria-selected={selectedColumns.has(i)}
+                tabIndex={0}
+                onClick={(event: ReactMouseEvent) => selectColumn(i, event)}
+                onKeyDown={(event) =>
+                  activateWithKeyboard(event, (modifiers) =>
+                    selectColumn(i, modifiers)
+                  )
+                }
+              >
+                <span className="result-grid__heading">
+                  <span className="result-grid__name">{field.name}</span>
+                  <span className="result-grid__type">{field.dataType}</span>
+                </span>
+                <span
+                  className="result-grid__resize-handle"
+                  role="separator"
+                  aria-label={`Resize ${field.name} column`}
+                  aria-orientation="vertical"
+                  tabIndex={0}
+                  onClick={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => startColumnResize(event, i)}
+                  onPointerMove={continueColumnResize}
+                  onPointerUp={finishColumnResize}
+                  onPointerCancel={finishColumnResize}
+                  onKeyDown={(event) => resizeColumnWithKeyboard(event, i)}
+                />
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {result.rows.map((row, r) => (
-            <tr key={r}>
-              <td className="result-grid__rownum">{r + 1}</td>
+            <tr
+              key={r}
+              className={selectedRows.has(r) ? 'is-selected' : undefined}
+              aria-selected={selectedRows.has(r)}
+            >
+              <td
+                className="result-grid__rownum"
+                role="rowheader"
+                tabIndex={0}
+                onClick={(event: ReactMouseEvent) => selectRow(r, event)}
+                onKeyDown={(event) =>
+                  activateWithKeyboard(event, (modifiers) =>
+                    selectRow(r, modifiers)
+                  )
+                }
+              >
+                {r + 1}
+              </td>
               {row.map((cell, c) => (
-                <td key={c} className={cell === null ? 'is-null' : undefined}>
+                <td
+                  key={c}
+                  className={
+                    `${cell === null ? 'is-null' : ''}${selectedColumns.has(c) ? ' is-selected-column' : ''}`.trim() ||
+                    undefined
+                  }
+                  style={
+                    columnWidths[c] === undefined
+                      ? undefined
+                      : {
+                          width: columnWidths[c],
+                          minWidth: columnWidths[c],
+                          maxWidth: columnWidths[c]
+                        }
+                  }
+                >
                   {cell === null ? 'NULL' : String(cell)}
                 </td>
               ))}
@@ -96,7 +339,12 @@ function ResultGrid({ result }: { result: QueryResult }): ReactElement {
   )
 }
 
-function TabBody({ tab }: { tab: ResultTab }): ReactElement {
+interface TabBodyProps {
+  tab: ResultTab
+  onSelectedRowsChange: (rows: ReadonlySet<number>) => void
+}
+
+function TabBody({ tab, onSelectedRowsChange }: TabBodyProps): ReactElement {
   if (tab.running) {
     return (
       <div className="results-center">
@@ -120,7 +368,12 @@ function TabBody({ tab }: { tab: ResultTab }): ReactElement {
       </div>
     )
   }
-  return <ResultGrid result={tab.result} />
+  return (
+    <ResultGrid
+      result={tab.result}
+      onSelectedRowsChange={onSelectedRowsChange}
+    />
+  )
 }
 
 export function ResultsPanel({
@@ -141,11 +394,30 @@ export function ResultsPanel({
   const active = tabs.find((tab) => tab.id === activeTabId) ?? null
   const [menuOpen, setMenuOpen] = useState(false)
   const [limitOpen, setLimitOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportingFormat, setExportingFormat] =
+    useState<DataExportFormat | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [selectedRowIndexes, setSelectedRowIndexes] = useState<Set<number>>(
+    () => new Set()
+  )
   const [aiOpen, setAiOpen] = useState(false)
   const [maxVisible, setMaxVisible] = useState(6)
   const barRef = useRef<HTMLDivElement>(null)
   const overflowBtnRef = useRef<HTMLButtonElement>(null)
   const limitBtnRef = useRef<HTMLButtonElement>(null)
+  const exportBtnRef = useRef<HTMLButtonElement>(null)
+
+  const onSelectedRowsChange = useCallback(
+    (rows: ReadonlySet<number>): void => setSelectedRowIndexes(new Set(rows)),
+    []
+  )
+
+  useEffect(() => {
+    setSelectedRowIndexes(new Set())
+    setExportOpen(false)
+    setExportError(null)
+  }, [activeTabId])
 
   // Mirror the active result's summary into the app-wide status bar.
   useEffect(() => {
@@ -177,7 +449,10 @@ export function ResultsPanel({
     if (!bar) return
     const observer = new ResizeObserver(() => {
       setMaxVisible(
-        Math.max(2, Math.floor((bar.clientWidth - BAR_RESERVED_PX) / TAB_SLOT_PX))
+        Math.max(
+          2,
+          Math.floor((bar.clientWidth - BAR_RESERVED_PX) / TAB_SLOT_PX)
+        )
       )
     })
     observer.observe(bar)
@@ -203,16 +478,17 @@ export function ResultsPanel({
   }, [overflowTabs.length])
 
   useEffect(() => {
-    if (!menuOpen && !limitOpen) return
+    if (!menuOpen && !limitOpen && !exportOpen) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         setMenuOpen(false)
         setLimitOpen(false)
+        setExportOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [menuOpen, limitOpen])
+  }, [menuOpen, limitOpen, exportOpen])
 
   const menuRect = menuOpen
     ? overflowBtnRef.current?.getBoundingClientRect()
@@ -220,11 +496,158 @@ export function ResultsPanel({
   const limitRect = limitOpen
     ? limitBtnRef.current?.getBoundingClientRect()
     : undefined
+  const exportRect = exportOpen
+    ? exportBtnRef.current?.getBoundingClientRect()
+    : undefined
+
+  const activeResult = active?.result ?? null
+  const canExport = Boolean(
+    activeResult && activeResult.fields.length > 0 && !active?.running
+  )
+  const selectedRowCount = selectedRowIndexes.size
+
+  const startExport = async (format: DataExportFormat): Promise<void> => {
+    if (!active?.result || active.running || exportingFormat) return
+
+    const tab = active
+    const displayedResult: QueryResult = active.result
+    const selectedRows = new Set(selectedRowIndexes)
+    const extension =
+      EXPORT_FORMATS.find((candidate) => candidate.format === format)
+        ?.extension ?? `.${format}`
+
+    setExportOpen(false)
+    setExportError(null)
+
+    const destination = await window.dbDesk.exportFile.choose(
+      `${exportFileBase(tab)}${extension}`,
+      format
+    )
+    if (!destination.ok) {
+      setExportError(destination.error)
+      return
+    }
+    if (!destination.data) return
+
+    const { token } = destination.data
+    setExportingFormat(format)
+    try {
+      let fields = displayedResult.fields
+      let rows =
+        selectedRows.size > 0
+          ? selectedResultRows(displayedResult.rows, selectedRows)
+          : displayedResult.rows
+
+      if (exportNeedsFullQuery(format, selectedRows.size)) {
+        const fullResult = await window.dbDesk.db.queryForExport(
+          tab.target.connId,
+          tab.target.database,
+          tab.sql
+        )
+        if (!fullResult.ok) throw new Error(fullResult.error)
+        fields = fullResult.data.fields
+        rows = fullResult.data.rows
+      }
+
+      const saved = await window.dbDesk.exportFile.write(
+        token,
+        serializeResult(fields, rows, format)
+      )
+      if (!saved.ok) throw new Error(saved.error)
+    } catch (error) {
+      await window.dbDesk.exportFile.discard(token)
+      setExportError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setExportingFormat(null)
+    }
+  }
+
+  const exportButton = canExport ? (
+    <button
+      ref={exportBtnRef}
+      className={`export-pill${exportOpen ? ' is-open' : ''}`}
+      title={
+        selectedRowCount > 0
+          ? `Export ${selectedRowCount} selected row${selectedRowCount === 1 ? '' : 's'}`
+          : 'Export query results'
+      }
+      type="button"
+      disabled={exportingFormat !== null}
+      onClick={() => setExportOpen((open) => !open)}
+    >
+      {exportingFormat ? (
+        <span className="spinner spinner--xs" />
+      ) : (
+        <ExportIcon size={12} />
+      )}
+      <span>{exportingFormat ? 'Exporting' : 'Export'}</span>
+      {!exportingFormat && <ChevronDownIcon size={10} />}
+    </button>
+  ) : null
+
+  const exportMenu = exportOpen && exportRect && activeResult && (
+    <>
+      <div className="ctx-overlay" onClick={() => setExportOpen(false)} />
+      <div
+        className="ctx-menu export-menu"
+        style={{
+          top: exportRect.bottom + 4,
+          right: window.innerWidth - exportRect.right
+        }}
+        role="menu"
+      >
+        <div className="export-menu__scope">
+          {selectedRowCount > 0
+            ? `${selectedRowCount} selected row${selectedRowCount === 1 ? '' : 's'}`
+            : 'All rows'}
+        </div>
+        {EXPORT_FORMATS.map(({ format, label, extension }) => (
+          <button
+            key={format}
+            className="export-menu__item"
+            type="button"
+            role="menuitem"
+            onClick={() => void startExport(format)}
+          >
+            <span>
+              <span className="export-menu__label">{label}</span>
+              <span className="export-menu__extension">{extension}</span>
+            </span>
+            <span className="export-menu__detail">
+              {selectedRowCount > 0
+                ? 'Current selection'
+                : format === 'json'
+                  ? `${activeResult.rows.length} loaded row${activeResult.rows.length === 1 ? '' : 's'}`
+                  : 'Re-run without limit'}
+            </span>
+          </button>
+        ))}
+      </div>
+    </>
+  )
 
   if (contentOnly) {
     return (
       <div className="results-panel">
-        {active && <TabBody tab={active} />}
+        {exportButton && (
+          <div className="results-content-actions">{exportButton}</div>
+        )}
+        {exportError && (
+          <div className="result-export-error" role="alert">
+            <span>{exportError}</span>
+            <button type="button" onClick={() => setExportError(null)}>
+              <CloseIcon size={11} />
+            </button>
+          </div>
+        )}
+        {exportMenu}
+        {active && (
+          <TabBody
+            key={active.id}
+            tab={active}
+            onSelectedRowsChange={onSelectedRowsChange}
+          />
+        )}
       </div>
     )
   }
@@ -326,6 +749,7 @@ export function ResultsPanel({
             </span>
           </button>
         )}
+        {exportButton}
         {active && !active.running && (
           <button
             className="icon-btn icon-btn--sm"
@@ -337,6 +761,15 @@ export function ResultsPanel({
           </button>
         )}
       </div>
+      {exportError && (
+        <div className="result-export-error" role="alert">
+          <span>{exportError}</span>
+          <button type="button" onClick={() => setExportError(null)}>
+            <CloseIcon size={11} />
+          </button>
+        </div>
+      )}
+      {exportMenu}
       {aiOpen && aiTabs.length > 0 && (
         <div className="ai-strip">
           <span className="ai-strip__label">Runs</span>
@@ -458,7 +891,13 @@ export function ResultsPanel({
           </div>
         </>
       )}
-      {active && <TabBody tab={active} />}
+      {active && (
+        <TabBody
+          key={active.id}
+          tab={active}
+          onSelectedRowsChange={onSelectedRowsChange}
+        />
+      )}
     </div>
   )
 }
