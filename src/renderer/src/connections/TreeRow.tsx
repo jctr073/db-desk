@@ -53,6 +53,13 @@ const fkStyle: CSSProperties = {
   flex: '0 0 auto'
 }
 
+/** Inferred (naming-convention) foreign key: like FK but dashed to read as a guess. */
+const lfkStyle: CSSProperties = {
+  ...fkStyle,
+  borderStyle: 'dashed',
+  opacity: 0.85
+}
+
 /** Subtle marker for nodes that have local knowledge attached. */
 const knowledgeDotStyle: CSSProperties = {
   width: 5,
@@ -85,6 +92,7 @@ interface TreeRowProps {
   /** Show the knowledge dot: local knowledge is attached to this node. */
   hasKnowledge?: boolean
   onClick: () => void
+  onDoubleClick?: () => void
   onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void
 }
 
@@ -99,6 +107,7 @@ export function TreeRow({
   showStatusDots,
   hasKnowledge = false,
   onClick,
+  onDoubleClick,
   onContextMenu
 }: TreeRowProps): ReactElement {
   const isContainer = CONTAINER_KINDS.has(node.kind)
@@ -234,9 +243,15 @@ export function TreeRow({
       role="treeitem"
       aria-expanded={expandable ? expanded : undefined}
       aria-selected={selected}
+      data-node-id={node.id}
       className="tree-row"
       style={rowStyle}
-      onClick={onClick}
+      onClick={(event) => {
+        // A double-click also emits two click events. Keep the first click's
+        // normal selection/expansion behavior without immediately undoing it.
+        if (event.detail === 1) onClick()
+      }}
+      onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
     >
       {guides.map((g, i) => (
@@ -277,8 +292,23 @@ export function TreeRow({
         </span>
       )}
       {node.kind === 'column' && node.badge === 'fk' && (
-        <span style={fkStyle} title="Foreign key">
+        <span
+          style={fkStyle}
+          title={node.fkRef ? `Foreign key → ${node.fkRef}` : 'Foreign key'}
+        >
           FK
+        </span>
+      )}
+      {node.kind === 'column' && node.badge === 'lfk' && (
+        <span
+          style={lfkStyle}
+          title={
+            node.fkRef
+              ? `Logical foreign key (inferred) → ${node.fkRef}`
+              : 'Logical foreign key (inferred)'
+          }
+        >
+          LFK
         </span>
       )}
       {rightText && rightStyle && <span style={rightStyle}>{rightText}</span>}

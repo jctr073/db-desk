@@ -2,7 +2,7 @@ import type { ConnectionType } from '../../../shared/dialect'
 
 export type ConnectionStatus = 'online' | 'idle' | 'error' | 'offline'
 
-export type ColumnBadge = 'pk' | 'fk' | null
+export type ColumnBadge = 'pk' | 'fk' | 'lfk' | null
 
 export type NodeKind =
   | 'connection'
@@ -34,6 +34,7 @@ export interface TreeNode {
   // connection
   subtitle?: string
   status?: ConnectionStatus
+  connectionType?: ConnectionType
 
   // database / connection
   /** True when the database's schema has not been introspected yet. */
@@ -47,6 +48,8 @@ export interface TreeNode {
   // column
   dtype?: string
   badge?: ColumnBadge
+  /** Referenced "schema.table.column" for fk (declared) and lfk (inferred) columns. */
+  fkRef?: string | null
 
   // function
   returnType?: string

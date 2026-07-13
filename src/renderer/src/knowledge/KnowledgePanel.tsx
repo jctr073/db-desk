@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 
 import type { DatabaseIntrospection } from '../../../shared/db'
 import { lookupUsages } from '../../../shared/knowledge'
@@ -52,6 +52,8 @@ interface KnowledgePanelProps {
   newSeq: number
   /** Called once `newSeq` has been acted on, so the parent can reset it. */
   onNewConsumed: () => void
+  /** Database-scoped controls that belong beside the knowledge target. */
+  targetActions?: ReactNode
 }
 
 /**
@@ -68,7 +70,8 @@ export function KnowledgePanel({
   nav,
   onNavConsumed,
   newSeq,
-  onNewConsumed
+  onNewConsumed,
+  targetActions
 }: KnowledgePanelProps): ReactElement {
   const [search, setSearch] = useState('')
   const [kindFilter, setKindFilter] = useState<KnowledgeKind | 'all'>('all')
@@ -232,6 +235,7 @@ export function KnowledgePanel({
             </option>
           ))}
         </select>
+        {targetActions}
         <button
           ref={newBtnRef}
           type="button"

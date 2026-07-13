@@ -15,7 +15,14 @@ import {
   SparkleIcon
 } from '../components/icons'
 import { ConnectionTree } from './ConnectionTree'
+import { ReferencesPopover } from './ReferencesPopover'
 import { flattenTree } from './flatten'
+import {
+  buildReferenceIndex,
+  columnReferences,
+  tableReferences
+} from './references'
+import type { ColumnEndpoint } from './references'
 import { findNode } from './treeData'
 import type { NodeKind, TreeNode } from './types'
 import type { ConnectionState } from './useConnectionState'
@@ -27,6 +34,8 @@ const SHOW_STATUS_DOTS = true
 interface ConnectionPanelProps {
   state: ConnectionState
   onNewQueryFile?: (connId: string, database: string) => void
+  /** Open a full-height, read-only 100-row preview for a relation. */
+  onOpenDataPreview?: (item: AgentContextItem) => void
   /** Attach a schema/table/view to the AI agent thread as a context chip. */
   onAddToAgentThread?: (item: AgentContextItem) => void
   /** "Show usages" / "Add annotation…" on a table or column node. */
@@ -62,6 +71,16 @@ interface MenuState {
   nodeKind: MenuKind
 }
 
+interface RefsViewState {
+  x: number
+  y: number
+  connId: string
+  database: string
+  ref: ColumnRef
+}
+
+const RELATION_KINDS = new Set<NodeKind>(['table', 'view', 'matview'])
+
 /** Build the chip payload for a schema/table/view node from its path-based id. */
 function contextItemFor(node: TreeNode): AgentContextItem | null {
   if (!AGENT_CONTEXT_KINDS.has(node.kind)) return null
@@ -86,6 +105,7 @@ function contextItemFor(node: TreeNode): AgentContextItem | null {
 export function ConnectionPanel({
   state,
   onNewQueryFile,
+  onOpenDataPreview,
   onAddToAgentThread,
   onKnowledgeAction,
   knowledgeIds
@@ -102,6 +122,59 @@ export function ConnectionPanel({
     menuNode && KNOWLEDGE_KINDS.has(menuNode.kind)
       ? treeNodeRef(menuNode, state.tree)
       : null
+  // References only work where introspection carries FK data (Postgres for now).
+  const menuRefIsPostgres =
+    !!menuRef &&
+    state.tree.find((node) => node.id === menuRef.connId)?.connectionType ===
+      'postgres'
+
+  const [refsView, setRefsView] = useState<RefsViewState | null>(null)
+  const refsIntro = refsView
+    ? state.schemas[refsView.connId]?.[refsView.database]
+    : undefined
+  const refsLists = useMemo(() => {
+    if (!refsView || !refsIntro) return null
+    const index = buildReferenceIndex(refsIntro)
+    const { schema, table, column } = refsView.ref
+    return column
+      ? columnReferences(index, { schema, table, column })
+      : tableReferences(index, schema, table)
+  }, [refsView, refsIntro])
+
+  /** Reveal and select the tree node for a reference endpoint, closing the popover. */
+  const navigateToEndpoint = (endpoint: ColumnEndpoint): void => {
+    if (!refsView) return
+    const conn = state.tree.find((node) => node.id === refsView.connId)
+    const db = conn?.children?.find(
+      (node) => node.kind === 'database' && node.label === refsView.database
+    )
+    const schema = db?.children?.find(
+      (node) => node.kind === 'schema' && node.label === endpoint.schema
+    )
+    for (const category of schema?.children ?? []) {
+      const rel = category.children?.find(
+        (node) => RELATION_KINDS.has(node.kind) && node.label === endpoint.table
+      )
+      if (!rel) continue
+      const col = rel.children?.find(
+        (node) => node.kind === 'column' && node.label === endpoint.column
+      )
+      state.reveal(
+        [conn!.id, db!.id, schema!.id, category.id, rel.id],
+        col?.id ?? rel.id
+      )
+      setRefsView(null)
+      // Rows render on the next frame; then best-effort scroll to the target.
+      const targetId = col?.id ?? rel.id
+      window.setTimeout(() => {
+        document
+          .querySelector(`[data-node-id="${CSS.escape(targetId)}"]`)
+          ?.scrollIntoView({ block: 'center' })
+      }, 50)
+      return
+    }
+    setRefsView(null)
+  }
 
   useEffect(() => {
     if (!menu) return
@@ -199,6 +272,10 @@ export function ConnectionPanel({
             showStatusDots={SHOW_STATUS_DOTS}
             knowledgeIds={knowledgeIds}
             onRowClick={state.toggleRow}
+            onRowDoubleClick={(node) => {
+              const item = contextItemFor(node)
+              if (item && item.kind !== 'schema') onOpenDataPreview?.(item)
+            }}
             onRowContextMenu={onRowContextMenu}
           />
         )}
@@ -251,6 +328,24 @@ export function ConnectionPanel({
             {menuRef && (
               <>
                 {menuContextItem && <div className="ctx-menu__sep" />}
+                {menuRefIsPostgres && (
+                  <button
+                    className="ctx-menu__item"
+                    role="menuitem"
+                    onClick={() => {
+                      setRefsView({
+                        x: menu.x,
+                        y: menu.y,
+                        connId: menuRef.connId,
+                        database: menuRef.database,
+                        ref: menuRef.ref
+                      })
+                      setMenu(null)
+                    }}
+                  >
+                    View references
+                  </button>
+                )}
                 <button
                   className="ctx-menu__item"
                   role="menuitem"
@@ -329,16 +424,28 @@ export function ConnectionPanel({
             {menu.nodeKind === 'connection' && (
               <>
                 {menuNode.status === 'online' ? (
-                  <button
-                    className="ctx-menu__item"
-                    role="menuitem"
-                    onClick={() => {
-                      state.disconnectConnection(menu.nodeId)
-                      setMenu(null)
-                    }}
-                  >
-                    Disconnect
-                  </button>
+                  <>
+                    <button
+                      className="ctx-menu__item"
+                      role="menuitem"
+                      onClick={() => {
+                        state.refreshConnection(menu.nodeId)
+                        setMenu(null)
+                      }}
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      className="ctx-menu__item"
+                      role="menuitem"
+                      onClick={() => {
+                        state.disconnectConnection(menu.nodeId)
+                        setMenu(null)
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  </>
                 ) : (
                   <button
                     className="ctx-menu__item"
@@ -367,6 +474,22 @@ export function ConnectionPanel({
             )}
           </div>
         </div>
+      )}
+
+      {refsView && (
+        <ReferencesPopover
+          x={refsView.x}
+          y={refsView.y}
+          title={
+            refsView.ref.column
+              ? `${refsView.ref.schema}.${refsView.ref.table}.${refsView.ref.column}`
+              : `${refsView.ref.schema}.${refsView.ref.table}`
+          }
+          subjectColumn={refsView.ref.column ?? null}
+          lists={refsLists}
+          onNavigate={navigateToEndpoint}
+          onClose={() => setRefsView(null)}
+        />
       )}
 
     </section>
