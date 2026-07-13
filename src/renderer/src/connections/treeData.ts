@@ -10,6 +10,7 @@ import type {
 } from '../../../shared/db'
 import { dialectFor } from '../../../shared/dialect'
 import type { ConnectionType } from '../../../shared/dialect'
+import { buildReferenceIndex, columnKey } from './references'
 import type { ConnectionForm, TreeNode } from './types'
 
 export function slug(value: string): string {
@@ -42,25 +43,31 @@ export function findNode(
   return null
 }
 
-function columnNode(col: ColumnInfo): TreeNode {
+function columnNode(col: ColumnInfo, logicalRef?: string): TreeNode {
   return {
     id: '',
     kind: 'column',
     label: col.name,
     dtype: col.dataType,
-    badge: col.badge
+    // A declared pk/fk badge always wins over an inferred logical fk.
+    badge: col.badge ?? (logicalRef ? 'lfk' : null),
+    fkRef: col.fkRef ?? logicalRef ?? null
   }
 }
 
 function relationNode(
   kind: 'table' | 'view' | 'matview',
-  rel: RelationInfo
+  rel: RelationInfo,
+  schemaName: string,
+  logicalRefs?: Map<string, string>
 ): TreeNode {
   return {
     id: '',
     kind,
     label: rel.name,
-    children: rel.columns.map(columnNode)
+    children: rel.columns.map((col) =>
+      columnNode(col, logicalRefs?.get(columnKey(schemaName, rel.name, col.name)))
+    )
   }
 }
 
@@ -68,7 +75,10 @@ function routineLabel(routine: RoutineInfo): string {
   return `${routine.name}(${routine.args})`
 }
 
-function schemaNode(schema: SchemaIntrospection): TreeNode {
+function schemaNode(
+  schema: SchemaIntrospection,
+  logicalRefs?: Map<string, string>
+): TreeNode {
   return {
     id: '',
     kind: 'schema',
@@ -81,7 +91,9 @@ function schemaNode(schema: SchemaIntrospection): TreeNode {
         key: 'tables',
         icon: 'table',
         label: 'Tables',
-        children: schema.tables.map((rel) => relationNode('table', rel))
+        children: schema.tables.map((rel) =>
+          relationNode('table', rel, schema.name, logicalRefs)
+        )
       },
       {
         id: '',
@@ -89,7 +101,9 @@ function schemaNode(schema: SchemaIntrospection): TreeNode {
         key: 'views',
         icon: 'view',
         label: 'Views',
-        children: schema.views.map((rel) => relationNode('view', rel))
+        children: schema.views.map((rel) =>
+          relationNode('view', rel, schema.name, logicalRefs)
+        )
       },
       {
         id: '',
@@ -97,7 +111,9 @@ function schemaNode(schema: SchemaIntrospection): TreeNode {
         key: 'matviews',
         icon: 'matview',
         label: 'Materialized Views',
-        children: schema.matviews.map((rel) => relationNode('matview', rel))
+        children: schema.matviews.map((rel) =>
+          relationNode('matview', rel, schema.name, logicalRefs)
+        )
       },
       {
         id: '',
@@ -165,9 +181,17 @@ function schemaNode(schema: SchemaIntrospection): TreeNode {
   }
 }
 
-/** Schema nodes for a fully introspected database (ids assigned by the caller). */
-export function databaseChildren(db: DatabaseIntrospection): TreeNode[] {
-  return db.schemas.map(schemaNode)
+/**
+ * Schema nodes for a fully introspected database (ids assigned by the caller).
+ * Logical foreign keys are only inferred for Postgres connections for now.
+ */
+export function databaseChildren(
+  db: DatabaseIntrospection,
+  connectionType?: ConnectionType
+): TreeNode[] {
+  const logicalRefs =
+    connectionType === 'postgres' ? buildReferenceIndex(db).logicalRefs : undefined
+  return db.schemas.map((schema) => schemaNode(schema, logicalRefs))
 }
 
 interface SubtitleSource {
@@ -259,7 +283,7 @@ export function connectionNodeFromResult(
             kind: 'database' as const,
             key: name,
             label: name,
-            children: databaseChildren(connected)
+            children: databaseChildren(connected, saved.type)
           }
         : {
             id: '',

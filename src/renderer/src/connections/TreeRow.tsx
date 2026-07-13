@@ -53,6 +53,13 @@ const fkStyle: CSSProperties = {
   flex: '0 0 auto'
 }
 
+/** Inferred (naming-convention) foreign key: like FK but dashed to read as a guess. */
+const lfkStyle: CSSProperties = {
+  ...fkStyle,
+  borderStyle: 'dashed',
+  opacity: 0.85
+}
+
 /** Subtle marker for nodes that have local knowledge attached. */
 const knowledgeDotStyle: CSSProperties = {
   width: 5,
@@ -236,6 +243,7 @@ export function TreeRow({
       role="treeitem"
       aria-expanded={expandable ? expanded : undefined}
       aria-selected={selected}
+      data-node-id={node.id}
       className="tree-row"
       style={rowStyle}
       onClick={(event) => {
@@ -284,8 +292,23 @@ export function TreeRow({
         </span>
       )}
       {node.kind === 'column' && node.badge === 'fk' && (
-        <span style={fkStyle} title="Foreign key">
+        <span
+          style={fkStyle}
+          title={node.fkRef ? `Foreign key → ${node.fkRef}` : 'Foreign key'}
+        >
           FK
+        </span>
+      )}
+      {node.kind === 'column' && node.badge === 'lfk' && (
+        <span
+          style={lfkStyle}
+          title={
+            node.fkRef
+              ? `Logical foreign key (inferred) → ${node.fkRef}`
+              : 'Logical foreign key (inferred)'
+          }
+        >
+          LFK
         </span>
       )}
       {rightText && rightStyle && <span style={rightStyle}>{rightText}</span>}
