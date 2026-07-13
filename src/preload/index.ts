@@ -19,6 +19,11 @@ import type {
 import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
 import type { KnowledgeRecord, KnowledgeRecordInput } from '../shared/knowledge'
 import type { RepoStatus } from '../shared/repo'
+import type {
+  ChooseExportResult,
+  DataExportFormat,
+  WriteExportResult
+} from '../shared/export'
 
 const api = Object.freeze({
   appName: 'DB Desk',
@@ -45,7 +50,24 @@ const api = Object.freeze({
       sql: string,
       limit: number | null
     ): Promise<DbResult<QueryResult>> =>
-      ipcRenderer.invoke('db:query', connId, database, sql, limit)
+      ipcRenderer.invoke('db:query', connId, database, sql, limit),
+    queryForExport: (
+      connId: string,
+      database: string,
+      sql: string
+    ): Promise<DbResult<QueryResult>> =>
+      ipcRenderer.invoke('db:queryForExport', connId, database, sql)
+  }),
+  exportFile: Object.freeze({
+    choose: (
+      suggestedName: string,
+      format: DataExportFormat
+    ): Promise<ChooseExportResult> =>
+      ipcRenderer.invoke('export:choose', suggestedName, format),
+    write: (token: string, contents: string): Promise<WriteExportResult> =>
+      ipcRenderer.invoke('export:write', token, contents),
+    discard: (token: string): Promise<void> =>
+      ipcRenderer.invoke('export:discard', token)
   }),
   store: Object.freeze({
     list: (): Promise<SavedConnection[]> => ipcRenderer.invoke('store:list'),
@@ -146,7 +168,13 @@ const api = Object.freeze({
       question: string,
       sql: string
     ): Promise<KnowledgeRecord> =>
-      ipcRenderer.invoke('knowledge:saveExemplar', connId, database, question, sql),
+      ipcRenderer.invoke(
+        'knowledge:saveExemplar',
+        connId,
+        database,
+        question,
+        sql
+      ),
     remove: (connId: string, database: string, id: string): Promise<void> =>
       ipcRenderer.invoke('knowledge:delete', connId, database, id),
     deleteForConnection: (connId: string): Promise<void> =>

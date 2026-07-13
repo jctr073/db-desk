@@ -416,6 +416,21 @@ export function SaveIcon({ size = 14 }: IconProps): ReactElement {
   )
 }
 
+export function ExportIcon({ size = 14 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.35}
+    >
+      <path d="M8 2.2v7.3M5.2 6.8 8 9.6l2.8-2.8" />
+      <path d="M3 10.2v2.6h10v-2.6" />
+    </svg>
+  )
+}
+
 export function ShieldIcon({ size = 12 }: IconProps): ReactElement {
   return (
     <svg
