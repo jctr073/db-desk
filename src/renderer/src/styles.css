@@ -2319,9 +2319,12 @@ body.is-col-resizing {
 .repo-pop__info {
   word-break: break-all;
 }
-.repo-ctl--target .repo-pop {
+.repo-ctl--knowledge .repo-pop {
   top: 34px;
   bottom: auto;
+  left: auto;
+  right: 0;
+  width: min(240px, calc(100vw - 24px));
 }
 .model-pop__row:disabled {
   opacity: 0.45;
