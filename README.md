@@ -20,8 +20,29 @@ catalog and populates the tree with actual databases, schemas, tables, columns,
 views, materialized views, indexes, functions, sequences, types, and aggregates.
 Sibling databases are introspected lazily on first expand. Connections persist
 across sessions (passwords encrypted at rest via Electron `safeStorage`) and are
-restored offline on launch — reconnect, disconnect, and remove are available from
-a right-click menu.
+restored offline on launch — reconnect, disconnect, refresh (re-introspect the
+connection's loaded databases to pick up schema changes), and remove are
+available from a right-click menu.
+
+The tree also understands foreign keys — including ones that were never
+declared. PostgreSQL columns with a real FK constraint show an **FK** badge,
+and columns that merely follow naming conventions get a dashed **LFK**
+(logical foreign key) badge, inferred client-side from the cached
+introspection: `customer_id` matches a `customers` table whose primary key is
+`id` (best-effort singularization covers `statuses`, `categories`, `people`,
+and other irregulars) or a `warehouses` table whose primary key is itself
+`warehouse_id`. Inference is deliberately conservative — exact column-name
+matches only, compatible type families (int/uuid/text/numeric), single-column
+primary keys only, declared FKs always win over convention, and never a
+self-reference. Right-clicking a table, view, or column offers **View
+references**: an anchored popover listing what the object **References** and
+what it is **Referenced by** (views and materialized views included, labeled
+as such), each row badged FK or LFK — and clicking a row navigates the tree
+to that column. Reference info is PostgreSQL-only for now. Double-clicking a
+table, view, or materialized view opens a **data preview** — a read-only
+`SELECT *` capped at 100 rows in its own full-height tab, grouped with the
+query files of its connection/database; previewing the same relation again
+refreshes the existing tab.
 
 The SQL editor executes queries for real: a toolbar dropdown picks the
 (connection, database) target, Run (or ⌘⏎) executes the statement under the
@@ -160,21 +181,26 @@ live schema if that's unavailable) so the exemplar shows up under "Show
 usages" for the columns it queries.
 
 A codebase can be attached to a connection so the agent can cross-reference
-the app's source alongside the schema. The codebase control beside the agent
-mode picker opens a native directory picker; the chosen root (and HEAD's short
+the app's source alongside the schema. The codebase control in the Knowledge
+tab opens a native directory picker; the chosen root (and HEAD's short
 commit SHA, when it's a git checkout) is stored main-side, keyed by
 connection id — the renderer never has the filesystem path, only a status.
+Attachment statuses are tracked per connection, so the agent chat and the
+Knowledge tab can each point at a different database without losing track of
+either connection's codebase.
 Once attached, three read-only tools (`list_repo_files`, `grep_repo`,
 `read_repo_file`) are sandboxed to that root: paths must resolve lexically
 inside it, symlinks are never followed, conventional secret files (`.env*`,
 private keys, `.npmrc`, …) are invisible to all three, and every primitive is
 capped (visits, results, matches, file size) so a monorepo can't wedge the
-main process. A **Scan codebase** action sends a canned prompt that walks the
-agent through migrations, ORM models, query/repository code, and docs, saving
-what it learns to the local knowledge store (verified against the live
-schema first) with provenance like `db/migrate/20240301_add_status.rb@abc1234`.
-The attachment is on by default per chat once set and can be toggled off,
-detached, or repointed to a different directory from the same control.
+main process. A **Scan codebase** action in the same
+control sends a canned prompt (targeting the Knowledge tab's connection and
+switching to the agent chat) that walks the agent through migrations, ORM
+models, query/repository code, and docs, saving what it learns to the local
+knowledge store (verified against the live schema first) with provenance like
+`db/migrate/20240301_add_status.rb@abc1234`. The attachment can be detached
+or repointed to a different directory from that control; in the agent
+composer it is on by default per chat once set and can be toggled off.
 
 ## Setup
 
@@ -274,8 +300,10 @@ src/
         types.ts
         treeData.ts        # tree construction from introspection results
         flatten.ts         # visible-row flattening + filtering
+        references.ts      # FK/logical-FK reference graph over cached introspection
         useConnectionState.ts
         ConnectionPanel.tsx
+        ReferencesPopover.tsx # "View references" anchored popover
         ConnectionTree.tsx
         TreeRow.tsx
         NodeIcon.tsx
