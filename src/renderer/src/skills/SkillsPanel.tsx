@@ -18,8 +18,11 @@ interface SkillsPanelProps {
   newSeq: number
   /** Called once `newSeq` has been acted on, so the parent can reset it. */
   onNewConsumed: () => void
-  /** Send the resolved prompt as an agent turn (the caller owns the chat). */
-  onRun: (skill: Skill, prompt: string) => void
+  /**
+   * Send the resolved prompt as an agent turn (the caller owns the chat).
+   * Returns a user-facing reason when the run cannot happen, else null.
+   */
+  onRun: (skill: Skill, prompt: string) => string | null
   /** False while a turn is streaming — sends would be dropped anyway. */
   canRun: boolean
 }
@@ -47,6 +50,8 @@ export function SkillsPanel({
 }: SkillsPanelProps): ReactElement {
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [argsFor, setArgsFor] = useState<Skill | null>(null)
+  /** Why the last Run was refused (no connection, no codebase, …). */
+  const [runError, setRunError] = useState<string | null>(null)
   const editorSeq = useRef(0)
   const openEditor = (skill: Skill | null): void =>
     setEditor({ skill, seq: ++editorSeq.current })
@@ -62,11 +67,12 @@ export function SkillsPanel({
   const run = useCallback(
     (skill: Skill): void => {
       if (!canRun) return
+      setRunError(null)
       if (skillHasArgs(skill.prompt)) {
         setArgsFor(skill)
         return
       }
-      onRun(skill, skill.prompt)
+      setRunError(onRun(skill, skill.prompt))
     },
     [canRun, onRun]
   )
@@ -83,7 +89,7 @@ export function SkillsPanel({
       onClose={() => setArgsFor(null)}
       onRun={(args) => {
         setArgsFor(null)
-        onRun(argsFor, applySkillArgs(argsFor.prompt, args))
+        setRunError(onRun(argsFor, applySkillArgs(argsFor.prompt, args)))
       }}
     />
   )
@@ -96,6 +102,7 @@ export function SkillsPanel({
           skill={editor.skill}
           connNames={connNames}
           state={state}
+          runError={runError}
           onClose={() => setEditor(null)}
           onRun={run}
           canRun={canRun}
@@ -107,14 +114,17 @@ export function SkillsPanel({
 
   return (
     <div className="knowledge skills">
-      {state.error && (
+      {(state.error ?? runError) && (
         <button
           type="button"
           className="skills__error"
           title="Dismiss"
-          onClick={state.clearError}
+          onClick={() => {
+            state.clearError()
+            setRunError(null)
+          }}
         >
-          {state.error}
+          {state.error ?? runError}
         </button>
       )}
       <div className="kn-scroll">
@@ -181,6 +191,9 @@ function SkillGroup({
           tabIndex={0}
           onClick={() => onOpen(skill)}
           onKeyDown={(e) => {
+            // Only keys on the row itself: Enter/Space on the nested Run
+            // button must activate the button, not open the editor.
+            if (e.target !== e.currentTarget) return
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               onOpen(skill)
@@ -221,6 +234,7 @@ function SkillEditor({
   skill,
   connNames,
   state,
+  runError,
   onClose,
   onRun,
   canRun
@@ -228,6 +242,8 @@ function SkillEditor({
   skill: Skill | null
   connNames: Record<string, string>
   state: SkillsState
+  /** Why the last Run was refused, surfaced in the editor's error slot. */
+  runError: string | null
   onClose: () => void
   onRun: (skill: Skill) => void
   canRun: boolean
@@ -365,8 +381,10 @@ function SkillEditor({
             with input collected when the skill runs.
           </div>
         </div>
-        {(error ?? state.error) && (
-          <div className="mcp-form-error">{error ?? state.error}</div>
+        {(error ?? state.error ?? runError) && (
+          <div className="mcp-form-error">
+            {error ?? state.error ?? runError}
+          </div>
         )}
       </div>
       <div className="kn-editor__foot">

@@ -59,34 +59,62 @@ function isStoredSkill(value: unknown): value is StoredSkill {
   return (
     typeof s.id === 'string' &&
     s.id !== '' &&
+    // Same floor as save-time validation: a record with an empty name or
+    // prompt (hand edit, sync conflict) would otherwise shadow a built-in
+    // with an empty override and silently no-op the scan actions.
     typeof s.name === 'string' &&
+    s.name.trim() !== '' &&
     typeof s.description === 'string' &&
     typeof s.prompt === 'string' &&
+    s.prompt.trim() !== '' &&
     (s.connId === null || typeof s.connId === 'string') &&
     typeof s.createdAt === 'number' &&
     typeof s.updatedAt === 'number'
   )
 }
 
+/**
+ * A file we cannot read as `{ skills: [...] }` must never be silently treated
+ * as empty: the next save would persist over it and destroy every skill the
+ * user authored. Move it aside instead (same rule as the knowledge store).
+ */
+function quarantineCorruptFile(path: string): void {
+  try {
+    renameSync(path, `${path}.corrupt-${Date.now()}`)
+  } catch {
+    // Rename failed (permissions?): leave the file; loading still returns
+    // empty, and the non-atomic-overwrite risk is the lesser evil here.
+  }
+}
+
 function load(): StoredSkill[] {
   if (cache) return cache
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(storePath(), 'utf8'))
-    const skills = (parsed as SkillsFile | null)?.skills
-    cache = Array.isArray(skills)
-      ? skills
-          .filter(isStoredSkill)
-          // A built-in override is always general-purpose; a hand-edited
-          // scope would otherwise hide the built-in from resolveSkills.
-          .map((s) =>
-            isBuiltinSkillId(s.id) && s.connId !== null
-              ? { ...s, connId: null }
-              : s
-          )
-      : []
-  } catch {
-    cache = []
+  let records: StoredSkill[] = []
+  const path = storePath()
+  if (existsSync(path)) {
+    let skills: unknown
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+      skills = (parsed as SkillsFile | null)?.skills
+    } catch {
+      skills = undefined
+    }
+    if (Array.isArray(skills)) {
+      records = skills
+        .filter(isStoredSkill)
+        // A built-in override is always general-purpose; a hand-edited
+        // scope would otherwise hide the built-in from resolveSkills.
+        .map((s) =>
+          isBuiltinSkillId(s.id) && s.connId !== null
+            ? { ...s, connId: null }
+            : s
+        )
+    } else {
+      console.error(`skills: unreadable file quarantined: ${path}`)
+      quarantineCorruptFile(path)
+    }
   }
+  cache = records
   return cache
 }
 
@@ -179,14 +207,17 @@ export function saveSkill(input: SkillSaveInput): Skill {
       })
     }
   } else if (input.id) {
-    if (!prev) throw new Error('Skill not found')
+    // Upsert rather than reject a missing id: the record may have been
+    // removed while the editor was open (e.g. the connection-delete
+    // cascade); throwing here would strand the user's draft.
     id = input.id
     records.push({
-      ...prev,
+      id,
       name: input.name,
       description: input.description,
       prompt: input.prompt,
       connId: input.connId,
+      createdAt: prev?.createdAt ?? now,
       updatedAt: now
     })
   } else {

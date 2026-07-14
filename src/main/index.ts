@@ -31,6 +31,7 @@ import {
   listRecords,
   saveRecord,
   deleteRecord,
+  deleteForDatabase,
   deleteForConnection as deleteKnowledgeForConnection
 } from './knowledge'
 import { extractExemplarReferences } from './exemplar'
@@ -265,6 +266,13 @@ function registerKnowledgeHandlers(
     'knowledge:delete',
     (_event, connId: string, database: string, id: string) => {
       deleteRecord(connId, database, id)
+      broadcast(connId, database)
+    }
+  )
+  ipcMain.handle(
+    'knowledge:deleteForDatabase',
+    (_event, connId: string, database: string) => {
+      deleteForDatabase(connId, database)
       broadcast(connId, database)
     }
   )

@@ -193,6 +193,8 @@ const api = Object.freeze({
       ),
     remove: (connId: string, database: string, id: string): Promise<void> =>
       ipcRenderer.invoke('knowledge:delete', connId, database, id),
+    deleteForDatabase: (connId: string, database: string): Promise<void> =>
+      ipcRenderer.invoke('knowledge:deleteForDatabase', connId, database),
     deleteForConnection: (connId: string): Promise<void> =>
       ipcRenderer.invoke('knowledge:deleteForConnection', connId),
     /** Subscribe to knowledge-change pushes; returns an unsubscribe function. */

@@ -26,7 +26,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { databaseSlug, normalizeColumnKey } from '../../src/shared/knowledge'
-import type { ColumnRef, KnowledgeRecordInput } from '../../src/shared/knowledge'
+import type {
+  ColumnRef,
+  KnowledgeRecordInput
+} from '../../src/shared/knowledge'
 
 let userDataDir: string
 
@@ -81,7 +84,9 @@ const glossary: KnowledgeRecordInput = {
   source: 'human',
   term: 'MRN',
   synonyms: ['medical record number'],
-  mappings: [{ ref: ref('public', 'patients', 'mrn'), caveat: 'may be null pre-2019' }]
+  mappings: [
+    { ref: ref('public', 'patients', 'mrn'), caveat: 'may be null pre-2019' }
+  ]
 }
 
 const exemplar: KnowledgeRecordInput = {
@@ -124,7 +129,14 @@ describe('knowledge store CRUD', () => {
   })
 
   it('round-trips every record kind', () => {
-    for (const rec of [annotation, standardRel, polymorphicRel, glossary, exemplar, note]) {
+    for (const rec of [
+      annotation,
+      standardRel,
+      polymorphicRel,
+      glossary,
+      exemplar,
+      note
+    ]) {
       knowledge.saveRecord(CONN, DB, rec)
     }
     const kinds = knowledge.listRecords(CONN, DB).map((r) => r.kind)
@@ -149,13 +161,19 @@ describe('knowledge store CRUD', () => {
     expect(updated.id).toBe(saved.id)
     expect(updated.createdAt).toBe(saved.createdAt)
     expect(updated.updatedAt).toBeGreaterThanOrEqual(saved.createdAt)
-    expect(updated).toMatchObject({ kind: 'annotation', text: 'the surrogate key' })
+    expect(updated).toMatchObject({
+      kind: 'annotation',
+      text: 'the surrogate key'
+    })
     // Still one record, not two.
     expect(knowledge.listRecords(CONN, DB)).toHaveLength(1)
   })
 
   it('honors a caller-supplied id when creating', () => {
-    const saved = knowledge.saveRecord(CONN, DB, { ...annotation, id: 'kn-fixed-1' })
+    const saved = knowledge.saveRecord(CONN, DB, {
+      ...annotation,
+      id: 'kn-fixed-1'
+    })
     expect(saved.id).toBe('kn-fixed-1')
   })
 
@@ -177,7 +195,12 @@ describe('knowledge store CRUD', () => {
 describe('on-disk file', () => {
   it('writes a versioned file with the raw database name preserved', () => {
     knowledge.saveRecord(CONN, DB, annotation)
-    const path = join(userDataDir, 'knowledge', CONN, `${databaseSlug(DB)}.json`)
+    const path = join(
+      userDataDir,
+      'knowledge',
+      CONN,
+      `${databaseSlug(DB)}.json`
+    )
     const parsed = JSON.parse(readFileSync(path, 'utf8'))
     expect(parsed.version).toBe(1)
     expect(parsed.rawDatabase).toBe(DB)
@@ -187,7 +210,12 @@ describe('on-disk file', () => {
   it('slugs a database name that is unsafe as a filename', () => {
     const weird = 'Sales/Q1 café'
     knowledge.saveRecord(CONN, weird, note)
-    const path = join(userDataDir, 'knowledge', CONN, `${databaseSlug(weird)}.json`)
+    const path = join(
+      userDataDir,
+      'knowledge',
+      CONN,
+      `${databaseSlug(weird)}.json`
+    )
     expect(existsSync(path)).toBe(true)
     // Raw name is recoverable from inside the file even though the slug is not the name.
     expect(JSON.parse(readFileSync(path, 'utf8')).rawDatabase).toBe(weird)
@@ -213,6 +241,27 @@ describe('persistence across a fresh process (cache invalidation)', () => {
 })
 
 describe('cascade delete', () => {
+  it('removes one database and evicts only its cache entry', async () => {
+    knowledge.saveRecord(CONN, DB, annotation)
+    knowledge.saveRecord(CONN, 'other', note)
+
+    knowledge.deleteForDatabase(CONN, DB)
+
+    expect(
+      existsSync(
+        join(userDataDir, 'knowledge', CONN, `${databaseSlug(DB)}.json`)
+      )
+    ).toBe(false)
+    expect(knowledge.listRecords(CONN, DB)).toEqual([])
+    expect(knowledge.listRecords(CONN, 'other')).toHaveLength(1)
+
+    // A fresh module sees the deletion too; it was not only a cache update.
+    vi.resetModules()
+    const reloaded = await import('../../src/main/knowledge')
+    expect(reloaded.listRecords(CONN, DB)).toEqual([])
+    expect(reloaded.listRecords(CONN, 'other')).toHaveLength(1)
+  })
+
   it('removes the whole connection directory and evicts the cache', async () => {
     knowledge.saveRecord(CONN, DB, annotation)
     knowledge.saveRecord(CONN, 'other', note)
@@ -242,7 +291,12 @@ describe('forward compatibility: unknown kinds', () => {
   it('preserves records with an unrecognized kind on load and re-save', async () => {
     // Seed a file directly with a future record kind the current build cannot type.
     knowledge.saveRecord(CONN, DB, annotation)
-    const path = join(userDataDir, 'knowledge', CONN, `${databaseSlug(DB)}.json`)
+    const path = join(
+      userDataDir,
+      'knowledge',
+      CONN,
+      `${databaseSlug(DB)}.json`
+    )
     const file = JSON.parse(readFileSync(path, 'utf8'))
     file.records.push({
       id: 'kn-future-1',
@@ -272,10 +326,18 @@ describe('validation rejects malformed records per kind', () => {
     ['bad source', { ...note, source: 'robot' }],
     ['bad confidence', { ...note, confidence: 'certain' }],
     ['unknown kind', { kind: 'metric', source: 'human' }],
-    ['annotation without target', { kind: 'annotation', source: 'human', text: 'x' }],
+    [
+      'annotation without target',
+      { kind: 'annotation', source: 'human', text: 'x' }
+    ],
     [
       'annotation with malformed target',
-      { kind: 'annotation', source: 'human', target: { schema: 'public' }, text: 'x' }
+      {
+        kind: 'annotation',
+        source: 'human',
+        target: { schema: 'public' },
+        text: 'x'
+      }
     ],
     ['annotation with non-string text', { ...annotation, text: 42 }],
     ['relationship with bad relType', { ...standardRel, relType: 'sideways' }],
@@ -284,18 +346,33 @@ describe('validation rejects malformed records per kind', () => {
       { ...standardRel, from: { schema: 'public', table: 'orders' } }
     ],
     ['standard relationship without to', { ...standardRel, to: undefined }],
-    ['polymorphic relationship without discriminator', { ...polymorphicRel, discriminator: undefined }],
-    ['polymorphic relationship without targets', { ...polymorphicRel, targets: undefined }],
+    [
+      'polymorphic relationship without discriminator',
+      { ...polymorphicRel, discriminator: undefined }
+    ],
+    [
+      'polymorphic relationship without targets',
+      { ...polymorphicRel, targets: undefined }
+    ],
     [
       'polymorphic targets with a bad ref',
       { ...polymorphicRel, targets: { patient: { schema: 'public' } } }
     ],
     ['glossary with empty term', { ...glossary, term: '' }],
     ['glossary with non-array synonyms', { ...glossary, synonyms: 'x' }],
-    ['glossary with malformed mapping', { ...glossary, mappings: [{ caveat: 'no ref' }] }],
+    [
+      'glossary with malformed mapping',
+      { ...glossary, mappings: [{ caveat: 'no ref' }] }
+    ],
     ['exemplar with non-string sql', { ...exemplar, sql: 123 }],
-    ['exemplar with non-ref references', { ...exemplar, references: ['users.id'] }],
-    ['note without body', { kind: 'note', source: 'human', title: 't', references: [] }],
+    [
+      'exemplar with non-ref references',
+      { ...exemplar, references: ['users.id'] }
+    ],
+    [
+      'note without body',
+      { kind: 'note', source: 'human', title: 't', references: [] }
+    ],
     ['note with non-array references', { ...note, references: null }]
   ]
 
@@ -321,7 +398,9 @@ describe('validation rejects malformed records per kind', () => {
 
 describe('shared helpers', () => {
   it('normalizeColumnKey lowercases and joins schema.table.column', () => {
-    expect(normalizeColumnKey(ref('Public', 'Users', 'Id'))).toBe('public.users.id')
+    expect(normalizeColumnKey(ref('Public', 'Users', 'Id'))).toBe(
+      'public.users.id'
+    )
     expect(normalizeColumnKey(ref('Public', 'Users'))).toBe('public.users')
   })
 
@@ -347,11 +426,16 @@ describe('connId path safety', () => {
 
   it('rejects traversal connIds on every entry point', () => {
     for (const connId of evil) {
-      expect(() => knowledge.listRecords(connId, DB)).toThrow(/Invalid connection id/)
+      expect(() => knowledge.listRecords(connId, DB)).toThrow(
+        /Invalid connection id/
+      )
       expect(() => knowledge.saveRecord(connId, DB, annotation)).toThrow(
         /Invalid connection id/
       )
       expect(() => knowledge.deleteRecord(connId, DB, 'kn-x')).toThrow(
+        /Invalid connection id/
+      )
+      expect(() => knowledge.deleteForDatabase(connId, DB)).toThrow(
         /Invalid connection id/
       )
       expect(() => knowledge.deleteForConnection(connId)).toThrow(
@@ -369,13 +453,22 @@ describe('connId path safety', () => {
 
 describe('corrupt and malformed files', () => {
   function filePath(database: string): string {
-    return join(userDataDir, 'knowledge', CONN, `${databaseSlug(database)}.json`)
+    return join(
+      userDataDir,
+      'knowledge',
+      CONN,
+      `${databaseSlug(database)}.json`
+    )
   }
 
   it('quarantines an unparseable file instead of overwriting it on next save', async () => {
     knowledge.saveRecord(CONN, DB, annotation)
     // Corrupt the file the way a hand edit or truncated write would.
-    writeFileSync(filePath(DB), '{ "version": 1, "records": [ trailing-junk', 'utf8')
+    writeFileSync(
+      filePath(DB),
+      '{ "version": 1, "records": [ trailing-junk',
+      'utf8'
+    )
     vi.resetModules()
     const reloaded = await import('../../src/main/knowledge')
 
@@ -385,7 +478,9 @@ describe('corrupt and malformed files', () => {
     const dir = join(userDataDir, 'knowledge', CONN)
     const quarantined = readdirSync(dir).filter((f) => f.includes('.corrupt-'))
     expect(quarantined).toHaveLength(1)
-    expect(readFileSync(join(dir, quarantined[0]), 'utf8')).toContain('trailing-junk')
+    expect(readFileSync(join(dir, quarantined[0]), 'utf8')).toContain(
+      'trailing-junk'
+    )
     // …and a subsequent save starts a fresh file without touching the backup.
     reloaded.saveRecord(CONN, DB, note)
     expect(reloaded.listRecords(CONN, DB)).toHaveLength(1)

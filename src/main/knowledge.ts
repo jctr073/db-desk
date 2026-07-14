@@ -139,7 +139,11 @@ function load(connId: string, database: string): KnowledgeRecord[] {
   return records
 }
 
-function persist(connId: string, database: string, records: KnowledgeRecord[]): void {
+function persist(
+  connId: string,
+  database: string,
+  records: KnowledgeRecord[]
+): void {
   cache.set(cacheKey(connId, database), records)
   ensureConnDir(connId)
   const file: KnowledgeFile = {
@@ -241,7 +245,9 @@ export function validateKnowledgeRecord(record: unknown): void {
       break
     case 'relationship':
       if (r.relType !== 'standard' && r.relType !== 'polymorphic') {
-        throw new Error('relationship.relType must be "standard" or "polymorphic"')
+        throw new Error(
+          'relationship.relType must be "standard" or "polymorphic"'
+        )
       }
       if (!isColumnRef(r.from) || r.from.column === undefined) {
         throw new Error('relationship.from must be a ColumnRef with a column')
@@ -252,10 +258,14 @@ export function validateKnowledgeRecord(record: unknown): void {
         }
       } else {
         if (!isColumnRef(r.discriminator)) {
-          throw new Error('polymorphic relationship requires a "discriminator" ColumnRef')
+          throw new Error(
+            'polymorphic relationship requires a "discriminator" ColumnRef'
+          )
         }
         if (!isColumnRefMap(r.targets)) {
-          throw new Error('polymorphic relationship requires a "targets" map of ColumnRefs')
+          throw new Error(
+            'polymorphic relationship requires a "targets" map of ColumnRefs'
+          )
         }
       }
       if (r.notes !== undefined && typeof r.notes !== 'string') {
@@ -273,7 +283,9 @@ export function validateKnowledgeRecord(record: unknown): void {
         throw new Error('glossary.definition must be a string')
       }
       if (!isMappingArray(r.mappings)) {
-        throw new Error('glossary.mappings must be an array of { ref, caveat? }')
+        throw new Error(
+          'glossary.mappings must be an array of { ref, caveat? }'
+        )
       }
       break
     case 'exemplar':
@@ -305,7 +317,10 @@ export function validateKnowledgeRecord(record: unknown): void {
 
 // --- Public API ------------------------------------------------------------
 
-export function listRecords(connId: string, database: string): KnowledgeRecord[] {
+export function listRecords(
+  connId: string,
+  database: string
+): KnowledgeRecord[] {
   return load(connId, database)
 }
 
@@ -346,7 +361,11 @@ export function saveRecord(
   return saved
 }
 
-export function deleteRecord(connId: string, database: string, id: string): void {
+export function deleteRecord(
+  connId: string,
+  database: string,
+  id: string
+): void {
   const records = load(connId, database)
   if (records.some((r) => r.id === id)) {
     persist(
@@ -355,6 +374,16 @@ export function deleteRecord(connId: string, database: string, id: string): void
       records.filter((r) => r.id !== id)
     )
   }
+}
+
+/**
+ * Remove the knowledge base for one database without touching knowledge for
+ * other databases reached through the same connection.
+ */
+export function deleteForDatabase(connId: string, database: string): void {
+  const path = databasePath(connId, database)
+  if (existsSync(path)) rmSync(path, { force: true })
+  cache.delete(cacheKey(connId, database))
 }
 
 /**
