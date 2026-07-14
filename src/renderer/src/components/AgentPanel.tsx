@@ -30,7 +30,7 @@ import type {
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import type { McpServerStatus } from '../../../shared/mcp'
-import { REPO_SCAN_PROMPT } from '../../../shared/repo'
+import { REPO_SCAN_PROMPT, repoTargetedScanPrompt } from '../../../shared/repo'
 import type { RepoStatus } from '../../../shared/repo'
 import { NodeIcon } from '../connections/NodeIcon'
 import { KIND_LABELS, isKnownKind, recordTitle } from '../knowledge/format'
@@ -70,6 +70,7 @@ import { FilesPanel } from './FilesPanel'
 import { KbRefContext, Markdown } from './MarkdownText'
 import { McpSettingsDialog } from './McpSettingsDialog'
 import { SaveExemplarDialog } from './SaveExemplarDialog'
+import { TargetedScanDialog } from './TargetedScanDialog'
 
 interface AgentPanelProps {
   files: FileState
@@ -491,6 +492,8 @@ export function AgentPanel({
     {}
   )
   const [repoMenuOpen, setRepoMenuOpen] = useState(false)
+  /** The knowledge panel's "Targeted scan…" focus dialog. */
+  const [targetedScanOpen, setTargetedScanOpen] = useState(false)
   // On by default: once a codebase is attached, using it is opt-out per chat.
   const [repoEnabled, setRepoEnabled] = useState(true)
 
@@ -937,6 +940,20 @@ export function AgentPanel({
     sendPrompt(REPO_SCAN_PROMPT, knowledgeTarget, true)
   }, [knowledgeTarget, knowledgeRepoStatus, busy, compacting, sendPrompt])
 
+  /** Follow-up scan scoped by the focus text from the targeted-scan dialog. */
+  const targetedScan = useCallback(
+    (focus: string) => {
+      if (!knowledgeTarget || !knowledgeRepoStatus?.root || busy || compacting) {
+        return
+      }
+      setSelectedTargetKey(targetKey(knowledgeTarget))
+      setRepoEnabled(true)
+      setActiveTab('agent')
+      sendPrompt(repoTargetedScanPrompt(focus), knowledgeTarget, true)
+    },
+    [knowledgeTarget, knowledgeRepoStatus, busy, compacting, sendPrompt]
+  )
+
   const stop = useCallback(() => {
     void window.dbDesk.agent.stop(chatId)
   }, [chatId])
@@ -1251,6 +1268,18 @@ export function AgentPanel({
                       }}
                     >
                       Scan codebase
+                    </button>
+                    <button
+                      type="button"
+                      className="model-pop__row"
+                      disabled={!knowledgeRepoStatus?.root}
+                      title="Re-scan a specific part of the codebase with your own focus instructions"
+                      onClick={() => {
+                        setRepoMenuOpen(false)
+                        setTargetedScanOpen(true)
+                      }}
+                    >
+                      Targeted scan…
                     </button>
                     <button
                       type="button"
@@ -1885,6 +1914,21 @@ export function AgentPanel({
             </div>
           </div>
         </div>
+      )}
+      {targetedScanOpen && knowledgeTarget && (
+        <TargetedScanDialog
+          targetLabel={`${knowledgeTarget.connName} / ${knowledgeTarget.database}`}
+          repoName={
+            knowledgeRepoStatus?.root
+              ? repoRootName(knowledgeRepoStatus.root)
+              : null
+          }
+          onClose={() => setTargetedScanOpen(false)}
+          onScan={(focus) => {
+            setTargetedScanOpen(false)
+            targetedScan(focus)
+          }}
+        />
       )}
       {exemplarSql !== null && target && (
         <SaveExemplarDialog

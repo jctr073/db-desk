@@ -19,6 +19,35 @@ export interface RepoStatus {
 }
 
 /**
+ * Sections shared by the full scan and the targeted follow-up scan, so the
+ * two prompts cannot drift on what to record and how.
+ */
+const SCAN_RECORDING_GUIDE = [
+  'Record findings with save_knowledge:',
+  '- annotation — what a column or table really means, including caveats (soft deletes, denormalized fields, units, legacy columns).',
+  '- relationship — joins the schema does not declare as foreign keys, especially polymorphic associations (discriminator column + targets map).',
+  '- glossary — business terms with column mappings and synonyms.',
+  '- exemplar — a question the code answers plus its SQL, only when the SQL is valid for this engine.',
+  '- note — anything durable that fits nowhere else, with structured references for every table/column mentioned.'
+]
+
+const SCAN_RULES = [
+  'Rules:',
+  '- Save only facts that change how a query would be written: join logic, filter conventions (soft deletes, status values), units, NULL semantics, derived-metric definitions, cross-table gotchas. Skip implementation trivia — hash and payload formats, auth plumbing, config/settings tables, UI behavior — unless a query must account for it.',
+  '- Write records telegraphically: short plain clauses, no markdown emphasis, no restating what the schema or another record already says. Aim for 1-3 sentences per record. The whole store is injected into every future agent prompt under a fixed budget; verbose records evict exemplar SQL and note bodies.',
+  '- One fact, one record: define a shared concept once (usually as a glossary term) and have other records use the term instead of re-explaining it.',
+  '- Verify every schema/table/column reference against the live schema (schema summary, search_schema, describe_table) before saving. Where code and database disagree, prefer the database, lower the confidence, and say so in the record text.',
+  '- Row counts and data observations from this database go stale: record them only when they change how a query should be written (e.g. a column that is entirely NULL so far), rounded and labeled as current data, not as schema truth.',
+  '- Set provenance on every record to the source file path at the current commit, e.g. "db/migrate/20240301_add_status.rb@abc1234" (the commit is given in your instructions).',
+  '- Set confidence honestly: "high" only when code and live schema agree.',
+  '- Search the knowledge store first (search_knowledge) and update existing records by id instead of duplicating them.',
+  '- Do not save speculation, framework boilerplate, or facts the schema already states (declared foreign keys, column types).'
+]
+
+const SCAN_FINISH =
+  'Finish with a short summary of what you recorded, grouped by kind, plus anything suspicious or contradictory you noticed.'
+
+/**
  * The canned prompt the composer's "Scan codebase" action sends as a normal
  * chat message. Living here keeps the scan flow out of the agent loop: it is
  * just a turn like any other, with the repo tools available.
@@ -32,23 +61,31 @@ export const REPO_SCAN_PROMPT = [
   '3. Query layers, repositories, and analytics SQL — real queries in the code make good exemplars.',
   '4. READMEs, docs, and substantive code comments — business terms and caveats.',
   '',
-  'Record findings with save_knowledge:',
-  '- annotation — what a column or table really means, including caveats (soft deletes, denormalized fields, units, legacy columns).',
-  '- relationship — joins the schema does not declare as foreign keys, especially polymorphic associations (discriminator column + targets map).',
-  '- glossary — business terms with column mappings and synonyms.',
-  '- exemplar — a question the code answers plus its SQL, only when the SQL is valid for this engine.',
-  '- note — anything durable that fits nowhere else, with structured references for every table/column mentioned.',
+  ...SCAN_RECORDING_GUIDE,
   '',
-  'Rules:',
-  '- Save only facts that change how a query would be written: join logic, filter conventions (soft deletes, status values), units, NULL semantics, derived-metric definitions, cross-table gotchas. Skip implementation trivia — hash and payload formats, auth plumbing, config/settings tables, UI behavior — unless a query must account for it.',
-  '- Write records telegraphically: short plain clauses, no markdown emphasis, no restating what the schema or another record already says. Aim for 1-3 sentences per record. The whole store is injected into every future agent prompt under a fixed budget; verbose records evict exemplar SQL and note bodies.',
-  '- One fact, one record: define a shared concept once (usually as a glossary term) and have other records use the term instead of re-explaining it.',
-  '- Verify every schema/table/column reference against the live schema (schema summary, search_schema, describe_table) before saving. Where code and database disagree, prefer the database, lower the confidence, and say so in the record text.',
-  '- Row counts and data observations from this database go stale: record them only when they change how a query should be written (e.g. a column that is entirely NULL so far), rounded and labeled as current data, not as schema truth.',
-  '- Set provenance on every record to the source file path at the current commit, e.g. "db/migrate/20240301_add_status.rb@abc1234" (the commit is given in your instructions).',
-  '- Set confidence honestly: "high" only when code and live schema agree.',
-  '- Search the knowledge store first (search_knowledge) and update existing records by id instead of duplicating them.',
-  '- Do not save speculation, framework boilerplate, or facts the schema already states (declared foreign keys, column types).',
+  ...SCAN_RULES,
   '',
-  'Finish with a short summary of what you recorded, grouped by kind, plus anything suspicious or contradictory you noticed.'
+  SCAN_FINISH
 ].join('\n')
+
+/**
+ * A follow-up scan scoped by user-written focus instructions (the knowledge
+ * panel's "Targeted scan…" action). Sent as a normal chat turn like the full
+ * scan; the focus text is the user's own words, quoted verbatim.
+ */
+export function repoTargetedScanPrompt(focus: string): string {
+  return [
+    'Do a targeted follow-up scan of the attached codebase and record what it teaches about this database in the local knowledge store. Scope it to this focus:',
+    '',
+    focus.trim(),
+    '',
+    'Survey only the parts of the codebase relevant to that focus — start from any files, directories, tables, or topics it names or implies and follow the code from there. Use the same source hierarchy as a full scan (migrations first, then ORM models and schema definitions, then query layers, then docs and comments), but only where it bears on the focus.',
+    'Earlier scans already populated the knowledge store. Before reading code, search_knowledge for what the focus touches so you know what is already recorded; update existing records by id where the focus adds detail or corrections, and save new records only for facts not yet covered.',
+    '',
+    ...SCAN_RECORDING_GUIDE,
+    '',
+    ...SCAN_RULES,
+    '',
+    SCAN_FINISH
+  ].join('\n')
+}
