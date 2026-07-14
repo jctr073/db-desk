@@ -633,7 +633,7 @@ export function ResultsPanel({
     active && onAskAgent
       ? (): void =>
           onAskAgent(
-            'Fix the error in this query.',
+            'Fix the error in this query and propose the corrected active query as an editor diff.',
             buildResultContextItem({
               id: crypto.randomUUID(),
               title: active.title,

@@ -25,7 +25,8 @@ import type {
   AgentKeyStatus,
   AgentMode,
   AgentModeOption,
-  AgentModelOption
+  AgentModelOption,
+  AgentPromptIntent
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import type { McpServerStatus } from '../../../shared/mcp'
@@ -108,7 +109,12 @@ interface AgentPanelProps {
    * One-shot composer prefill (e.g. "Fix with AI" from the results grid).
    * A new seq reveals the agent tab and replaces the draft; never replayed.
    */
-  seed?: { seq: number; text: string } | null
+  seed?: {
+    seq: number
+    text: string
+    intent: AgentPromptIntent
+    target?: { connId: string; database: string }
+  } | null
 }
 
 const EFFORT_LABEL: Record<AgentEffort, string> = {
@@ -167,6 +173,7 @@ interface ArchivedChat {
   webSearch: boolean
   repoEnabled: boolean
   draft: string
+  draftIntent: AgentPromptIntent
 }
 
 let idSeq = 0
@@ -461,6 +468,7 @@ export function AgentPanel({
   )
   const [keyStatus, setKeyStatus] = useState<AgentKeyStatus | null>(null)
   const [input, setInput] = useState('')
+  const [draftIntent, setDraftIntent] = useState<AgentPromptIntent>('chat')
   const [modelOpen, setModelOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerFilter, setPickerFilter] = useState('')
@@ -713,7 +721,17 @@ export function AgentPanel({
     prevSeedSeq.current = seed.seq
     setActiveTab('agent')
     setInput(seed.text)
-  }, [seed])
+    setDraftIntent(seed.intent)
+    const requestedTarget = seed.target
+    const seedTarget = requestedTarget
+      ? targets.find(
+          (candidate) =>
+            candidate.connId === requestedTarget.connId &&
+            candidate.database === requestedTarget.database
+        )
+      : null
+    if (seedTarget) setSelectedTargetKey(targetKey(seedTarget))
+  }, [seed, targets])
 
   // "Show usages" / "Add annotation…" from the tree reveals the knowledge tab.
   const prevNavSeq = useRef(0)
@@ -821,7 +839,8 @@ export function AgentPanel({
     (
       prompt: string,
       promptTarget: QueryTarget | null = target,
-      forceRepo = false
+      forceRepo = false,
+      intent: AgentPromptIntent = 'chat'
     ) => {
       if (!prompt || busy || compacting) return
       setBusy(true)
@@ -840,6 +859,7 @@ export function AgentPanel({
       void window.dbDesk.agent.send({
         chatId,
         prompt,
+        intent,
         model: model.id,
         effort: effort && model.efforts.includes(effort) ? effort : null,
         mode,
@@ -880,8 +900,9 @@ export function AgentPanel({
     const prompt = input.trim()
     if (!prompt || busy || compacting) return
     setInput('')
-    sendPrompt(prompt)
-  }, [input, busy, compacting, sendPrompt])
+    setDraftIntent('chat')
+    sendPrompt(prompt, target, false, draftIntent)
+  }, [input, busy, compacting, sendPrompt, target, draftIntent])
 
   const rememberRepoStatus = useCallback((status: RepoStatus) => {
     setRepoStatuses((current) => ({ ...current, [status.connId]: status }))
@@ -933,7 +954,8 @@ export function AgentPanel({
       mode,
       webSearch,
       repoEnabled,
-      draft: input
+      draft: input,
+      draftIntent
     }),
     [
       chatId,
@@ -947,7 +969,8 @@ export function AgentPanel({
       mode,
       webSearch,
       repoEnabled,
-      input
+      input,
+      draftIntent
     ]
   )
 
@@ -969,6 +992,7 @@ export function AgentPanel({
     setThinking(false)
     setContextTokens(0)
     setInput('')
+    setDraftIntent('chat')
     setHistoryOpen(false)
   }, [busy, compacting, currentChatSnapshot])
 
@@ -996,6 +1020,7 @@ export function AgentPanel({
       setWebSearch(nextChat.webSearch)
       setRepoEnabled(nextChat.repoEnabled)
       setInput(nextChat.draft)
+      setDraftIntent(nextChat.draftIntent ?? 'chat')
       setBusy(false)
       setThinking(false)
       setCompacting(false)
@@ -1047,6 +1072,7 @@ export function AgentPanel({
   const runSlashCommand = useCallback(
     (name: string) => {
       setInput('')
+      setDraftIntent('chat')
       if (name === 'clear') newChat()
       else if (name === 'compact') void runCompact()
     },
@@ -1600,7 +1626,9 @@ export function AgentPanel({
                 rows={2}
                 value={input}
                 onChange={(e) => {
-                  setInput(e.target.value)
+                  const next = e.target.value
+                  setInput(next)
+                  if (!next.trim()) setDraftIntent('chat')
                   setSlashIndex(0)
                 }}
                 onKeyDown={onComposerKeyDown}

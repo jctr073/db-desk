@@ -718,6 +718,11 @@ export function buildSystemPrompt(
     '- Always put final, runnable SQL inside ```sql fenced code blocks; the user can insert those blocks into their editor with one click.',
     '- When you have settled on the final query, call the write_to_editor tool once, at the end — never with intermediate or exploratory queries. Pass the complete contents the editor file should hold: if the editor is empty your SQL is applied directly, otherwise the user reviews a diff of the change and accepts or rejects it. When editing the user\'s existing query, pass the full edited version and preserve the parts of their file the request does not touch; never pass a fragment.',
     '- Editor contents shown to you are a snapshot from when the user sent the message. If you have run several tools since, call read_editor to re-read the live buffer (and the user\'s current selection) before proposing an edit with write_to_editor.',
+    ...(req.intent === 'fix-query'
+      ? [
+          '- This is a Fix with AI request. The turn is not complete with an explanation or code block alone: fix the attached query error and call write_to_editor with the complete corrected active editor contents so the user receives an Accept/Reject diff.'
+        ]
+      : []),
     ...dialect.agent.rules,
     '- Keep prose brief; lead with the SQL, then a short explanation if needed.'
   ]
@@ -2153,6 +2158,21 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/** Whether a completed model response still owes a promised editor diff. */
+export function shouldForceEditorProposal(
+  req: Pick<AgentSendRequest, 'intent'>,
+  stopReason: string | null,
+  editorProposalSent: boolean,
+  reminderSent: boolean
+): boolean {
+  return (
+    req.intent === 'fix-query' &&
+    !editorProposalSent &&
+    !reminderSent &&
+    stopReason === 'end_turn'
+  )
+}
+
 async function runAgentTurn(
   req: AgentSendRequest,
   send: Sender
@@ -2257,6 +2277,9 @@ async function runAgentTurn(
   // Latest known context occupancy, updated after every API call so the
   // renderer's gauge stays accurate even when the turn aborts mid-loop.
   let contextTokens: number | null = null
+  let editorProposalSent = false
+  let forceEditorProposal = false
+  let editorProposalReminderSent = false
 
   try {
     for (;;) {
@@ -2274,12 +2297,23 @@ async function runAgentTurn(
           model: model.id,
           max_tokens: 64_000,
           ...(containerId ? { container: containerId } : {}),
-          ...(model.adaptiveThinking ? { thinking: { type: 'adaptive' } } : {}),
+          ...(model.adaptiveThinking && !forceEditorProposal
+            ? { thinking: { type: 'adaptive' } }
+            : {}),
           ...(req.effort && model.efforts.includes(req.effort)
             ? { output_config: { effort: req.effort } }
             : {}),
           system,
           tools,
+          ...(forceEditorProposal
+            ? {
+                tool_choice: {
+                  type: 'tool' as const,
+                  name: 'write_to_editor',
+                  disable_parallel_tool_use: true
+                }
+              }
+            : {}),
           messages: chat.messages
         },
         { signal: controller.signal }
@@ -2374,7 +2408,9 @@ async function runAgentTurn(
           } else if (block.name === 'save_knowledge') {
             results.push(execSaveKnowledge(req, block, send))
           } else if (block.name === 'write_to_editor') {
-            results.push(execWriteEditor(req, block, send))
+            const result = execWriteEditor(req, block, send)
+            results.push(result)
+            if (!result.is_error) editorProposalSent = true
           } else if (block.name === 'read_editor') {
             results.push(await execReadEditor(req, block, send))
           } else if (repoRoot && block.name === 'list_repo_files') {
@@ -2396,6 +2432,28 @@ async function runAgentTurn(
           }
         }
         chat.messages.push({ role: 'user', content: results })
+        forceEditorProposal = false
+        continue
+      }
+
+      // A Fix with AI action promises an editor diff. Models can occasionally
+      // answer with corrected SQL in prose despite the prompt, so give them one
+      // constrained follow-up that must emit the editor proposal tool.
+      if (
+        shouldForceEditorProposal(
+          req,
+          message.stop_reason,
+          editorProposalSent,
+          editorProposalReminderSent
+        )
+      ) {
+        editorProposalReminderSent = true
+        forceEditorProposal = true
+        chat.messages.push({
+          role: 'user',
+          content:
+            'Apply the fix now: call write_to_editor with the complete corrected contents of the active SQL editor. Do not respond with explanation only.'
+        })
         continue
       }
 

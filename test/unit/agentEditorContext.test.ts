@@ -57,6 +57,7 @@ function makeReq(overrides: Partial<AgentSendRequest> = {}): AgentSendRequest {
   return {
     chatId: 'chat-1',
     prompt: 'hello',
+    intent: 'chat',
     model: 'claude-opus-4-8',
     effort: null,
     mode: 'metadata',
@@ -230,5 +231,60 @@ describe('buildSystemPrompt editor tool rules', () => {
     expect(text).toContain('complete contents the editor file should hold')
     expect(text).toContain('reviews a diff')
     expect(text).toContain('read_editor')
+  })
+
+  it('requires an editor diff for Fix with AI turns', () => {
+    const text = prompt(makeReq({ intent: 'fix-query' }))
+    expect(text).toContain('This is a Fix with AI request')
+    expect(text).toContain('Accept/Reject diff')
+    expect(text).toContain('not complete with an explanation')
+  })
+})
+
+describe('shouldForceEditorProposal', () => {
+  it('catches a Fix with AI turn that ended with chat only', () => {
+    expect(
+      agent.shouldForceEditorProposal(
+        { intent: 'fix-query' },
+        'end_turn',
+        false,
+        false
+      )
+    ).toBe(true)
+  })
+
+  it('does not force ordinary, completed, repeated, or interrupted turns', () => {
+    expect(
+      agent.shouldForceEditorProposal(
+        { intent: 'chat' },
+        'end_turn',
+        false,
+        false
+      )
+    ).toBe(false)
+    expect(
+      agent.shouldForceEditorProposal(
+        { intent: 'fix-query' },
+        'end_turn',
+        true,
+        false
+      )
+    ).toBe(false)
+    expect(
+      agent.shouldForceEditorProposal(
+        { intent: 'fix-query' },
+        'end_turn',
+        false,
+        true
+      )
+    ).toBe(false)
+    expect(
+      agent.shouldForceEditorProposal(
+        { intent: 'fix-query' },
+        'aborted',
+        false,
+        false
+      )
+    ).toBe(false)
   })
 })

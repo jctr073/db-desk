@@ -5,6 +5,7 @@ import { agentContextKey } from '../../shared/agent'
 import type {
   AgentContextItem,
   AgentDbObjectItem,
+  AgentPromptIntent,
   AgentResultItem
 } from '../../shared/agent'
 import type { ColumnRef } from '../../shared/knowledge'
@@ -73,12 +74,21 @@ export function App(): ReactElement {
   const [agentSeed, setAgentSeed] = useState<{
     seq: number
     text: string
+    intent: AgentPromptIntent
+    target?: { connId: string; database: string }
   } | null>(null)
   const agentSeedSeq = useRef(0)
   const askAgent = useCallback(
     (prompt: string, item?: AgentResultItem) => {
       if (item) addAgentContext(item)
-      setAgentSeed({ seq: ++agentSeedSeq.current, text: prompt })
+      setAgentSeed({
+        seq: ++agentSeedSeq.current,
+        text: prompt,
+        intent: 'fix-query',
+        target: item
+          ? { connId: item.connId, database: item.database }
+          : undefined
+      })
     },
     [addAgentContext]
   )
