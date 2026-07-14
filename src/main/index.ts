@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -282,6 +283,14 @@ function registerKnowledgeHandlers(
 }
 
 app.whenReady().then(() => {
+  // Packaged builds get the icon from the app bundle; in dev the Electron
+  // binary's own icon would show, so override the Dock icon at runtime
+  // (scripts/patch-dev-electron.sh handles the menu-bar name and Finder icon).
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    const devIcon = join(app.getAppPath(), 'resources', 'icon.png')
+    if (existsSync(devIcon)) app.dock?.setIcon(devIcon)
+  }
+
   registerDbHandlers()
   registerExportHandlers()
   registerFileHandlers()

@@ -1225,13 +1225,6 @@ export function AgentPanel({
     <section className="agent-panel">
       <div className="agent-tabbar">
         <button
-          className={`agent-tab${activeTab === 'files' ? ' is-active' : ''}`}
-          type="button"
-          onClick={() => setActiveTab('files')}
-        >
-          SQL Files
-        </button>
-        <button
           className={`agent-tab${activeTab === 'agent' ? ' is-active' : ''}`}
           type="button"
           onClick={() => setActiveTab('agent')}
@@ -1245,6 +1238,13 @@ export function AgentPanel({
           onClick={() => setActiveTab('knowledge')}
         >
           Knowledge
+        </button>
+        <button
+          className={`agent-tab${activeTab === 'files' ? ' is-active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('files')}
+        >
+          SQL Files
         </button>
         <button
           className={`agent-tab${activeTab === 'skills' ? ' is-active' : ''}`}
