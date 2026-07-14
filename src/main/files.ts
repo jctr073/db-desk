@@ -10,6 +10,7 @@ import { join } from 'node:path'
 
 import {
   defaultExtension,
+  fileKindFromName,
   FILE_KINDS,
   supportedExtension
 } from '../shared/files'
@@ -183,6 +184,32 @@ export function updateQueryMetadata(
   file.updatedAt = Date.now()
   persistMetadata(metadata)
   return file
+}
+
+/**
+ * Move a file to a (connection, database). Names are only unique per group, so
+ * a collision in the destination renames the incoming file rather than failing.
+ */
+export function reassignQuery(
+  id: string,
+  connId: string,
+  database: string | null
+): QueryFile {
+  const metadata = loadMetadata()
+  const file = metadata.find((candidate) => candidate.id === id)
+  if (!file) throw new Error(`Query file not found: ${id}`)
+
+  const taken = metadata.some(
+    (candidate) =>
+      candidate.id !== id &&
+      candidate.connId === connId &&
+      candidate.database === database &&
+      candidate.name.toLocaleLowerCase() === file.name.toLocaleLowerCase()
+  )
+  const name = taken
+    ? getNextFileName(connId, database, fileKindFromName(file.name))
+    : file.name
+  return updateQueryMetadata(id, name, connId, database)
 }
 
 export function renameQuery(id: string, requestedName: string): QueryFile {

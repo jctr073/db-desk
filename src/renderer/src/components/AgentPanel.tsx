@@ -487,6 +487,9 @@ export function AgentPanel({
     AGENT_MODELS.find((m) => m.id === modelId) ?? DEFAULT_AGENT_MODEL
   const modeOption = AGENT_MODES.find((m) => m.id === mode) ?? AGENT_MODES[0]
   const target = targets.find((t) => targetKey(t) === selectedTargetKey) ?? null
+  /** Where the files tab's "+" puts a new file: the chat's target, else primary. */
+  const fileHome =
+    target ?? targets.find((t) => t.primary) ?? targets[0] ?? null
   const knowledgeTarget =
     targets.find(
       (t) => knowledgeTargetKeyOf(t.connId, t.database) === knowledgeTargetKey
@@ -1091,13 +1094,17 @@ export function AgentPanel({
               ? 'New chat'
               : activeTab === 'knowledge'
                 ? 'New knowledge record'
-                : 'New query file'
+                : fileHome
+                  ? 'New query file'
+                  : 'Connect to a database to add a query file'
           }
+          disabled={activeTab === 'files' && !fileHome}
           type="button"
           onClick={() => {
             if (activeTab === 'agent') newChat()
             else if (activeTab === 'knowledge') setKnowledgeNewSeq((s) => s + 1)
-            else files.createFile(null, null)
+            else if (fileHome)
+              files.createFile(fileHome.connId, fileHome.database)
           }}
         >
           <PlusThinIcon />

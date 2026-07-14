@@ -73,7 +73,7 @@ interface EditorPanelProps {
 /** Open files bucketed by (connection, database) — one top-tier tab each. */
 interface FileGroup {
   key: string
-  connId: string | null
+  connId: string
   database: string | null
   files: QueryFile[]
   previews: ResultTab[]
@@ -93,21 +93,21 @@ interface PendingClose {
   groupKey: string | null
 }
 
-function groupKeyOf(connId: string | null, database: string | null): string {
+function groupKeyOf(connId: string, database: string | null): string {
   return `${connId ?? ''}\u0000${database ?? ''}`
 }
 
 /**
  * The (connection, database) a group's queries run against. Groups made at
- * connection level (no database) and scratch files (no connection) fall back
- * to the connection's — or the app's — primary target.
+ * connection level (no database) fall back to that connection's primary
+ * database; with no group open at all, to the app's primary target.
  */
 function resolveTarget(
   group: FileGroup | null,
   targets: QueryTarget[]
 ): QueryTarget | null {
   const fallback = targets.find((t) => t.primary) ?? targets[0] ?? null
-  if (!group || !group.connId) return fallback
+  if (!group) return fallback
   const conn = targets.filter((t) => t.connId === group.connId)
   if (conn.length === 0) return null // connection offline
   if (group.database) {
@@ -169,6 +169,9 @@ export function EditorPanel({
     const map = new Map<string, FileGroup>()
     for (const file of files.files) {
       if (!files.openFileIds.has(file.id)) continue
+      // Legacy connection-less files are re-homed on load (App.adoptOrphans);
+      // until that lands they get no tab of their own.
+      if (!file.connId) continue
       const key = groupKeyOf(file.connId, file.database)
       let group = map.get(key)
       if (!group) {
@@ -237,8 +240,7 @@ export function EditorPanel({
 
   /** Display name for a group's connection tab. */
   const groupName = useCallback(
-    (group: FileGroup): string =>
-      group.connId ? (connNames[group.connId] ?? group.connId) : 'Scratch',
+    (group: FileGroup): string => connNames[group.connId] ?? group.connId,
     [connNames]
   )
 
@@ -577,7 +579,6 @@ export function EditorPanel({
       const resultTabIds = runner.tabs
         .filter(
           (tab) =>
-            group.connId !== null &&
             groupTarget !== null &&
             tab.target.connId === group.connId &&
             tab.target.database === groupTarget.database
@@ -636,15 +637,22 @@ export function EditorPanel({
 
   const createFile = useCallback(
     (kind: FileKind) => {
-      files.createFile(
-        activeGroup?.connId ?? null,
-        activeGroup?.database ?? null,
-        kind
-      )
+      // Files always live on a connection; with none open there is nowhere to
+      // put one (the New File button is disabled in that state).
+      const home = activeGroup ?? target
+      if (!home) return
+      files.createFile(home.connId, home.database ?? null, kind)
       setNewFileMenuOpen(false)
       leavePreview()
     },
-    [activeGroup?.connId, activeGroup?.database, files.createFile, leavePreview]
+    [
+      activeGroup?.connId,
+      activeGroup?.database,
+      target?.connId,
+      target?.database,
+      files.createFile,
+      leavePreview
+    ]
   )
 
   const startResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -689,9 +697,7 @@ export function EditorPanel({
           {groups.map((group) => {
             const isActive = group.key === activeGroup?.key
             const groupTarget = resolveTarget(group, targets)
-            const color = group.connId
-              ? (connColors.get(group.connId) ?? 'var(--text-faint)')
-              : 'var(--text-faint)'
+            const color = connColors.get(group.connId) ?? 'var(--text-faint)'
             return (
               <div
                 key={group.key}
@@ -700,11 +706,9 @@ export function EditorPanel({
                 aria-selected={isActive}
                 tabIndex={0}
                 title={
-                  group.connId
-                    ? groupTarget
-                      ? `${groupName(group)} / ${groupTarget.database}`
-                      : `${groupName(group)} (offline)`
-                    : 'Files not tied to a connection'
+                  groupTarget
+                    ? `${groupName(group)} / ${groupTarget.database}`
+                    : `${groupName(group)} (offline)`
                 }
                 onClick={() => selectGroup(group)}
                 onKeyDown={(event) => {
@@ -879,9 +883,14 @@ export function EditorPanel({
         <button
           ref={newFileBtnRef}
           className="icon-btn icon-btn--sm editor-tabbar__new"
-          title="New file"
+          title={
+            activeGroup || target
+              ? 'New file'
+              : 'Connect to a database to add a file'
+          }
           aria-label="New file"
           aria-expanded={newFileMenuOpen}
+          disabled={!activeGroup && !target}
           type="button"
           onClick={() => {
             setActionsOpen(false)
@@ -1157,12 +1166,14 @@ export function EditorPanel({
                   <button
                     className="btn-primary"
                     type="button"
-                    onClick={() =>
-                      files.createFile(
-                        target?.connId ?? null,
-                        target?.database ?? null
-                      )
+                    disabled={!target}
+                    title={
+                      target ? undefined : 'Connect to a database to add a query'
                     }
+                    onClick={() => {
+                      if (!target) return
+                      files.createFile(target.connId, target.database)
+                    }}
                   >
                     <PlusThinIcon />
                     New Query
@@ -1179,7 +1190,7 @@ export function EditorPanel({
                           ? `${connNames[file.connId] ?? file.connId}${
                               file.database ? ` / ${file.database}` : ''
                             }`
-                          : 'Scratch'
+                          : ''
                         return (
                           <button
                             key={file.id}

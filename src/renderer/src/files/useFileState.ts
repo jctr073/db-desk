@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { FileKind } from '../../../shared/files'
 
@@ -19,10 +19,12 @@ export interface FileState {
 
   selectFile: (id: string) => void
   createFile: (
-    connId: string | null,
+    connId: string,
     database: string | null,
     kind?: FileKind
   ) => void
+  /** Re-home files saved before files were bound to a connection. */
+  adoptOrphans: (connId: string, database: string | null) => void
   saveFile: (id: string, content: string) => Promise<boolean>
   renameFile: (id: string, name: string) => Promise<boolean>
   closeFiles: (ids: readonly string[]) => void
@@ -73,9 +75,39 @@ export function useFileState(): FileState {
     setSelectedFileId(id)
   }, [])
 
+  // Read at call time so adoption doesn't re-run on every file-list change.
+  const filesRef = useRef<QueryFile[]>([])
+  filesRef.current = files
+  const adoptingRef = useRef(false)
+
+  const adoptOrphans = useCallback(
+    async (connId: string, database: string | null) => {
+      if (adoptingRef.current) return
+      const orphans = filesRef.current.filter((file) => !file.connId)
+      if (orphans.length === 0) return
+      adoptingRef.current = true
+      try {
+        const adopted = await Promise.all(
+          orphans.map((file) =>
+            window.dbDesk.files.reassign(file.id, connId, database)
+          )
+        )
+        const byId = new Map(adopted.map((file) => [file.id, file]))
+        setFiles((prev) => prev.map((file) => byId.get(file.id) ?? file))
+      } catch (error) {
+        setLoadError(
+          `Failed to move files onto a connection: ${error instanceof Error ? error.message : String(error)}`
+        )
+      } finally {
+        adoptingRef.current = false
+      }
+    },
+    []
+  )
+
   const createFile = useCallback(
     async (
-      connId: string | null,
+      connId: string,
       database: string | null,
       kind: FileKind = 'sql'
     ) => {
@@ -167,6 +199,7 @@ export function useFileState(): FileState {
     loadError,
     selectFile,
     createFile,
+    adoptOrphans,
     saveFile,
     renameFile,
     closeFiles,

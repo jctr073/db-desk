@@ -23,6 +23,7 @@ import {
   getNextQueryName,
   deleteQueriesForConnection,
   renameQuery,
+  reassignQuery,
   isFileKind
 } from './files'
 import {
@@ -176,14 +177,20 @@ function registerFileHandlers(): void {
     'files:create',
     (
       _event,
-      connId: string | null,
+      connId: string,
       database: string | null,
       requestedKind: unknown = 'sql'
     ) => {
+      if (!connId) throw new Error('A query file needs a connection')
       const kind = isFileKind(requestedKind) ? requestedKind : 'sql'
       const name = getNextFileName(connId, database, kind)
       return createQuery(name, connId, database)
     }
+  )
+  ipcMain.handle(
+    'files:reassign',
+    (_event, id: string, connId: string, database: string | null) =>
+      reassignQuery(id, connId, database)
   )
   ipcMain.handle('files:read', (_event, id: string) => loadQueryContent(id))
   ipcMain.handle('files:save', (_event, id: string, content: string) =>

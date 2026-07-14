@@ -94,7 +94,7 @@ const api = Object.freeze({
       }>
     > => ipcRenderer.invoke('files:list'),
     create: (
-      connId: string | null,
+      connId: string,
       database: string | null,
       kind: FileKind = 'sql'
     ): Promise<{
@@ -105,6 +105,18 @@ const api = Object.freeze({
       createdAt: number
       updatedAt: number
     }> => ipcRenderer.invoke('files:create', connId, database, kind),
+    reassign: (
+      id: string,
+      connId: string,
+      database: string | null
+    ): Promise<{
+      id: string
+      name: string
+      connId: string | null
+      database: string | null
+      createdAt: number
+      updatedAt: number
+    }> => ipcRenderer.invoke('files:reassign', id, connId, database),
     read: (id: string): Promise<string> => ipcRenderer.invoke('files:read', id),
     save: (id: string, content: string): Promise<void> =>
       ipcRenderer.invoke('files:save', id, content),
