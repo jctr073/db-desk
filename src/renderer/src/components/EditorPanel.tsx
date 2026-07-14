@@ -9,21 +9,31 @@ import type {
 } from 'react'
 
 import type { DatabaseIntrospection } from '../../../shared/db'
+import {
+  fileKindFromName,
+  isPreviewableFile,
+  monacoLanguageForFile,
+  supportedExtension
+} from '../../../shared/files'
+import type { FileKind } from '../../../shared/files'
 import { statementAtOffset } from '../../../shared/sql'
 import { ensureSqlLanguageFeatures } from '../sql/completions'
 import type { Theme } from '../theme'
 import {
   DatabaseIcon,
+  EyeIcon,
   FormatIcon,
   KebabIcon,
   PlayIcon,
   PlusThinIcon,
   SaveIcon,
   SparkleIcon,
+  SqlDocIcon,
   SqlFileIcon,
   CloseIcon
 } from './icons'
 import { ResultsPanel } from './ResultsPanel'
+import { FilePreview } from './FilePreview'
 import { SaveExemplarDialog } from './SaveExemplarDialog'
 import { SqlEditor } from './SqlEditor'
 import type { QueryRunner, QueryTarget } from './useQueryRunner'
@@ -63,7 +73,7 @@ interface EditorPanelProps {
 /** Open files bucketed by (connection, database) — one top-tier tab each. */
 interface FileGroup {
   key: string
-  connId: string | null
+  connId: string
   database: string | null
   files: QueryFile[]
   previews: ResultTab[]
@@ -83,21 +93,21 @@ interface PendingClose {
   groupKey: string | null
 }
 
-function groupKeyOf(connId: string | null, database: string | null): string {
+function groupKeyOf(connId: string, database: string | null): string {
   return `${connId ?? ''}\u0000${database ?? ''}`
 }
 
 /**
  * The (connection, database) a group's queries run against. Groups made at
- * connection level (no database) and scratch files (no connection) fall back
- * to the connection's — or the app's — primary target.
+ * connection level (no database) fall back to that connection's primary
+ * database; with no group open at all, to the app's primary target.
  */
 function resolveTarget(
   group: FileGroup | null,
   targets: QueryTarget[]
 ): QueryTarget | null {
   const fallback = targets.find((t) => t.primary) ?? targets[0] ?? null
-  if (!group || !group.connId) return fallback
+  if (!group) return fallback
   const conn = targets.filter((t) => t.connId === group.connId)
   if (conn.length === 0) return null // connection offline
   if (group.database) {
@@ -131,6 +141,9 @@ export function EditorPanel({
   const [resultsPct, setResultsPct] = useState(50)
   const [dirtyIds, setDirtyIds] = useState<ReadonlySet<string>>(new Set())
   const [actionsOpen, setActionsOpen] = useState(false)
+  const [newFileMenuOpen, setNewFileMenuOpen] = useState(false)
+  const [previewingFileId, setPreviewingFileId] = useState<string | null>(null)
+  const [, setBufferRevision] = useState(0)
   const [tabMenu, setTabMenu] = useState<TabMenu | null>(null)
   const [renamingFileId, setRenamingFileId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -141,6 +154,7 @@ export function EditorPanel({
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const splitRef = useRef<HTMLDivElement | null>(null)
   const actionsBtnRef = useRef<HTMLButtonElement | null>(null)
+  const newFileBtnRef = useRef<HTMLButtonElement | null>(null)
   const renameInputRef = useRef<HTMLInputElement | null>(null)
   const cancelRenameRef = useRef(false)
 
@@ -155,6 +169,9 @@ export function EditorPanel({
     const map = new Map<string, FileGroup>()
     for (const file of files.files) {
       if (!files.openFileIds.has(file.id)) continue
+      // Legacy connection-less files are re-homed on load (App.adoptOrphans);
+      // until that lands they get no tab of their own.
+      if (!file.connId) continue
       const key = groupKeyOf(file.connId, file.database)
       let group = map.get(key)
       if (!group) {
@@ -212,11 +229,18 @@ export function EditorPanel({
   const activeFile = files.selectedFileId
     ? files.files.find((f) => f.id === files.selectedFileId)
     : null
+  const activeFileKind = fileKindFromName(activeFile?.name ?? 'query.sql')
+  const activeLanguage = monacoLanguageForFile(activeFile?.name ?? 'query.sql')
+  const isSqlFile = activeFileKind === 'sql'
+  const canPreview = !!activeFile && isPreviewableFile(activeFile.name)
+  const isFilePreview = canPreview && previewingFileId === files.selectedFileId
+  const activeContent = activeFile
+    ? (buffersRef.current.get(activeFile.id) ?? '')
+    : ''
 
   /** Display name for a group's connection tab. */
   const groupName = useCallback(
-    (group: FileGroup): string =>
-      group.connId ? (connNames[group.connId] ?? group.connId) : 'Scratch',
+    (group: FileGroup): string => connNames[group.connId] ?? group.connId,
     [connNames]
   )
 
@@ -277,15 +301,18 @@ export function EditorPanel({
 
   const activeFileNameRef = useRef<string | null>(null)
   activeFileNameRef.current = activeFile?.name ?? null
+  const activeIsSqlRef = useRef(true)
+  activeIsSqlRef.current = isSqlFile
 
   // Everything is read through refs at call time, so registering once is safe.
   useEffect(() => {
     bridge.current = {
       getActiveSql: () => ({
-        fileName: activeFileNameRef.current,
-        sql: editorRef.current?.getValue() ?? ''
+        fileName: activeIsSqlRef.current ? activeFileNameRef.current : null,
+        sql: activeIsSqlRef.current ? (editorRef.current?.getValue() ?? '') : ''
       }),
       insertSql: (sql: string) => {
+        if (!activeIsSqlRef.current) return
         const ed = editorRef.current
         const model = ed?.getModel()
         if (!ed || !model) return
@@ -331,7 +358,10 @@ export function EditorPanel({
     void window.dbDesk.files.read(id).then((content) => {
       if (cancelled) return
       buffersRef.current.set(id, content)
-      if (activeFileIdRef.current === id) setEditorValue(content)
+      if (activeFileIdRef.current === id) {
+        setEditorValue(content)
+        setBufferRevision((revision) => revision + 1)
+      }
     })
     return () => {
       cancelled = true
@@ -346,6 +376,15 @@ export function EditorPanel({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [actionsOpen])
+
+  useEffect(() => {
+    if (!newFileMenuOpen) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setNewFileMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [newFileMenuOpen])
 
   useEffect(() => {
     if (!tabMenu) return
@@ -369,30 +408,31 @@ export function EditorPanel({
     const input = renameInputRef.current
     if (!renamingFileId || !input) return
     input.focus()
-    const extensionStart = input.value.toLocaleLowerCase().endsWith('.sql')
-      ? input.value.length - 4
+    const extensionStart = supportedExtension(input.value)
+      ? input.value.length - supportedExtension(input.value)!.length
       : input.value.length
     input.setSelectionRange(0, extensionStart)
   }, [renamingFileId])
 
   // Completion reads the active target's schema through this ref so the
   // provider (registered once) always sees the latest introspection.
-  const activeSchema = target
-    ? (schemas[target.connId]?.[target.database] ?? null)
-    : null
+  const activeSchema =
+    target && isSqlFile
+      ? (schemas[target.connId]?.[target.database] ?? null)
+      : null
   const schemaRef = useRef<DatabaseIntrospection | null>(null)
   schemaRef.current = activeSchema
 
   // Databases a tab points at may not have been expanded in the tree yet;
   // introspect them so completions have something to offer.
   useEffect(() => {
-    if (target) ensureSchema(target.connId, target.database)
-  }, [target, ensureSchema])
+    if (target && isSqlFile) ensureSchema(target.connId, target.database)
+  }, [target, isSqlFile, ensureSchema])
 
   const runCurrent = useCallback(() => {
     const ed = editorRef.current
     const model = ed?.getModel()
-    if (!ed || !model || !target) return
+    if (!ed || !model || !target || !isSqlFile) return
     const selection = ed.getSelection()
     let sql: string | null
     if (selection && !selection.isEmpty()) {
@@ -404,7 +444,7 @@ export function EditorPanel({
     }
     if (!sql?.trim()) return
     runner.run(sql.trim(), target, limit)
-  }, [target, limit, runner])
+  }, [target, limit, runner, isSqlFile])
 
   const runRef = useRef(runCurrent)
   useEffect(() => {
@@ -539,7 +579,6 @@ export function EditorPanel({
       const resultTabIds = runner.tabs
         .filter(
           (tab) =>
-            group.connId !== null &&
             groupTarget !== null &&
             tab.target.connId === group.connId &&
             tab.target.database === groupTarget.database
@@ -596,6 +635,26 @@ export function EditorPanel({
     void files.renameFile(id, name)
   }, [files.renameFile, renameDraft, renamingFileId])
 
+  const createFile = useCallback(
+    (kind: FileKind) => {
+      // Files always live on a connection; with none open there is nowhere to
+      // put one (the New File button is disabled in that state).
+      const home = activeGroup ?? target
+      if (!home) return
+      files.createFile(home.connId, home.database ?? null, kind)
+      setNewFileMenuOpen(false)
+      leavePreview()
+    },
+    [
+      activeGroup?.connId,
+      activeGroup?.database,
+      target?.connId,
+      target?.database,
+      files.createFile,
+      leavePreview
+    ]
+  )
+
   const startResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
     const host = splitRef.current
@@ -619,6 +678,14 @@ export function EditorPanel({
       }`
     : ''
 
+  /** Nothing open: show the default screen instead of a blank Monaco surface. */
+  const isEmpty = groups.length === 0
+  const closedFiles = useMemo(
+    () =>
+      isEmpty ? files.files.filter((f) => !files.openFileIds.has(f.id)) : [],
+    [isEmpty, files.files, files.openFileIds]
+  )
+
   return (
     <section className="editor-panel">
       <div className="editor-tabbar">
@@ -630,9 +697,7 @@ export function EditorPanel({
           {groups.map((group) => {
             const isActive = group.key === activeGroup?.key
             const groupTarget = resolveTarget(group, targets)
-            const color = group.connId
-              ? (connColors.get(group.connId) ?? 'var(--text-faint)')
-              : 'var(--text-faint)'
+            const color = connColors.get(group.connId) ?? 'var(--text-faint)'
             return (
               <div
                 key={group.key}
@@ -641,11 +706,9 @@ export function EditorPanel({
                 aria-selected={isActive}
                 tabIndex={0}
                 title={
-                  group.connId
-                    ? groupTarget
-                      ? `${groupName(group)} / ${groupTarget.database}`
-                      : `${groupName(group)} (offline)`
-                    : 'Files not tied to a connection'
+                  groupTarget
+                    ? `${groupName(group)} / ${groupTarget.database}`
+                    : `${groupName(group)} (offline)`
                 }
                 onClick={() => selectGroup(group)}
                 onKeyDown={(event) => {
@@ -691,27 +754,52 @@ export function EditorPanel({
         </div>
         {!activePreview && (
           <>
-            <button
-              className="btn-run btn-run--bar"
-              type="button"
-              disabled={!target}
-              title={
-                target
-                  ? `Run statement at cursor (⌘⏎) — ${target.connName} / ${target.database}`
-                  : 'Connect to a database to run queries'
-              }
-              onClick={runCurrent}
-            >
-              <PlayIcon />
-              Run
-              <span className="btn-run__kbd">⌘⏎</span>
-            </button>
+            {isSqlFile ? (
+              <button
+                className="btn-run btn-run--bar"
+                type="button"
+                disabled={!target}
+                title={
+                  target
+                    ? `Run statement at cursor (⌘⏎) — ${target.connName} / ${target.database}`
+                    : 'Connect to a database to run queries'
+                }
+                onClick={runCurrent}
+              >
+                <PlayIcon />
+                Run
+                <span className="btn-run__kbd">⌘⏎</span>
+              </button>
+            ) : (
+              <div className="editor-view-toggle" aria-label="File view">
+                <button
+                  className={!isFilePreview ? 'is-active' : ''}
+                  type="button"
+                  aria-pressed={!isFilePreview}
+                  onClick={() => setPreviewingFileId(null)}
+                >
+                  Edit
+                </button>
+                <button
+                  className={isFilePreview ? 'is-active' : ''}
+                  type="button"
+                  aria-pressed={isFilePreview}
+                  onClick={() => setPreviewingFileId(activeFile?.id ?? null)}
+                >
+                  <EyeIcon size={13} />
+                  Preview
+                </button>
+              </div>
+            )}
             <button
               ref={actionsBtnRef}
               className={`btn-kebab${actionsOpen ? ' is-open' : ''}`}
               type="button"
               title="More actions"
-              onClick={() => setActionsOpen((open) => !open)}
+              onClick={() => {
+                setNewFileMenuOpen(false)
+                setActionsOpen((open) => !open)
+              }}
             >
               <KebabIcon />
             </button>
@@ -793,19 +881,20 @@ export function EditorPanel({
           </div>
         ))}
         <button
+          ref={newFileBtnRef}
           className="icon-btn icon-btn--sm editor-tabbar__new"
           title={
-            activeGroup?.connId
-              ? `New query on ${groupName(activeGroup)}`
-              : 'New query'
+            activeGroup || target
+              ? 'New file'
+              : 'Connect to a database to add a file'
           }
+          aria-label="New file"
+          aria-expanded={newFileMenuOpen}
+          disabled={!activeGroup && !target}
           type="button"
           onClick={() => {
-            files.createFile(
-              activeGroup?.connId ?? null,
-              activeGroup?.database ?? null
-            )
-            leavePreview()
+            setActionsOpen(false)
+            setNewFileMenuOpen((open) => !open)
           }}
         >
           <PlusThinIcon />
@@ -932,6 +1021,41 @@ export function EditorPanel({
           </div>
         </div>
       )}
+      {newFileMenuOpen && newFileBtnRef.current && (
+        <>
+          <div
+            className="ctx-overlay"
+            onClick={() => setNewFileMenuOpen(false)}
+          />
+          <div
+            className="ctx-menu new-file-menu"
+            style={menuPosition(newFileBtnRef.current)}
+            role="menu"
+            aria-label="New file type"
+          >
+            {(
+              [
+                ['sql', 'SQL file', '.sql'],
+                ['markdown', 'Markdown file', '.md'],
+                ['json', 'JSON file', '.json'],
+                ['text', 'Text file', '.txt']
+              ] as const
+            ).map(([kind, label, extension]) => (
+              <button
+                key={kind}
+                className="ctx-menu__item new-file-menu__item"
+                type="button"
+                role="menuitem"
+                onClick={() => createFile(kind)}
+              >
+                <SqlFileIcon size={13} />
+                <span>{label}</span>
+                <span className="new-file-menu__extension">{extension}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       {!activePreview && actionsOpen && actionsBtnRef.current && (
         <>
           <div className="ctx-overlay" onClick={() => setActionsOpen(false)} />
@@ -940,16 +1064,18 @@ export function EditorPanel({
             style={menuPosition(actionsBtnRef.current)}
             role="menu"
           >
-            <button
-              className="toolbar-menu__item"
-              type="button"
-              role="menuitem"
-              onClick={() => setActionsOpen(false)}
-            >
-              <FormatIcon />
-              <span>Format SQL</span>
-              <span className="toolbar-menu__kbd">⇧⌘F</span>
-            </button>
+            {isSqlFile && (
+              <button
+                className="toolbar-menu__item"
+                type="button"
+                role="menuitem"
+                onClick={() => setActionsOpen(false)}
+              >
+                <FormatIcon />
+                <span>Format SQL</span>
+                <span className="toolbar-menu__kbd">⇧⌘F</span>
+              </button>
+            )}
             <button
               className="toolbar-menu__item"
               type="button"
@@ -966,24 +1092,26 @@ export function EditorPanel({
               <span>Save file</span>
               <span className="toolbar-menu__kbd">⌘S</span>
             </button>
-            <button
-              className="toolbar-menu__item"
-              type="button"
-              role="menuitem"
-              disabled={!target}
-              title={
-                target
-                  ? 'Save the current query as a reusable exemplar'
-                  : 'Connect to a database to save an exemplar'
-              }
-              onClick={() => {
-                setActionsOpen(false)
-                openExemplar()
-              }}
-            >
-              <SparkleIcon />
-              <span>Save as exemplar…</span>
-            </button>
+            {isSqlFile && (
+              <button
+                className="toolbar-menu__item"
+                type="button"
+                role="menuitem"
+                disabled={!target}
+                title={
+                  target
+                    ? 'Save the current query as a reusable exemplar'
+                    : 'Connect to a database to save an exemplar'
+                }
+                onClick={() => {
+                  setActionsOpen(false)
+                  openExemplar()
+                }}
+              >
+                <SparkleIcon />
+                <span>Save as exemplar…</span>
+              </button>
+            )}
           </div>
         </>
       )}
@@ -1015,9 +1143,79 @@ export function EditorPanel({
       ) : (
         <div className="editor-split" ref={splitRef}>
           <div className="editor-host">
-            <SqlEditor theme={theme} onMount={handleMount} />
+            <SqlEditor
+              theme={theme}
+              language={activeLanguage}
+              onMount={handleMount}
+            />
+            {isFilePreview && activeFileKind !== 'sql' && (
+              <FilePreview kind={activeFileKind} content={activeContent} />
+            )}
+            {isEmpty && (
+              <div className="editor-empty">
+                <div className="empty-state">
+                  <div className="empty-state__icon">
+                    <SqlDocIcon size={34} />
+                  </div>
+                  <div className="empty-state__title">No file open</div>
+                  <div className="empty-state__text">
+                    {target
+                      ? `Start a new query against ${target.connName} / ${target.database}, or reopen a saved one.`
+                      : 'Connect to a PostgreSQL database, then open a query to start writing SQL.'}
+                  </div>
+                  <button
+                    className="btn-primary"
+                    type="button"
+                    disabled={!target}
+                    title={
+                      target ? undefined : 'Connect to a database to add a query'
+                    }
+                    onClick={() => {
+                      if (!target) return
+                      files.createFile(target.connId, target.database)
+                    }}
+                  >
+                    <PlusThinIcon />
+                    New Query
+                  </button>
+                  {closedFiles.length > 0 && (
+                    <div className="editor-empty__recent">
+                      <div className="editor-empty__recent-title">
+                        Saved files
+                      </div>
+                      {closedFiles.map((file) => {
+                        // Names are only unique per (connection, database), so
+                        // the origin is what disambiguates rows here.
+                        const origin = file.connId
+                          ? `${connNames[file.connId] ?? file.connId}${
+                              file.database ? ` / ${file.database}` : ''
+                            }`
+                          : ''
+                        return (
+                          <button
+                            key={file.id}
+                            className="editor-empty__file"
+                            type="button"
+                            title={`Open ${file.name} — ${origin}`}
+                            onClick={() => selectFile(file.id)}
+                          >
+                            <SqlFileIcon size={13} />
+                            <span className="editor-empty__file-name">
+                              {file.name}
+                            </span>
+                            <span className="editor-empty__file-origin">
+                              {origin}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-          {queryTabs.length > 0 && (
+          {isSqlFile && queryTabs.length > 0 && (
             <>
               <div
                 className="split-divider"

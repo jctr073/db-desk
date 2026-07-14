@@ -100,6 +100,7 @@ const editorOptions: editor.IStandaloneEditorConstructionOptions = {
 interface SqlEditorProps {
   theme?: Theme
   onMount?: OnMount
+  language?: string
 }
 
 function resolveTheme(theme?: Theme): string {
@@ -109,12 +110,16 @@ function resolveTheme(theme?: Theme): string {
     : 'light'
 }
 
-export function SqlEditor({ theme, onMount }: SqlEditorProps): ReactElement {
+export function SqlEditor({
+  theme,
+  onMount,
+  language = 'sql'
+}: SqlEditorProps): ReactElement {
   return (
-    <section className="sql-editor" aria-label="SQL editor">
+    <section className="sql-editor" aria-label="File editor">
       <Editor
         beforeMount={defineThemes}
-        defaultLanguage="sql"
+        language={language}
         defaultValue={initialSql}
         height="100%"
         options={editorOptions}

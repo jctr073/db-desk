@@ -130,6 +130,14 @@ export function App(): ReactElement {
     return out
   }, [connections.tree])
 
+  // Query files used to be creatable without a connection, which stranded them
+  // in a group of their own. Re-home any leftovers on the first live target.
+  const adoptOrphans = files.adoptOrphans
+  useEffect(() => {
+    const target = targets.find((t) => t.primary) ?? targets[0]
+    if (target) adoptOrphans(target.connId, target.database)
+  }, [targets, files.files, adoptOrphans])
+
   const openDataPreview = useCallback(
     (item: AgentContextItem) => {
       if (item.kind === 'schema') return

@@ -625,6 +625,36 @@ textarea {
   font-size: 10.5px;
   padding-left: 2px;
 }
+.editor-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-hi);
+}
+.editor-view-toggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 11px;
+  cursor: pointer;
+}
+.editor-view-toggle button:hover {
+  color: var(--text);
+}
+.editor-view-toggle button.is-active {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border-soft);
+}
 .btn-kebab {
   flex: 0 0 auto;
   display: inline-flex;
@@ -677,11 +707,175 @@ textarea {
   width: 100%;
   min-height: 0;
 }
+.file-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: auto;
+  padding: 28px 34px;
+  background: var(--bg);
+  color: var(--text);
+}
+.file-preview--markdown {
+  max-width: none;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.file-preview--markdown > * {
+  max-width: 820px;
+}
+.file-preview--markdown > * + * {
+  margin-top: 10px;
+}
+.file-preview--markdown > .md-h:not(:first-child) {
+  margin-top: 20px;
+}
+.file-preview--markdown .md-h1 {
+  font-size: 24px;
+}
+.file-preview--markdown .md-h2 {
+  font-size: 20px;
+}
+.file-preview--markdown .md-h3 {
+  font-size: 17px;
+}
+.file-preview--markdown .md-h4 {
+  font-size: 15px;
+}
+.file-preview__code {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-hi);
+}
+.file-preview__code-language {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+.file-preview__code pre {
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+}
+.file-preview__pre {
+  max-width: 100%;
+  margin: 0;
+  font-family:
+    ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo,
+    monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.file-preview__empty {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.file-preview__error {
+  margin: -8px 0 18px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--red) 45%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--red) 9%, transparent);
+  color: var(--red);
+  font-size: 12px;
+}
+.new-file-menu {
+  min-width: 190px;
+}
+.new-file-menu__item {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.new-file-menu__extension {
+  color: var(--text-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
 .editor-split {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* Default screen when no query is open — mirrors the connection panel's
+   .empty-state, with a saved-query list standing in for the tree. Layered over
+   the (kept-alive) Monaco surface so mounting it can't race the buffer load. */
+.editor-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: auto;
+  display: flex;
+  background: var(--bg);
+}
+.editor-empty .empty-state {
+  flex: 1;
+  min-height: 0;
+}
+.editor-empty .empty-state__text {
+  max-width: 290px;
+}
+.editor-empty__recent {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  margin-top: 10px;
+  width: 100%;
+  max-width: 290px;
+  text-align: left;
+}
+.editor-empty__recent-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  color: var(--text-faint);
+  padding: 0 8px 6px;
+}
+.editor-empty__file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.editor-empty__file:hover {
+  background: var(--row-hover);
+  color: var(--text);
+}
+.editor-empty__file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-empty__file-origin {
+  margin-left: auto;
+  padding-left: 10px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toolbar-select {

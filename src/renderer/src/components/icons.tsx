@@ -259,6 +259,23 @@ export function SqlFileIcon({ size = 13 }: IconProps): ReactElement {
   )
 }
 
+/** Document outline around the SqlFileIcon strokes — for large empty states. */
+export function SqlDocIcon({ size = 34 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.1}
+    >
+      <path d="M9.2 1.8H4.3a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7.4a1 1 0 0 0 1-1V5.3z" />
+      <path d="M9.2 1.8v3.5h3.5" />
+      <path d="M5.4 8.4h5.2M5.4 10.7h3" />
+    </svg>
+  )
+}
+
 export function BookIcon({ size = 12 }: IconProps): ReactElement {
   return (
     <svg

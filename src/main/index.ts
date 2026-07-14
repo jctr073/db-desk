@@ -16,12 +16,15 @@ import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
 import {
   listQueries,
   createQuery,
+  getNextFileName,
   loadQueryContent,
   saveQueryContent,
   deleteQuery,
   getNextQueryName,
   deleteQueriesForConnection,
-  renameQuery
+  renameQuery,
+  reassignQuery,
+  isFileKind
 } from './files'
 import {
   listRecords,
@@ -172,10 +175,22 @@ function registerFileHandlers(): void {
   ipcMain.handle('files:list', () => listQueries())
   ipcMain.handle(
     'files:create',
-    (_event, connId: string | null, database: string | null) => {
-      const name = getNextQueryName(connId, database)
+    (
+      _event,
+      connId: string,
+      database: string | null,
+      requestedKind: unknown = 'sql'
+    ) => {
+      if (!connId) throw new Error('A query file needs a connection')
+      const kind = isFileKind(requestedKind) ? requestedKind : 'sql'
+      const name = getNextFileName(connId, database, kind)
       return createQuery(name, connId, database)
     }
+  )
+  ipcMain.handle(
+    'files:reassign',
+    (_event, id: string, connId: string, database: string | null) =>
+      reassignQuery(id, connId, database)
   )
   ipcMain.handle('files:read', (_event, id: string) => loadQueryContent(id))
   ipcMain.handle('files:save', (_event, id: string, content: string) =>
