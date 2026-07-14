@@ -18,16 +18,19 @@ import {
 } from '../../../shared/agent'
 import type {
   AgentContextItem,
+  AgentDbObjectItem,
+  AgentDbObjectKind,
   AgentEffort,
   AgentEvent,
   AgentKeyStatus,
   AgentMode,
   AgentModeOption,
-  AgentModelOption
+  AgentModelOption,
+  AgentPromptIntent
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import type { McpServerStatus } from '../../../shared/mcp'
-import { REPO_SCAN_PROMPT } from '../../../shared/repo'
+import { REPO_SCAN_PROMPT, repoTargetedScanPrompt } from '../../../shared/repo'
 import type { RepoStatus } from '../../../shared/repo'
 import { NodeIcon } from '../connections/NodeIcon'
 import { KIND_LABELS, isKnownKind, recordTitle } from '../knowledge/format'
@@ -67,6 +70,7 @@ import { FilesPanel } from './FilesPanel'
 import { KbRefContext, Markdown } from './MarkdownText'
 import { McpSettingsDialog } from './McpSettingsDialog'
 import { SaveExemplarDialog } from './SaveExemplarDialog'
+import { TargetedScanDialog } from './TargetedScanDialog'
 
 interface AgentPanelProps {
   files: FileState
@@ -102,6 +106,16 @@ interface AgentPanelProps {
     database: string,
     recordId: string
   ) => void
+  /**
+   * One-shot composer prefill (e.g. "Fix with AI" from the results grid).
+   * A new seq reveals the agent tab and replaces the draft; never replayed.
+   */
+  seed?: {
+    seq: number
+    text: string
+    intent: AgentPromptIntent
+    target?: { connId: string; database: string }
+  } | null
 }
 
 const EFFORT_LABEL: Record<AgentEffort, string> = {
@@ -120,7 +134,7 @@ const EFFORT_SHORT: Record<AgentEffort, string> = {
   max: 'max'
 }
 
-const CHIP_KIND_LABEL: Record<AgentContextItem['kind'], string> = {
+const CHIP_KIND_LABEL: Record<AgentDbObjectKind, string> = {
   schema: 'schema',
   table: 'table',
   view: 'view',
@@ -160,6 +174,7 @@ interface ArchivedChat {
   webSearch: boolean
   repoEnabled: boolean
   draft: string
+  draftIntent: AgentPromptIntent
 }
 
 let idSeq = 0
@@ -212,6 +227,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   search_knowledge: { label: 'Knowledge', Icon: BookIcon, sqlish: false },
   save_knowledge: { label: 'Knowledge', Icon: BookIcon, sqlish: false },
   write_to_editor: { label: 'Editor', Icon: SqlFileIcon, sqlish: true },
+  read_editor: { label: 'Editor', Icon: SqlFileIcon, sqlish: false },
   list_repo_files: { label: 'Codebase', Icon: FolderIcon, sqlish: false },
   grep_repo: { label: 'Codebase', Icon: FolderIcon, sqlish: false },
   read_repo_file: { label: 'Codebase', Icon: FolderIcon, sqlish: false },
@@ -425,7 +441,8 @@ export function AgentPanel({
   onKnowledgeTargetChange,
   knowledgeNav,
   onKnowledgeNavConsumed,
-  onOpenKnowledgeRecord
+  onOpenKnowledgeRecord,
+  seed
 }: AgentPanelProps): ReactElement {
   const [activeTab, setActiveTab] = useState<'files' | 'agent' | 'knowledge'>(
     'agent'
@@ -452,6 +469,7 @@ export function AgentPanel({
   )
   const [keyStatus, setKeyStatus] = useState<AgentKeyStatus | null>(null)
   const [input, setInput] = useState('')
+  const [draftIntent, setDraftIntent] = useState<AgentPromptIntent>('chat')
   const [modelOpen, setModelOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerFilter, setPickerFilter] = useState('')
@@ -474,6 +492,8 @@ export function AgentPanel({
     {}
   )
   const [repoMenuOpen, setRepoMenuOpen] = useState(false)
+  /** The knowledge panel's "Targeted scan…" focus dialog. */
+  const [targetedScanOpen, setTargetedScanOpen] = useState(false)
   // On by default: once a codebase is attached, using it is opt-out per chat.
   const [repoEnabled, setRepoEnabled] = useState(true)
 
@@ -637,9 +657,27 @@ export function AgentPanel({
           )
           break
         }
-        case 'editor_insert':
-          editorBridge.current?.insertSql(evt.sql)
+        case 'editor_proposal': {
+          const outcome =
+            editorBridge.current?.proposeSql(evt.sql) ?? 'unavailable'
+          setMessages((prev) =>
+            appendPart(
+              prev,
+              outcome === 'applied'
+                ? { kind: 'notice', text: 'SQL written to the editor.' }
+                : outcome === 'pending'
+                  ? {
+                      kind: 'notice',
+                      text: 'Edit proposed — review the diff in the editor and Accept or Reject.'
+                    }
+                  : {
+                      kind: 'error',
+                      text: 'No SQL editor available to write into — use Insert on the code block instead.'
+                    }
+            )
+          )
           break
+        }
         case 'done':
           setBusy(false)
           setThinking(false)
@@ -677,6 +715,26 @@ export function AgentPanel({
     if (context.length > prevContextLen.current) setActiveTab('agent')
     prevContextLen.current = context.length
   }, [context.length])
+
+  // "Fix with AI" and friends: prefill the composer and reveal the chat.
+  // One-shot per seq so re-renders never replay the last prefill.
+  const prevSeedSeq = useRef(0)
+  useEffect(() => {
+    if (!seed || seed.seq === prevSeedSeq.current) return
+    prevSeedSeq.current = seed.seq
+    setActiveTab('agent')
+    setInput(seed.text)
+    setDraftIntent(seed.intent)
+    const requestedTarget = seed.target
+    const seedTarget = requestedTarget
+      ? targets.find(
+          (candidate) =>
+            candidate.connId === requestedTarget.connId &&
+            candidate.database === requestedTarget.database
+        )
+      : null
+    if (seedTarget) setSelectedTargetKey(targetKey(seedTarget))
+  }, [seed, targets])
 
   // "Show usages" / "Add annotation…" from the tree reveals the knowledge tab.
   const prevNavSeq = useRef(0)
@@ -735,8 +793,8 @@ export function AgentPanel({
     if (!intro || !target) return []
     const q = pickerFilter.trim().toLowerCase()
     const existing = new Set(context.map(agentContextKey))
-    const out: AgentContextItem[] = []
-    const push = (item: AgentContextItem): void => {
+    const out: AgentDbObjectItem[] = []
+    const push = (item: AgentDbObjectItem): void => {
       if (existing.has(agentContextKey(item))) return
       const qualified = item.schema ? `${item.schema}.${item.name}` : item.name
       if (q && !qualified.toLowerCase().includes(q)) return
@@ -784,7 +842,8 @@ export function AgentPanel({
     (
       prompt: string,
       promptTarget: QueryTarget | null = target,
-      forceRepo = false
+      forceRepo = false,
+      intent: AgentPromptIntent = 'chat'
     ) => {
       if (!prompt || busy || compacting) return
       setBusy(true)
@@ -799,9 +858,11 @@ export function AgentPanel({
         { id: nextId('m'), role: 'assistant', parts: [] }
       ])
       const editor = editorBridge.current?.getActiveSql() ?? null
+      const editorSelection = editorBridge.current?.getSelection() ?? null
       void window.dbDesk.agent.send({
         chatId,
         prompt,
+        intent,
         model: model.id,
         effort: effort && model.efforts.includes(effort) ? effort : null,
         mode,
@@ -818,6 +879,7 @@ export function AgentPanel({
             }
           : null,
         editor,
+        editorSelection,
         context
       })
     },
@@ -841,8 +903,9 @@ export function AgentPanel({
     const prompt = input.trim()
     if (!prompt || busy || compacting) return
     setInput('')
-    sendPrompt(prompt)
-  }, [input, busy, compacting, sendPrompt])
+    setDraftIntent('chat')
+    sendPrompt(prompt, target, false, draftIntent)
+  }, [input, busy, compacting, sendPrompt, target, draftIntent])
 
   const rememberRepoStatus = useCallback((status: RepoStatus) => {
     setRepoStatuses((current) => ({ ...current, [status.connId]: status }))
@@ -877,6 +940,20 @@ export function AgentPanel({
     sendPrompt(REPO_SCAN_PROMPT, knowledgeTarget, true)
   }, [knowledgeTarget, knowledgeRepoStatus, busy, compacting, sendPrompt])
 
+  /** Follow-up scan scoped by the focus text from the targeted-scan dialog. */
+  const targetedScan = useCallback(
+    (focus: string) => {
+      if (!knowledgeTarget || !knowledgeRepoStatus?.root || busy || compacting) {
+        return
+      }
+      setSelectedTargetKey(targetKey(knowledgeTarget))
+      setRepoEnabled(true)
+      setActiveTab('agent')
+      sendPrompt(repoTargetedScanPrompt(focus), knowledgeTarget, true)
+    },
+    [knowledgeTarget, knowledgeRepoStatus, busy, compacting, sendPrompt]
+  )
+
   const stop = useCallback(() => {
     void window.dbDesk.agent.stop(chatId)
   }, [chatId])
@@ -894,7 +971,8 @@ export function AgentPanel({
       mode,
       webSearch,
       repoEnabled,
-      draft: input
+      draft: input,
+      draftIntent
     }),
     [
       chatId,
@@ -908,7 +986,8 @@ export function AgentPanel({
       mode,
       webSearch,
       repoEnabled,
-      input
+      input,
+      draftIntent
     ]
   )
 
@@ -930,6 +1009,7 @@ export function AgentPanel({
     setThinking(false)
     setContextTokens(0)
     setInput('')
+    setDraftIntent('chat')
     setHistoryOpen(false)
   }, [busy, compacting, currentChatSnapshot])
 
@@ -957,6 +1037,7 @@ export function AgentPanel({
       setWebSearch(nextChat.webSearch)
       setRepoEnabled(nextChat.repoEnabled)
       setInput(nextChat.draft)
+      setDraftIntent(nextChat.draftIntent ?? 'chat')
       setBusy(false)
       setThinking(false)
       setCompacting(false)
@@ -1008,6 +1089,7 @@ export function AgentPanel({
   const runSlashCommand = useCallback(
     (name: string) => {
       setInput('')
+      setDraftIntent('chat')
       if (name === 'clear') newChat()
       else if (name === 'compact') void runCompact()
     },
@@ -1186,6 +1268,18 @@ export function AgentPanel({
                       }}
                     >
                       Scan codebase
+                    </button>
+                    <button
+                      type="button"
+                      className="model-pop__row"
+                      disabled={!knowledgeRepoStatus?.root}
+                      title="Re-scan a specific part of the codebase with your own focus instructions"
+                      onClick={() => {
+                        setRepoMenuOpen(false)
+                        setTargetedScanOpen(true)
+                      }}
+                    >
+                      Targeted scan…
                     </button>
                     <button
                       type="button"
@@ -1455,6 +1549,51 @@ export function AgentPanel({
               <div className="composer__chips">
                 {context.map((item) => {
                   const key = agentContextKey(item)
+                  const remove = (
+                    <button
+                      type="button"
+                      className="chip__x"
+                      title="Remove from thread"
+                      onClick={() => onRemoveContext(key)}
+                    >
+                      <CloseIcon size={10} />
+                    </button>
+                  )
+                  if (item.kind === 'editor-selection') {
+                    const lineCount = item.endLine - item.startLine + 1
+                    return (
+                      <span
+                        key={key}
+                        className="chip"
+                        title={`${item.fileName ?? 'editor'} lines ${item.startLine}–${item.endLine} (snapshot):\n${item.sql.slice(0, 400)}`}
+                      >
+                        <SqlFileIcon size={12} />
+                        <span className="chip__label">
+                          {item.fileName ?? 'selection'}
+                        </span>
+                        <span className="chip__sub">
+                          {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+                        </span>
+                        {remove}
+                      </span>
+                    )
+                  }
+                  if (item.kind === 'result') {
+                    return (
+                      <span
+                        key={key}
+                        className="chip"
+                        title={`${item.title} · ${item.database}\n${item.error ? `failed: ${item.error.slice(0, 200)}` : item.scope}\n${item.sql.slice(0, 300)}`}
+                      >
+                        <PlayIcon size={11} />
+                        <span className="chip__label">{item.title}</span>
+                        <span className="chip__sub">
+                          {item.error ? 'error' : `${item.rows.length} rows`}
+                        </span>
+                        {remove}
+                      </span>
+                    )
+                  }
                   const qualified = item.schema
                     ? `${item.schema}.${item.name}`
                     : item.name
@@ -1472,14 +1611,7 @@ export function AgentPanel({
                       <span className="chip__sub">
                         {CHIP_KIND_LABEL[item.kind]}
                       </span>
-                      <button
-                        type="button"
-                        className="chip__x"
-                        title="Remove from thread"
-                        onClick={() => onRemoveContext(key)}
-                      >
-                        <CloseIcon size={10} />
-                      </button>
+                      {remove}
                     </span>
                   )
                 })}
@@ -1524,7 +1656,9 @@ export function AgentPanel({
                 rows={2}
                 value={input}
                 onChange={(e) => {
-                  setInput(e.target.value)
+                  const next = e.target.value
+                  setInput(next)
+                  if (!next.trim()) setDraftIntent('chat')
                   setSlashIndex(0)
                 }}
                 onKeyDown={onComposerKeyDown}
@@ -1780,6 +1914,21 @@ export function AgentPanel({
             </div>
           </div>
         </div>
+      )}
+      {targetedScanOpen && knowledgeTarget && (
+        <TargetedScanDialog
+          targetLabel={`${knowledgeTarget.connName} / ${knowledgeTarget.database}`}
+          repoName={
+            knowledgeRepoStatus?.root
+              ? repoRootName(knowledgeRepoStatus.root)
+              : null
+          }
+          onClose={() => setTargetedScanOpen(false)}
+          onScan={(focus) => {
+            setTargetedScanOpen(false)
+            targetedScan(focus)
+          }}
+        />
       )}
       {exemplarSql !== null && target && (
         <SaveExemplarDialog

@@ -3,6 +3,7 @@ import type { IpcRendererEvent } from 'electron'
 
 import type {
   AgentCompactResult,
+  AgentEditorReadPayload,
   AgentEvent,
   AgentKeyStatus,
   AgentSendRequest
@@ -227,6 +228,27 @@ const api = Object.freeze({
     /** Replace the chat history with a model-written summary (/compact). */
     compact: (chatId: string, model: string): Promise<AgentCompactResult> =>
       ipcRenderer.invoke('agent:compact', chatId, model),
+    /**
+     * Provide live editor state for the agent's read_editor tool. `provide`
+     * runs once per request and the result is sent straight back to main;
+     * a thrown provider degrades to "editor unavailable" rather than leaving
+     * the request to time out. Returns an unsubscribe function.
+     */
+    onEditorRead: (provide: () => AgentEditorReadPayload): (() => void) => {
+      const listener = (_event: IpcRendererEvent, requestId: string): void => {
+        let payload: AgentEditorReadPayload
+        try {
+          payload = provide()
+        } catch {
+          payload = { editor: null, selection: null }
+        }
+        ipcRenderer.send('agent:editor-read-reply', requestId, payload)
+      }
+      ipcRenderer.on('agent:editor-read', listener)
+      return () => {
+        ipcRenderer.removeListener('agent:editor-read', listener)
+      }
+    },
     /** Subscribe to agent progress events; returns an unsubscribe function. */
     onEvent: (callback: (evt: AgentEvent) => void): (() => void) => {
       const listener = (_event: IpcRendererEvent, evt: AgentEvent): void =>

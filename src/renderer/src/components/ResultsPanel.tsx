@@ -6,8 +6,10 @@ import type {
   ReactElement
 } from 'react'
 
+import type { AgentResultItem } from '../../../shared/agent'
 import type { QueryResult } from '../../../shared/db'
 import type { DataExportFormat } from '../../../shared/export'
+import { buildResultContextItem } from '../../../shared/resultContext'
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -47,6 +49,10 @@ interface ResultsPanelProps {
   contentOnly?: boolean
   /** Report the active result's summary + target up to the app status bar. */
   onStatus?: (text: string, target: string) => void
+  /** Attach a result-context chip to the AI agent thread. */
+  onAddAgentContext?: (item: AgentResultItem) => void
+  /** Attach context AND pre-fill the agent composer (e.g. "Fix this error"). */
+  onAskAgent?: (prompt: string, item: AgentResultItem) => void
 }
 
 const LIMIT_CHOICES: (number | null)[] = [100, 500, 1000, 5000, null]
@@ -102,11 +108,16 @@ function statusLine(tab: ResultTab): string {
 interface ResultGridProps {
   result: QueryResult
   onSelectedRowsChange: (rows: ReadonlySet<number>) => void
+  onSelectedColumnsChange: (columns: ReadonlySet<number>) => void
+  /** Present only when the parent offers the AI-context menu. */
+  onGridContextMenu?: (event: ReactMouseEvent) => void
 }
 
 function ResultGrid({
   result,
-  onSelectedRowsChange
+  onSelectedRowsChange,
+  onSelectedColumnsChange,
+  onGridContextMenu
 }: ResultGridProps): ReactElement {
   const [selectedRows, setSelectedRows] = useState<Set<number>>(() => new Set())
   const [selectedColumns, setSelectedColumns] = useState<Set<number>>(
@@ -129,7 +140,8 @@ function ResultGrid({
     rowSelectionAnchorRef.current = null
     columnSelectionAnchorRef.current = null
     onSelectedRowsChange(new Set())
-  }, [result, onSelectedRowsChange])
+    onSelectedColumnsChange(new Set())
+  }, [result, onSelectedRowsChange, onSelectedColumnsChange])
 
   useEffect(
     () => () => document.body.classList.remove('is-grid-col-resizing'),
@@ -151,6 +163,7 @@ function ResultGrid({
       rowSelectionAnchorRef.current = row
     }
     setSelectedColumns(new Set())
+    onSelectedColumnsChange(new Set())
     columnSelectionAnchorRef.current = null
   }
 
@@ -165,6 +178,7 @@ function ResultGrid({
       modifiers
     )
     setSelectedColumns(next)
+    onSelectedColumnsChange(next)
     if (next.size === 0) {
       columnSelectionAnchorRef.current = null
     } else if (
@@ -185,6 +199,7 @@ function ResultGrid({
     setSelectedRows(allRows)
     setSelectedColumns(allColumns)
     onSelectedRowsChange(allRows)
+    onSelectedColumnsChange(allColumns)
     rowSelectionAnchorRef.current = null
     columnSelectionAnchorRef.current = null
   }
@@ -262,7 +277,18 @@ function ResultGrid({
 
   return (
     <div className="grid-scroll">
-      <table className="result-grid" role="grid" aria-multiselectable="true">
+      <table
+        className="result-grid"
+        role="grid"
+        aria-multiselectable="true"
+        onContextMenu={
+          onGridContextMenu &&
+          ((event: ReactMouseEvent) => {
+            event.preventDefault()
+            onGridContextMenu(event)
+          })
+        }
+      >
         <thead>
           <tr>
             <th
@@ -371,9 +397,19 @@ function ResultGrid({
 interface TabBodyProps {
   tab: ResultTab
   onSelectedRowsChange: (rows: ReadonlySet<number>) => void
+  onSelectedColumnsChange: (columns: ReadonlySet<number>) => void
+  onGridContextMenu?: (event: ReactMouseEvent) => void
+  /** Present only when the parent offers "Fix with AI" on failed runs. */
+  onFixWithAi?: () => void
 }
 
-function TabBody({ tab, onSelectedRowsChange }: TabBodyProps): ReactElement {
+function TabBody({
+  tab,
+  onSelectedRowsChange,
+  onSelectedColumnsChange,
+  onGridContextMenu,
+  onFixWithAi
+}: TabBodyProps): ReactElement {
   if (tab.running) {
     return (
       <div className="results-center">
@@ -386,6 +422,19 @@ function TabBody({ tab, onSelectedRowsChange }: TabBodyProps): ReactElement {
     return (
       <div className="results-center">
         <pre className="result-error">{tab.error}</pre>
+        {onFixWithAi && (
+          <button
+            className="fix-with-ai"
+            type="button"
+            title="Attach this error to the AI agent and ask it to fix the query"
+            onClick={onFixWithAi}
+          >
+            <span className="fix-with-ai__icon">
+              <SparkleIcon size={12} />
+            </span>
+            <span>Fix with AI</span>
+          </button>
+        )}
       </div>
     )
   }
@@ -401,6 +450,8 @@ function TabBody({ tab, onSelectedRowsChange }: TabBodyProps): ReactElement {
     <ResultGrid
       result={tab.result}
       onSelectedRowsChange={onSelectedRowsChange}
+      onSelectedColumnsChange={onSelectedColumnsChange}
+      onGridContextMenu={onGridContextMenu}
     />
   )
 }
@@ -418,7 +469,9 @@ export function ResultsPanel({
   onRerun,
   showLimitControl = true,
   contentOnly = false,
-  onStatus
+  onStatus,
+  onAddAgentContext,
+  onAskAgent
 }: ResultsPanelProps): ReactElement {
   const active = tabs.find((tab) => tab.id === activeTabId) ?? null
   const [menuOpen, setMenuOpen] = useState(false)
@@ -430,6 +483,13 @@ export function ResultsPanel({
   const [selectedRowIndexes, setSelectedRowIndexes] = useState<Set<number>>(
     () => new Set()
   )
+  const [selectedColumnIndexes, setSelectedColumnIndexes] = useState<
+    Set<number>
+  >(() => new Set())
+  const [resultCtxMenu, setResultCtxMenu] = useState<{
+    x: number
+    y: number
+  } | null>(null)
   const [aiOpen, setAiOpen] = useState(false)
   const [maxVisible, setMaxVisible] = useState(6)
   const barRef = useRef<HTMLDivElement>(null)
@@ -442,8 +502,16 @@ export function ResultsPanel({
     []
   )
 
+  const onSelectedColumnsChange = useCallback(
+    (columns: ReadonlySet<number>): void =>
+      setSelectedColumnIndexes(new Set(columns)),
+    []
+  )
+
   useEffect(() => {
     setSelectedRowIndexes(new Set())
+    setSelectedColumnIndexes(new Set())
+    setResultCtxMenu(null)
     setExportOpen(false)
     setExportError(null)
   }, [activeTabId])
@@ -507,17 +575,18 @@ export function ResultsPanel({
   }, [overflowTabs.length])
 
   useEffect(() => {
-    if (!menuOpen && !limitOpen && !exportOpen) return
+    if (!menuOpen && !limitOpen && !exportOpen && !resultCtxMenu) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         setMenuOpen(false)
         setLimitOpen(false)
         setExportOpen(false)
+        setResultCtxMenu(null)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [menuOpen, limitOpen, exportOpen])
+  }, [menuOpen, limitOpen, exportOpen, resultCtxMenu])
 
   const menuRect = menuOpen
     ? overflowBtnRef.current?.getBoundingClientRect()
@@ -534,6 +603,48 @@ export function ResultsPanel({
     activeResult && activeResult.fields.length > 0 && !active?.running
   )
   const selectedRowCount = selectedRowIndexes.size
+
+  const hasSelection = selectedRowIndexes.size > 0 || selectedColumnIndexes.size > 0
+
+  const addResultContext = (useSelection: boolean): void => {
+    if (!active || !onAddAgentContext) return
+    onAddAgentContext(
+      buildResultContextItem({
+        id: crypto.randomUUID(),
+        title: active.title,
+        sql: active.sql,
+        connId: active.target.connId,
+        database: active.target.database,
+        result: active.result,
+        error: active.error,
+        selectedRows: useSelection ? selectedRowIndexes : null,
+        selectedColumns: useSelection ? selectedColumnIndexes : null
+      })
+    )
+    setResultCtxMenu(null)
+  }
+
+  const onGridContextMenu = onAddAgentContext
+    ? (event: ReactMouseEvent): void =>
+        setResultCtxMenu({ x: event.clientX, y: event.clientY })
+    : undefined
+
+  const onFixWithAi =
+    active && onAskAgent
+      ? (): void =>
+          onAskAgent(
+            'Fix the error in this query and propose the corrected active query as an editor diff.',
+            buildResultContextItem({
+              id: crypto.randomUUID(),
+              title: active.title,
+              sql: active.sql,
+              connId: active.target.connId,
+              database: active.target.database,
+              result: null,
+              error: active.error
+            })
+          )
+      : undefined
 
   const startExport = async (format: DataExportFormat): Promise<void> => {
     if (!active?.result || active.running || exportingFormat) return
@@ -655,6 +766,44 @@ export function ResultsPanel({
     </>
   )
 
+  const resultCtxMenuNode =
+    resultCtxMenu && onAddAgentContext && active?.result ? (
+      <div
+        className="ctx-overlay"
+        onMouseDown={() => setResultCtxMenu(null)}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          setResultCtxMenu(null)
+        }}
+      >
+        <div
+          className="ctx-menu"
+          style={{ top: resultCtxMenu.y, left: resultCtxMenu.x }}
+          role="menu"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {hasSelection && (
+            <button
+              className="ctx-menu__item"
+              type="button"
+              role="menuitem"
+              onClick={() => addResultContext(true)}
+            >
+              Add selection to AI chat
+            </button>
+          )}
+          <button
+            className="ctx-menu__item"
+            type="button"
+            role="menuitem"
+            onClick={() => addResultContext(false)}
+          >
+            Add result to AI chat
+          </button>
+        </div>
+      </div>
+    ) : null
+
   if (contentOnly) {
     return (
       <div className="results-panel">
@@ -670,11 +819,15 @@ export function ResultsPanel({
           </div>
         )}
         {exportMenu}
+        {resultCtxMenuNode}
         {active && (
           <TabBody
             key={active.id}
             tab={active}
             onSelectedRowsChange={onSelectedRowsChange}
+            onSelectedColumnsChange={onSelectedColumnsChange}
+            onGridContextMenu={onGridContextMenu}
+            onFixWithAi={onFixWithAi}
           />
         )}
       </div>
@@ -920,11 +1073,15 @@ export function ResultsPanel({
           </div>
         </>
       )}
+      {resultCtxMenuNode}
       {active && (
         <TabBody
           key={active.id}
           tab={active}
           onSelectedRowsChange={onSelectedRowsChange}
+          onSelectedColumnsChange={onSelectedColumnsChange}
+          onGridContextMenu={onGridContextMenu}
+          onFixWithAi={onFixWithAi}
         />
       )}
     </div>

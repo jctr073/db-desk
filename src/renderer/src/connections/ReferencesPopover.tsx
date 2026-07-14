@@ -1,10 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 
 import type { ColumnEndpoint, ReferenceEdge, ReferenceLists } from './references'
 
 const POP_WIDTH = 320
 const POP_MAX_HEIGHT = 360
+const POP_LEFT_MARGIN = 8
+const POP_RIGHT_MARGIN = 12
 
 function fmt(end: ColumnEndpoint): string {
   return `${end.schema}.${end.table}.${end.column}`
@@ -38,6 +40,11 @@ export function ReferencesPopover({
   onNavigate,
   onClose
 }: ReferencesPopoverProps): ReactElement {
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const [left, setLeft] = useState(() =>
+    Math.max(POP_LEFT_MARGIN, Math.min(x, window.innerWidth - POP_WIDTH - POP_RIGHT_MARGIN))
+  )
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onClose()
@@ -46,7 +53,28 @@ export function ReferencesPopover({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const left = Math.max(8, Math.min(x, window.innerWidth - POP_WIDTH - 12))
+  useLayoutEffect(() => {
+    const popover = popoverRef.current
+    if (!popover) return
+
+    const updateLeft = (): void => {
+      const nextLeft = Math.max(
+        POP_LEFT_MARGIN,
+        Math.min(x, window.innerWidth - popover.getBoundingClientRect().width - POP_RIGHT_MARGIN)
+      )
+      setLeft((currentLeft) => (currentLeft === nextLeft ? currentLeft : nextLeft))
+    }
+
+    updateLeft()
+    const resizeObserver = new ResizeObserver(updateLeft)
+    resizeObserver.observe(popover)
+    window.addEventListener('resize', updateLeft)
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', updateLeft)
+    }
+  }, [x])
+
   const top = Math.max(8, Math.min(y, window.innerHeight - POP_MAX_HEIGHT - 12))
 
   const rowLabel = (edge: ReferenceEdge, side: 'to' | 'from'): string => {
@@ -112,6 +140,7 @@ export function ReferencesPopover({
       }}
     >
       <div
+        ref={popoverRef}
         className="refs-pop"
         role="dialog"
         aria-label={`References for ${title}`}

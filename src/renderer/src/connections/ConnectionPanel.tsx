@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { MouseEvent, ReactElement } from 'react'
 
-import type { AgentContextItem } from '../../../shared/agent'
+import type { AgentDbObjectItem } from '../../../shared/agent'
 import type { ColumnRef } from '../../../shared/knowledge'
 import { formatRef } from '../knowledge/format'
 import { treeNodeRef } from '../knowledge/treeBadges'
@@ -35,9 +35,9 @@ interface ConnectionPanelProps {
   state: ConnectionState
   onNewQueryFile?: (connId: string, database: string) => void
   /** Open a full-height, read-only 100-row preview for a relation. */
-  onOpenDataPreview?: (item: AgentContextItem) => void
+  onOpenDataPreview?: (item: AgentDbObjectItem) => void
   /** Attach a schema/table/view to the AI agent thread as a context chip. */
-  onAddToAgentThread?: (item: AgentContextItem) => void
+  onAddToAgentThread?: (item: AgentDbObjectItem) => void
   /** "Show usages" / "Add annotation…" on a table or column node. */
   onKnowledgeAction?: (
     action: 'usages' | 'annotate',
@@ -82,7 +82,7 @@ interface RefsViewState {
 const RELATION_KINDS = new Set<NodeKind>(['table', 'view', 'matview'])
 
 /** Build the chip payload for a schema/table/view node from its path-based id. */
-function contextItemFor(node: TreeNode): AgentContextItem | null {
+function contextItemFor(node: TreeNode): AgentDbObjectItem | null {
   if (!AGENT_CONTEXT_KINDS.has(node.kind)) return null
   // Ids look like "connId/database/schema/category/relation" (see assignIds);
   // database and schema segments use the raw names as keys.

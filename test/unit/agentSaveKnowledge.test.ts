@@ -70,6 +70,7 @@ function makeReq(overrides: Partial<AgentSendRequest> = {}): AgentSendRequest {
     repo: false,
     target: { connId: CONN, connName: 'Local', database: DB },
     editor: null,
+    editorSelection: null,
     context: [],
     ...overrides
   }
