@@ -11,8 +11,11 @@ import { describe, expect, it } from 'vitest'
 import {
   buildReferenceIndex,
   columnKey,
+  columnPeers,
   columnReferences,
+  nameBasedPeers,
   parseFkRef,
+  semanticPeers,
   singularStems,
   tableReferences,
   typeFamily
@@ -291,5 +294,135 @@ describe('buildReferenceIndex', () => {
     const orders = tableReferences(index, 'public', 'orders')
     expect(orders.outbound.map((e) => e.to.table)).toEqual(['customers'])
     expect(orders.inbound.map((e) => e.from.table)).toEqual(['order_items'])
+  })
+})
+
+describe('column peers', () => {
+  it('finds semantic peers through a shared target and excludes the subject', () => {
+    const fixture = db(
+      schema('public', [
+        rel('contracts', [col('id', 'integer', 'pk')]),
+        rel('orders', [
+          col('contract_id', 'integer', 'fk', 'public.contracts.id')
+        ]),
+        rel('invoices', [
+          col('contract_id', 'integer', 'fk', 'public.contracts.id')
+        ]),
+        rel('shipments', [col('contract_id', 'integer')])
+      ])
+    )
+    const index = buildReferenceIndex(fixture)
+    const subject = { schema: 'public', table: 'orders', column: 'contract_id' }
+
+    const peers = semanticPeers(index, subject)
+    expect(peers.map((edge) => `${edge.kind} ${edge.from.table}`)).toEqual([
+      'fk invoices',
+      'lfk shipments'
+    ])
+    expect(peers.some((edge) => edge.from.table === 'orders')).toBe(false)
+  })
+
+  it('uses name-based peers for a targetless column and excludes type mismatches', () => {
+    const fixture = db(
+      schema('public', [
+        rel('orders', [col('country_code', 'text')]),
+        rel('customers', [col('COUNTRY_CODE', 'varchar(2)')]),
+        rel('imports', [col('country_code', 'uuid')]),
+        rel('products', [col('sku', 'text')]),
+        rel('warehouses', [col('location', 'text')]),
+        rel('carriers', [col('code', 'text')]),
+        rel('regions', [col('label', 'text')]),
+        rel('payments', [col('amount', 'numeric')]),
+        rel('shipments', [col('tracking_number', 'text')]),
+        rel('events', [col('payload', 'jsonb')])
+      ])
+    )
+    const subject = {
+      schema: 'public',
+      table: 'orders',
+      column: 'country_code'
+    }
+    const result = columnPeers(buildReferenceIndex(fixture), fixture, subject)
+
+    expect(result).toEqual({
+      kind: 'name',
+      peers: [
+        {
+          endpoint: {
+            schema: 'public',
+            table: 'customers',
+            column: 'COUNTRY_CODE'
+          },
+          relationKind: 'table'
+        }
+      ]
+    })
+  })
+
+  it('does not fall back to name matching when the subject resolves to a target', () => {
+    const fixture = db(
+      schema('public', [
+        rel('accounts', [col('id', 'integer', 'pk')]),
+        rel('orders', [
+          col('account_key', 'integer', 'fk', 'public.accounts.id')
+        ]),
+        rel('imports', [col('account_key', 'integer')]),
+        rel('products', [col('sku', 'text')]),
+        rel('warehouses', [col('location', 'text')]),
+        rel('carriers', [col('code', 'text')]),
+        rel('regions', [col('label', 'text')])
+      ])
+    )
+    const result = columnPeers(buildReferenceIndex(fixture), fixture, {
+      schema: 'public',
+      table: 'orders',
+      column: 'account_key'
+    })
+
+    expect(result).toEqual({ kind: null, peers: [] })
+  })
+
+  it('suppresses stoplisted names', () => {
+    const fixture = db(
+      schema('public', [
+        rel('orders', [col('name', 'text')]),
+        rel('customers', [col('name', 'text')]),
+        rel('products', [col('sku', 'text')]),
+        rel('warehouses', [col('location', 'text')]),
+        rel('carriers', [col('code', 'text')]),
+        rel('regions', [col('label', 'text')]),
+        rel('imports', [col('source', 'text')])
+      ])
+    )
+
+    expect(
+      nameBasedPeers(fixture, {
+        schema: 'public',
+        table: 'orders',
+        column: 'name'
+      })
+    ).toEqual([])
+  })
+
+  it('suppresses names present in more than 30% of relations', () => {
+    const fixture = db(
+      schema('public', [
+        rel('orders', [col('tenant_id', 'integer')]),
+        rel('customers', [col('tenant_id', 'integer')]),
+        rel('products', [col('tenant_id', 'integer')]),
+        rel('warehouses', [col('location', 'text')]),
+        rel('carriers', [col('code', 'text')]),
+        rel('regions', [col('label', 'text')]),
+        rel('imports', [col('source', 'text')])
+      ])
+    )
+
+    expect(
+      nameBasedPeers(fixture, {
+        schema: 'public',
+        table: 'orders',
+        column: 'tenant_id'
+      })
+    ).toEqual([])
   })
 })

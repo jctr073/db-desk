@@ -19,6 +19,7 @@ import { ReferencesPopover } from './ReferencesPopover'
 import { flattenTree } from './flatten'
 import {
   buildReferenceIndex,
+  columnPeers,
   columnReferences,
   tableReferences
 } from './references'
@@ -132,13 +133,18 @@ export function ConnectionPanel({
   const refsIntro = refsView
     ? state.schemas[refsView.connId]?.[refsView.database]
     : undefined
-  const refsLists = useMemo(() => {
+  const refsData = useMemo(() => {
     if (!refsView || !refsIntro) return null
     const index = buildReferenceIndex(refsIntro)
     const { schema, table, column } = refsView.ref
-    return column
-      ? columnReferences(index, { schema, table, column })
-      : tableReferences(index, schema, table)
+    if (column) {
+      const subject = { schema, table, column }
+      return {
+        lists: columnReferences(index, subject),
+        peers: columnPeers(index, refsIntro, subject)
+      }
+    }
+    return { lists: tableReferences(index, schema, table), peers: null }
   }, [refsView, refsIntro])
 
   /** Reveal and select the tree node for a reference endpoint, closing the popover. */
@@ -486,7 +492,8 @@ export function ConnectionPanel({
               : `${refsView.ref.schema}.${refsView.ref.table}`
           }
           subjectColumn={refsView.ref.column ?? null}
-          lists={refsLists}
+          lists={refsData?.lists ?? null}
+          peers={refsData?.peers ?? null}
           onNavigate={navigateToEndpoint}
           onClose={() => setRefsView(null)}
         />

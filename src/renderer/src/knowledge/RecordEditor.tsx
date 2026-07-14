@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 
 import type { DatabaseIntrospection } from '../../../shared/db'
@@ -9,6 +9,7 @@ import type {
   KnowledgeRecordInput
 } from '../../../shared/knowledge'
 import { CloseIcon, PlusThinIcon } from '../components/icons'
+import { SqlCode } from '../components/SqlCode'
 import { KIND_LABELS } from './format'
 import { RefChipEditor, RefField } from './RefInput'
 
@@ -279,6 +280,7 @@ export function RecordEditor({
 }: RecordEditorProps): ReactElement {
   const [draft, setDraft] = useState<Draft>(() => initDraft(record, prefillTarget))
   const [error, setError] = useState<string | null>(null)
+  const sqlHighlightRef = useRef<HTMLPreElement | null>(null)
 
   const patch = (changes: Partial<Draft>): void => {
     setError(null)
@@ -571,14 +573,34 @@ export function RecordEditor({
               />
             </div>
             <div className="kn-field">
-              <label className="field-label">SQL</label>
-              <textarea
-                className="text-input text-input--mono kn-textarea kn-textarea--sql"
-                rows={7}
-                spellCheck={false}
-                value={draft.sql}
-                onChange={(e) => patch({ sql: e.target.value })}
-              />
+              <label className="field-label" htmlFor="knowledge-exemplar-sql">
+                SQL
+              </label>
+              <div className="kn-sql-input">
+                <pre
+                  ref={sqlHighlightRef}
+                  className="kn-sql-input__highlight"
+                  aria-hidden="true"
+                >
+                  <SqlCode sql={draft.sql} />
+                  {'\n'}
+                </pre>
+                <textarea
+                  id="knowledge-exemplar-sql"
+                  className="kn-sql-input__control"
+                  rows={7}
+                  spellCheck={false}
+                  value={draft.sql}
+                  onChange={(e) => patch({ sql: e.target.value })}
+                  onScroll={(e) => {
+                    if (!sqlHighlightRef.current) return
+                    sqlHighlightRef.current.scrollTop =
+                      e.currentTarget.scrollTop
+                    sqlHighlightRef.current.scrollLeft =
+                      e.currentTarget.scrollLeft
+                  }}
+                />
+              </div>
             </div>
             <div className="kn-field">
               <label className="field-label">References</label>

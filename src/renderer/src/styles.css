@@ -2219,6 +2219,25 @@ body.is-grid-col-resizing {
   border-style: dashed;
   opacity: 0.85;
 }
+.refs-pop__badge--name {
+  color: var(--text-faint);
+  border-color: var(--border-soft);
+  font-weight: 600;
+  opacity: 0.75;
+}
+.refs-pop__more {
+  width: 100%;
+  padding: 5px 8px 4px;
+  border: none;
+  background: none;
+  color: var(--accent-strong);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.refs-pop__more:hover {
+  text-decoration: underline;
+}
 .refs-pop__empty {
   padding: 10px 8px;
   font-size: 12px;
@@ -3651,9 +3670,53 @@ body.is-grid-col-resizing {
   line-height: 1.5;
   font-family: inherit;
 }
-.kn-textarea--sql {
+.kn-sql-input {
+  display: grid;
+  width: 100%;
+  background: var(--panel-hi);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.kn-sql-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.kn-sql-input__highlight,
+.kn-sql-input__control {
+  grid-area: 1 / 1;
+  width: 100%;
+  min-width: 0;
+  min-height: calc(7 * 1.5em + 12px);
+  max-height: 45vh;
+  margin: 0;
+  padding: 6px 9px;
+  border: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.kn-sql-input__highlight {
+  pointer-events: none;
+  color: var(--text);
+  overflow: hidden;
+}
+.kn-sql-input__control {
+  position: relative;
+  resize: vertical;
+  field-sizing: content;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  -webkit-text-fill-color: transparent;
+  outline: none;
+  overflow: auto;
+}
+.kn-sql-input__control::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .kn-segs {
   display: inline-flex;

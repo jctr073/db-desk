@@ -43,9 +43,10 @@ import type {
   KnowledgeNav,
   KnowledgeState
 } from '../knowledge/useKnowledgeState'
-import { highlightSql, stripSqlComments } from '../sql/highlight'
+import { stripSqlComments } from '../sql/highlight'
 import type { FileState } from '../files/useFileState'
 import type { EditorBridge } from './editorBridge'
+import { SqlCode } from './SqlCode'
 import type { QueryTarget } from './useQueryRunner'
 import {
   ArrowUpIcon,
@@ -316,24 +317,6 @@ function splitFences(text: string): { code: boolean; body: string }[] {
         : segment
     return { code: true, body }
   })
-}
-
-/** SQL text with editor-palette token coloring (see --sql-* tokens). */
-function SqlCode({ sql }: { sql: string }): ReactElement {
-  const segments = useMemo(() => highlightSql(sql), [sql])
-  return (
-    <>
-      {segments.map((seg, i) =>
-        seg.cls ? (
-          <span key={i} className={`sql-${seg.cls}`}>
-            {seg.text}
-          </span>
-        ) : (
-          seg.text
-        )
-      )}
-    </>
-  )
 }
 
 function AssistantText({
