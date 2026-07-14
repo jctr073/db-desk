@@ -1531,6 +1531,7 @@ export function AgentPanel({
                     </button>
                   )
                   if (item.kind === 'editor-selection') {
+                    const lineCount = item.endLine - item.startLine + 1
                     return (
                       <span
                         key={key}
@@ -1542,7 +1543,7 @@ export function AgentPanel({
                           {item.fileName ?? 'selection'}
                         </span>
                         <span className="chip__sub">
-                          L{item.startLine}–{item.endLine}
+                          {lineCount} {lineCount === 1 ? 'line' : 'lines'}
                         </span>
                         {remove}
                       </span>

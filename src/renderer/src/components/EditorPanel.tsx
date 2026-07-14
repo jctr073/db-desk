@@ -637,6 +637,27 @@ export function EditorPanel({
     addSelectionRef.current = addSelectionToAgent
   })
 
+  /** "Add Query to AI Chat": snapshot the whole editor as a context chip. */
+  const addQueryToAgent = useCallback(() => {
+    if (!activeIsSqlRef.current) return
+    const model = editorRef.current?.getModel()
+    if (!model) return
+    const sql = model.getValue()
+    if (!sql.trim()) return
+    onAddAgentContext?.({
+      kind: 'editor-selection',
+      id: crypto.randomUUID(),
+      fileName: activeFileNameRef.current,
+      sql,
+      startLine: 1,
+      endLine: model.getLineCount()
+    })
+  }, [onAddAgentContext])
+  const addQueryRef = useRef(addQueryToAgent)
+  useEffect(() => {
+    addQueryRef.current = addQueryToAgent
+  })
+
   const acceptProposal = useCallback(() => {
     if (!proposal) return
     applyProposal(proposal.fileId, proposal.sql)
@@ -663,6 +684,13 @@ export function EditorPanel({
       contextMenuOrder: 1,
       precondition: 'editorHasSelection',
       run: () => addSelectionRef.current()
+    })
+    ed.addAction({
+      id: 'db-desk.add-query-to-agent',
+      label: 'Add Query to AI Chat',
+      contextMenuGroupId: '9_dbdesk',
+      contextMenuOrder: 2,
+      run: () => addQueryRef.current()
     })
     ed.onDidChangeModelContent(() => {
       if (suppressChangeRef.current) return
