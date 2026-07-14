@@ -768,12 +768,19 @@ export function ResultsPanel({
 
   const resultCtxMenuNode =
     resultCtxMenu && onAddAgentContext && active?.result ? (
-      <>
-        <div className="ctx-overlay" onClick={() => setResultCtxMenu(null)} />
+      <div
+        className="ctx-overlay"
+        onMouseDown={() => setResultCtxMenu(null)}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          setResultCtxMenu(null)
+        }}
+      >
         <div
           className="ctx-menu"
           style={{ top: resultCtxMenu.y, left: resultCtxMenu.x }}
           role="menu"
+          onMouseDown={(event) => event.stopPropagation()}
         >
           {hasSelection && (
             <button
@@ -794,7 +801,7 @@ export function ResultsPanel({
             Add result to AI chat
           </button>
         </div>
-      </>
+      </div>
     ) : null
 
   if (contentOnly) {
