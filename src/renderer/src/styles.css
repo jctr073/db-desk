@@ -2146,7 +2146,9 @@ body.is-grid-col-resizing {
 }
 .refs-pop {
   position: fixed;
-  width: 320px;
+  width: max-content;
+  min-width: min(320px, calc(100vw - 20px));
+  max-width: calc(100vw - 20px);
   max-height: 360px;
   overflow-y: auto;
   padding: 6px;
