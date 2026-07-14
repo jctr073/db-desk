@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 
 import { agentContextKey } from '../../shared/agent'
-import type { AgentContextItem } from '../../shared/agent'
+import type {
+  AgentContextItem,
+  AgentDbObjectItem,
+  AgentResultItem
+} from '../../shared/agent'
 import type { ColumnRef } from '../../shared/knowledge'
 import { AgentPanel } from './components/AgentPanel'
 import { EditorPanel } from './components/EditorPanel'
@@ -62,6 +66,29 @@ export function App(): ReactElement {
   }, [])
   const removeAgentContext = useCallback((key: string) => {
     setAgentContext((prev) => prev.filter((c) => agentContextKey(c) !== key))
+  }, [])
+
+  // "Fix with AI" and friends: attach context, then prefill the composer.
+  // seq makes each request one-shot; AgentPanel never replays a seen seq.
+  const [agentSeed, setAgentSeed] = useState<{
+    seq: number
+    text: string
+  } | null>(null)
+  const agentSeedSeq = useRef(0)
+  const askAgent = useCallback(
+    (prompt: string, item?: AgentResultItem) => {
+      if (item) addAgentContext(item)
+      setAgentSeed({ seq: ++agentSeedSeq.current, text: prompt })
+    },
+    [addAgentContext]
+  )
+
+  // Serve the agent's read_editor tool from the live editor bridge.
+  useEffect(() => {
+    return window.dbDesk.agent.onEditorRead(() => ({
+      editor: editorBridge.current?.getActiveSql() ?? null,
+      selection: editorBridge.current?.getSelection() ?? null
+    }))
   }, [])
 
   // The editor panel feeds the app-wide status bar: the connection its
@@ -139,7 +166,7 @@ export function App(): ReactElement {
   }, [targets, files.files, adoptOrphans])
 
   const openDataPreview = useCallback(
-    (item: AgentContextItem) => {
+    (item: AgentDbObjectItem) => {
       if (item.kind === 'schema') return
       const target = targets.find(
         (candidate) =>
@@ -299,6 +326,8 @@ export function App(): ReactElement {
           bridge={editorBridge}
           onQueryStatus={onQueryStatus}
           onTargetChange={setActiveTarget}
+          onAddAgentContext={addAgentContext}
+          onAskAgent={askAgent}
         />
         <div
           className="col-divider"
@@ -323,6 +352,7 @@ export function App(): ReactElement {
           knowledgeNav={knowledgeNav}
           onKnowledgeNavConsumed={clearKnowledgeNav}
           onOpenKnowledgeRecord={openKnowledgeRecord}
+          seed={agentSeed}
         />
       </div>
       <StatusBar

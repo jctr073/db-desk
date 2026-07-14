@@ -18,6 +18,8 @@ import {
 } from '../../../shared/agent'
 import type {
   AgentContextItem,
+  AgentDbObjectItem,
+  AgentDbObjectKind,
   AgentEffort,
   AgentEvent,
   AgentKeyStatus,
@@ -102,6 +104,11 @@ interface AgentPanelProps {
     database: string,
     recordId: string
   ) => void
+  /**
+   * One-shot composer prefill (e.g. "Fix with AI" from the results grid).
+   * A new seq reveals the agent tab and replaces the draft; never replayed.
+   */
+  seed?: { seq: number; text: string } | null
 }
 
 const EFFORT_LABEL: Record<AgentEffort, string> = {
@@ -120,7 +127,7 @@ const EFFORT_SHORT: Record<AgentEffort, string> = {
   max: 'max'
 }
 
-const CHIP_KIND_LABEL: Record<AgentContextItem['kind'], string> = {
+const CHIP_KIND_LABEL: Record<AgentDbObjectKind, string> = {
   schema: 'schema',
   table: 'table',
   view: 'view',
@@ -212,6 +219,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   search_knowledge: { label: 'Knowledge', Icon: BookIcon, sqlish: false },
   save_knowledge: { label: 'Knowledge', Icon: BookIcon, sqlish: false },
   write_to_editor: { label: 'Editor', Icon: SqlFileIcon, sqlish: true },
+  read_editor: { label: 'Editor', Icon: SqlFileIcon, sqlish: false },
   list_repo_files: { label: 'Codebase', Icon: FolderIcon, sqlish: false },
   grep_repo: { label: 'Codebase', Icon: FolderIcon, sqlish: false },
   read_repo_file: { label: 'Codebase', Icon: FolderIcon, sqlish: false },
@@ -425,7 +433,8 @@ export function AgentPanel({
   onKnowledgeTargetChange,
   knowledgeNav,
   onKnowledgeNavConsumed,
-  onOpenKnowledgeRecord
+  onOpenKnowledgeRecord,
+  seed
 }: AgentPanelProps): ReactElement {
   const [activeTab, setActiveTab] = useState<'files' | 'agent' | 'knowledge'>(
     'agent'
@@ -637,9 +646,27 @@ export function AgentPanel({
           )
           break
         }
-        case 'editor_insert':
-          editorBridge.current?.insertSql(evt.sql)
+        case 'editor_proposal': {
+          const outcome =
+            editorBridge.current?.proposeSql(evt.sql) ?? 'unavailable'
+          setMessages((prev) =>
+            appendPart(
+              prev,
+              outcome === 'applied'
+                ? { kind: 'notice', text: 'SQL written to the editor.' }
+                : outcome === 'pending'
+                  ? {
+                      kind: 'notice',
+                      text: 'Edit proposed — review the diff in the editor and Accept or Reject.'
+                    }
+                  : {
+                      kind: 'error',
+                      text: 'No SQL editor available to write into — use Insert on the code block instead.'
+                    }
+            )
+          )
           break
+        }
         case 'done':
           setBusy(false)
           setThinking(false)
@@ -677,6 +704,16 @@ export function AgentPanel({
     if (context.length > prevContextLen.current) setActiveTab('agent')
     prevContextLen.current = context.length
   }, [context.length])
+
+  // "Fix with AI" and friends: prefill the composer and reveal the chat.
+  // One-shot per seq so re-renders never replay the last prefill.
+  const prevSeedSeq = useRef(0)
+  useEffect(() => {
+    if (!seed || seed.seq === prevSeedSeq.current) return
+    prevSeedSeq.current = seed.seq
+    setActiveTab('agent')
+    setInput(seed.text)
+  }, [seed])
 
   // "Show usages" / "Add annotation…" from the tree reveals the knowledge tab.
   const prevNavSeq = useRef(0)
@@ -735,8 +772,8 @@ export function AgentPanel({
     if (!intro || !target) return []
     const q = pickerFilter.trim().toLowerCase()
     const existing = new Set(context.map(agentContextKey))
-    const out: AgentContextItem[] = []
-    const push = (item: AgentContextItem): void => {
+    const out: AgentDbObjectItem[] = []
+    const push = (item: AgentDbObjectItem): void => {
       if (existing.has(agentContextKey(item))) return
       const qualified = item.schema ? `${item.schema}.${item.name}` : item.name
       if (q && !qualified.toLowerCase().includes(q)) return
@@ -799,6 +836,7 @@ export function AgentPanel({
         { id: nextId('m'), role: 'assistant', parts: [] }
       ])
       const editor = editorBridge.current?.getActiveSql() ?? null
+      const editorSelection = editorBridge.current?.getSelection() ?? null
       void window.dbDesk.agent.send({
         chatId,
         prompt,
@@ -818,6 +856,7 @@ export function AgentPanel({
             }
           : null,
         editor,
+        editorSelection,
         context
       })
     },
@@ -1455,6 +1494,50 @@ export function AgentPanel({
               <div className="composer__chips">
                 {context.map((item) => {
                   const key = agentContextKey(item)
+                  const remove = (
+                    <button
+                      type="button"
+                      className="chip__x"
+                      title="Remove from thread"
+                      onClick={() => onRemoveContext(key)}
+                    >
+                      <CloseIcon size={10} />
+                    </button>
+                  )
+                  if (item.kind === 'editor-selection') {
+                    return (
+                      <span
+                        key={key}
+                        className="chip"
+                        title={`${item.fileName ?? 'editor'} lines ${item.startLine}–${item.endLine} (snapshot):\n${item.sql.slice(0, 400)}`}
+                      >
+                        <SqlFileIcon size={12} />
+                        <span className="chip__label">
+                          {item.fileName ?? 'selection'}
+                        </span>
+                        <span className="chip__sub">
+                          L{item.startLine}–{item.endLine}
+                        </span>
+                        {remove}
+                      </span>
+                    )
+                  }
+                  if (item.kind === 'result') {
+                    return (
+                      <span
+                        key={key}
+                        className="chip"
+                        title={`${item.title} · ${item.database}\n${item.error ? `failed: ${item.error.slice(0, 200)}` : item.scope}\n${item.sql.slice(0, 300)}`}
+                      >
+                        <PlayIcon size={11} />
+                        <span className="chip__label">{item.title}</span>
+                        <span className="chip__sub">
+                          {item.error ? 'error' : `${item.rows.length} rows`}
+                        </span>
+                        {remove}
+                      </span>
+                    )
+                  }
                   const qualified = item.schema
                     ? `${item.schema}.${item.name}`
                     : item.name
@@ -1472,14 +1555,7 @@ export function AgentPanel({
                       <span className="chip__sub">
                         {CHIP_KIND_LABEL[item.kind]}
                       </span>
-                      <button
-                        type="button"
-                        className="chip__x"
-                        title="Remove from thread"
-                        onClick={() => onRemoveContext(key)}
-                      >
-                        <CloseIcon size={10} />
-                      </button>
+                      {remove}
                     </span>
                   )
                 })}

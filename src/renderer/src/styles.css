@@ -1448,6 +1448,31 @@ body.is-col-resizing {
   white-space: pre-wrap;
 }
 
+/* "Fix with AI" — failed-run affordance next to .result-error; reuses the
+   .ai-tab accent-pill language rather than a new one-off style. */
+.fix-with-ai {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 23px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fix-with-ai:hover {
+  border-color: var(--accent);
+}
+.fix-with-ai__icon {
+  display: inline-flex;
+  color: var(--accent-strong);
+}
+
 .grid-scroll {
   flex: 1;
   min-height: 0;
@@ -3784,4 +3809,45 @@ body.is-grid-col-resizing {
 }
 .ref-chip__x:hover {
   color: var(--red);
+}
+
+/* ------------------------------------------------------------------ *
+ * AI editor proposal — diff review overlay (EditorPanel)              *
+ * ------------------------------------------------------------------ */
+.editor-proposal {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.editor-proposal__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+.editor-proposal__title {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor-proposal__spacer {
+  flex: 1;
+}
+.editor-proposal__bar .btn-cancel,
+.editor-proposal__bar .btn-primary {
+  padding: 3px 12px;
+  font-size: 12px;
+}
+.editor-proposal__diff {
+  flex: 1;
+  min-height: 0;
 }

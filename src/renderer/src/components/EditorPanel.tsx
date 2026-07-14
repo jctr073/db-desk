@@ -1,3 +1,4 @@
+import { DiffEditor } from '@monaco-editor/react'
 import type { OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -8,6 +9,10 @@ import type {
   ReactElement
 } from 'react'
 
+import type {
+  AgentEditorSelectionItem,
+  AgentResultItem
+} from '../../../shared/agent'
 import type { DatabaseIntrospection } from '../../../shared/db'
 import {
   fileKindFromName,
@@ -35,13 +40,28 @@ import {
 import { ResultsPanel } from './ResultsPanel'
 import { FilePreview } from './FilePreview'
 import { SaveExemplarDialog } from './SaveExemplarDialog'
-import { SqlEditor } from './SqlEditor'
+import { SqlEditor, defineThemes, resolveTheme } from './SqlEditor'
 import type { QueryRunner, QueryTarget } from './useQueryRunner'
 import type { ResultTab } from './useQueryRunner'
 import type { EditorBridge } from './editorBridge'
 import type { FileState, QueryFile } from '../files/useFileState'
 
 const DEFAULT_LIMIT = 500
+
+/** Inline (single-pane) read-only diff for reviewing an AI proposal. */
+const PROPOSAL_DIFF_OPTIONS: editor.IDiffEditorConstructionOptions = {
+  automaticLayout: true,
+  fontFamily:
+    'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
+  fontSize: 13,
+  minimap: { enabled: false },
+  originalEditable: false,
+  readOnly: true,
+  renderOverviewRuler: false,
+  renderSideBySide: false,
+  scrollBeyondLastLine: false,
+  wordWrap: 'on'
+}
 
 /** Dot colors cycled per connection, in tree order (see connColors). */
 const CONN_COLORS = [
@@ -68,6 +88,16 @@ interface EditorPanelProps {
   onQueryStatus?: (text: string, target: string) => void
   /** Report the active connection tab's resolved target (for the status bar). */
   onTargetChange?: (target: QueryTarget | null) => void
+  /** Attach a context chip (editor selection, result data) to the AI thread. */
+  onAddAgentContext?: (item: AgentEditorSelectionItem | AgentResultItem) => void
+  /** Attach result context AND pre-fill the agent composer (Fix with AI). */
+  onAskAgent?: (prompt: string, item: AgentResultItem) => void
+}
+
+/** An agent-proposed replacement for one file's contents, awaiting review. */
+interface EditorProposal {
+  fileId: string
+  sql: string
 }
 
 /** Open files bucketed by (connection, database) — one top-tier tab each. */
@@ -135,7 +165,9 @@ export function EditorPanel({
   runner,
   bridge,
   onQueryStatus,
-  onTargetChange
+  onTargetChange,
+  onAddAgentContext,
+  onAskAgent
 }: EditorPanelProps): ReactElement {
   const [limit, setLimit] = useState<number | null>(DEFAULT_LIMIT)
   const [resultsPct, setResultsPct] = useState(50)
@@ -151,6 +183,10 @@ export function EditorPanel({
   const [savingBeforeClose, setSavingBeforeClose] = useState(false)
   /** Captured SQL for the "Save as exemplar" dialog; null = closed. */
   const [exemplarSql, setExemplarSql] = useState<string | null>(null)
+  /** Agent-proposed buffer replacement awaiting Accept/Reject; null = none. */
+  const [proposal, setProposal] = useState<EditorProposal | null>(null)
+  /** SQL to apply to the next freshly-loaded file (created for a proposal). */
+  const pendingApplyRef = useRef<string | null>(null)
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const splitRef = useRef<HTMLDivElement | null>(null)
   const actionsBtnRef = useRef<HTMLButtonElement | null>(null)
@@ -304,13 +340,69 @@ export function EditorPanel({
   const activeIsSqlRef = useRef(true)
   activeIsSqlRef.current = isSqlFile
 
-  // Everything is read through refs at call time, so registering once is safe.
+  // Where proposeSql creates a query file when no SQL tab is open: the active
+  // group's home, else the app's primary target. Null with no connection.
+  const proposalHomeRef = useRef<{
+    connId: string
+    database: string | null
+  } | null>(null)
+  proposalHomeRef.current = activeGroup
+    ? { connId: activeGroup.connId, database: activeGroup.database }
+    : target
+      ? { connId: target.connId, database: target.database }
+      : null
+  const createFileRef = useRef(files.createFile)
+  createFileRef.current = files.createFile
+
+  /**
+   * Replace one file's contents with agent-proposed SQL. Routed through
+   * executeEdits when that file is live in Monaco — undo-friendly, and the
+   * change listener marks it dirty — else written straight to its buffer
+   * (the editor may be unmounted behind a data preview).
+   */
+  const applyProposal = useCallback((fileId: string, text: string) => {
+    const ed = editorRef.current
+    const model = ed?.getModel()
+    if (
+      activeFileIdRef.current === fileId &&
+      ed &&
+      model &&
+      !model.isDisposed()
+    ) {
+      ed.executeEdits('ai-agent', [
+        { range: model.getFullModelRange(), text, forceMoveMarkers: true }
+      ])
+      ed.focus()
+      return
+    }
+    buffersRef.current.set(fileId, text)
+    setDirtyIds((prev) => (prev.has(fileId) ? prev : new Set(prev).add(fileId)))
+    setBufferRevision((revision) => revision + 1)
+  }, [])
+
+  // Everything is read through refs at call time, so registering once is safe
+  // (applyProposal is stable).
   useEffect(() => {
     bridge.current = {
       getActiveSql: () => ({
         fileName: activeIsSqlRef.current ? activeFileNameRef.current : null,
         sql: activeIsSqlRef.current ? (editorRef.current?.getValue() ?? '') : ''
       }),
+      getSelection: () => {
+        if (!activeIsSqlRef.current) return null
+        const ed = editorRef.current
+        const model = ed?.getModel()
+        const selection = ed?.getSelection()
+        if (!model || model.isDisposed() || !selection || selection.isEmpty()) {
+          return null
+        }
+        return {
+          fileName: activeFileNameRef.current,
+          sql: model.getValueInRange(selection),
+          startLine: selection.startLineNumber,
+          endLine: selection.endLineNumber
+        }
+      },
       insertSql: (sql: string) => {
         if (!activeIsSqlRef.current) return
         const ed = editorRef.current
@@ -327,12 +419,32 @@ export function EditorPanel({
         const text = sql.endsWith('\n') ? sql : `${sql}\n`
         ed.executeEdits('ai-agent', [{ range, text, forceMoveMarkers: true }])
         ed.focus()
+      },
+      proposeSql: (sql: string) => {
+        const text = sql.endsWith('\n') ? sql : `${sql}\n`
+        const fileId = activeFileIdRef.current
+        if (activeIsSqlRef.current && fileId) {
+          const current = buffersRef.current.get(fileId) ?? ''
+          if (!current.trim()) {
+            applyProposal(fileId, text)
+            return 'applied'
+          }
+          setProposal({ fileId, sql: text })
+          return 'pending'
+        }
+        // No SQL tab to write into: create a fresh query file on the active
+        // connection and land the SQL there once its buffer loads.
+        const home = proposalHomeRef.current
+        if (!home) return 'unavailable'
+        pendingApplyRef.current = text
+        createFileRef.current(home.connId, home.database)
+        return 'applied'
       }
     }
     return () => {
       bridge.current = null
     }
-  }, [bridge])
+  }, [bridge, applyProposal])
 
   const setEditorValue = useCallback((value: string) => {
     const ed = editorRef.current
@@ -357,9 +469,17 @@ export function EditorPanel({
     let cancelled = false
     void window.dbDesk.files.read(id).then((content) => {
       if (cancelled) return
-      buffersRef.current.set(id, content)
+      // A proposal that had to create this file lands as its initial
+      // contents (unsaved, so the dirty dot shows it needs a ⌘S).
+      const pending = pendingApplyRef.current
+      pendingApplyRef.current = null
+      const next = pending ?? content
+      buffersRef.current.set(id, next)
+      if (pending !== null) {
+        setDirtyIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+      }
       if (activeFileIdRef.current === id) {
-        setEditorValue(content)
+        setEditorValue(next)
         setBufferRevision((revision) => revision + 1)
       }
     })
@@ -494,6 +614,40 @@ export function EditorPanel({
     saveRef.current = () => void saveFileById(activeFileIdRef.current)
   }, [saveFileById])
 
+  /** "Add Selection to AI Chat": snapshot the selection as a context chip. */
+  const addSelectionToAgent = useCallback(() => {
+    if (!activeIsSqlRef.current) return
+    const ed = editorRef.current
+    const model = ed?.getModel()
+    const selection = ed?.getSelection()
+    if (!model || !selection || selection.isEmpty()) return
+    const sql = model.getValueInRange(selection)
+    if (!sql.trim()) return
+    onAddAgentContext?.({
+      kind: 'editor-selection',
+      id: crypto.randomUUID(),
+      fileName: activeFileNameRef.current,
+      sql,
+      startLine: selection.startLineNumber,
+      endLine: selection.endLineNumber
+    })
+  }, [onAddAgentContext])
+  const addSelectionRef = useRef(addSelectionToAgent)
+  useEffect(() => {
+    addSelectionRef.current = addSelectionToAgent
+  })
+
+  const acceptProposal = useCallback(() => {
+    if (!proposal) return
+    applyProposal(proposal.fileId, proposal.sql)
+    setProposal(null)
+  }, [proposal, applyProposal])
+
+  const rejectProposal = useCallback(() => {
+    setProposal(null)
+    editorRef.current?.focus()
+  }, [])
+
   const handleMount = useCallback<OnMount>((ed, monaco) => {
     editorRef.current = ed
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () =>
@@ -502,6 +656,14 @@ export function EditorPanel({
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () =>
       saveRef.current()
     )
+    ed.addAction({
+      id: 'db-desk.add-selection-to-agent',
+      label: 'Add Selection to AI Chat',
+      contextMenuGroupId: '9_dbdesk',
+      contextMenuOrder: 1,
+      precondition: 'editorHasSelection',
+      run: () => addSelectionRef.current()
+    })
     ed.onDidChangeModelContent(() => {
       if (suppressChangeRef.current) return
       const id = activeFileIdRef.current
@@ -533,6 +695,10 @@ export function EditorPanel({
         for (const id of closing.fileIds) next.delete(id)
         return next
       })
+      // A pending proposal for a closing file has nothing left to apply to.
+      setProposal((prev) =>
+        prev && closing.fileIds.includes(prev.fileId) ? null : prev
+      )
       files.closeFiles(closing.fileIds)
       runner.closeTabs(closing.resultTabIds)
       if (closing.groupKey) lastFileByGroup.current.delete(closing.groupKey)
@@ -671,6 +837,52 @@ export function EditorPanel({
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
   }, [])
+
+  /** The diff review renders only over the file it targets. */
+  const showProposal =
+    proposal !== null &&
+    !activePreview &&
+    isSqlFile &&
+    files.selectedFileId === proposal.fileId
+
+  useEffect(() => {
+    if (!showProposal) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') rejectProposal()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showProposal, rejectProposal])
+
+  // The DiffEditor wrapper disposes its TextModels before the widget resets
+  // them, which throws on unmount. keepCurrent*Model makes the wrapper leave
+  // the models alone; we capture them at mount and dispose them ourselves
+  // once the overlay is gone.
+  const diffModelsRef = useRef<editor.ITextModel[]>([])
+  const handleDiffMount = useCallback(
+    (diffEditor: editor.IStandaloneDiffEditor): void => {
+      const m = diffEditor.getModel()
+      diffModelsRef.current = m ? [m.original, m.modified] : []
+    },
+    []
+  )
+  useEffect(() => {
+    if (showProposal) return
+    const models = diffModelsRef.current
+    diffModelsRef.current = []
+    for (const model of models) {
+      if (!model.isDisposed()) model.dispose()
+    }
+  }, [showProposal])
+  // Component teardown: release whatever the overlay still holds.
+  useEffect(
+    () => () => {
+      for (const model of diffModelsRef.current) {
+        if (!model.isDisposed()) model.dispose()
+      }
+    },
+    []
+  )
 
   const activeTabHint = activeGroup
     ? `${activeGroup.files.length + activeGroup.previews.length} open · ${groupName(activeGroup)}${
@@ -1139,6 +1351,8 @@ export function EditorPanel({
           showLimitControl={false}
           contentOnly
           onStatus={onQueryStatus}
+          onAddAgentContext={onAddAgentContext}
+          onAskAgent={onAskAgent}
         />
       ) : (
         <div className="editor-split" ref={splitRef}>
@@ -1150,6 +1364,49 @@ export function EditorPanel({
             />
             {isFilePreview && activeFileKind !== 'sql' && (
               <FilePreview kind={activeFileKind} content={activeContent} />
+            )}
+            {showProposal && proposal && (
+              <div className="editor-proposal">
+                <div className="editor-proposal__bar">
+                  <SparkleIcon size={13} />
+                  <span className="editor-proposal__title">
+                    AI proposed changes
+                    {activeFile ? ` — ${activeFile.name}` : ''}
+                  </span>
+                  <span className="editor-proposal__spacer" />
+                  <button
+                    className="btn-cancel"
+                    type="button"
+                    title="Keep the file as it is (Esc)"
+                    onClick={rejectProposal}
+                  >
+                    Reject
+                  </button>
+                  <button
+                    className="btn-primary"
+                    type="button"
+                    autoFocus
+                    title="Replace the file contents with the proposal (undo with ⌘Z)"
+                    onClick={acceptProposal}
+                  >
+                    Accept
+                  </button>
+                </div>
+                <div className="editor-proposal__diff">
+                  <DiffEditor
+                    beforeMount={defineThemes}
+                    onMount={handleDiffMount}
+                    original={activeContent}
+                    modified={proposal.sql}
+                    language="sql"
+                    theme={resolveTheme(theme)}
+                    height="100%"
+                    options={PROPOSAL_DIFF_OPTIONS}
+                    keepCurrentOriginalModel
+                    keepCurrentModifiedModel
+                  />
+                </div>
+              </div>
             )}
             {isEmpty && (
               <div className="editor-empty">
@@ -1240,6 +1497,8 @@ export function EditorPanel({
                   onPin={runner.pin}
                   onRerun={(id) => runner.rerun(id, limit)}
                   onStatus={onQueryStatus}
+                  onAddAgentContext={onAddAgentContext}
+                  onAskAgent={onAskAgent}
                 />
               </div>
             </>

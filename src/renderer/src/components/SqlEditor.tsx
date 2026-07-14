@@ -11,9 +11,10 @@ const DARK_THEME = 'db-desk-dark'
 
 /**
  * Dark editor theme matching the app's Monokai Pro (Octagon) palette — keep in
- * sync with the design tokens in styles.css.
+ * sync with the design tokens in styles.css. Exported (with resolveTheme) so
+ * the AI proposal DiffEditor renders with the same palette.
  */
-function defineThemes(monaco: Monaco): void {
+export function defineThemes(monaco: Monaco): void {
   monaco.editor.defineTheme(DARK_THEME, {
     base: 'vs-dark',
     inherit: true,
@@ -103,7 +104,7 @@ interface SqlEditorProps {
   language?: string
 }
 
-function resolveTheme(theme?: Theme): string {
+export function resolveTheme(theme?: Theme): string {
   if (theme) return theme === 'dark' ? DARK_THEME : 'light'
   return window.matchMedia('(prefers-color-scheme: dark)').matches
     ? DARK_THEME
