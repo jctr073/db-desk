@@ -12,6 +12,7 @@ import {
 import { registerAgentHandlers } from './agent'
 import { registerMcpHandlers, stopAllMcpServers } from './mcp'
 import { clearRepoRoot, registerRepoHandlers } from './repo'
+import { deleteSkillsForConnection, registerSkillHandlers } from './skills'
 import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
 import {
   listQueries,
@@ -153,6 +154,7 @@ function registerDbHandlers(): void {
     // A deleted connection's repo attachment has nothing to hang off; drop it
     // with the profile (mirrors how the renderer clears queries/knowledge).
     clearRepoRoot(id)
+    deleteSkillsForConnection(id)
     return deleteSaved(id)
   })
 }
@@ -279,6 +281,7 @@ app.whenReady().then(() => {
   registerAgentHandlers(() => mainWindow)
   registerMcpHandlers(() => mainWindow)
   registerRepoHandlers(() => mainWindow)
+  registerSkillHandlers(() => mainWindow)
   createWindow()
 
   app.on('activate', () => {

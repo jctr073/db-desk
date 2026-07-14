@@ -32,6 +32,14 @@ import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import type { McpServerStatus } from '../../../shared/mcp'
 import { REPO_SCAN_PROMPT, repoTargetedScanPrompt } from '../../../shared/repo'
 import type { RepoStatus } from '../../../shared/repo'
+import {
+  SCAN_CODEBASE_SKILL_ID,
+  TARGETED_SCAN_SKILL_ID,
+  applySkillArgs
+} from '../../../shared/skills'
+import type { Skill } from '../../../shared/skills'
+import { SkillsPanel } from '../skills/SkillsPanel'
+import { useSkillsState } from '../skills/useSkillsState'
 import { NodeIcon } from '../connections/NodeIcon'
 import { KIND_LABELS, isKnownKind, recordTitle } from '../knowledge/format'
 import { KnowledgePanel } from '../knowledge/KnowledgePanel'
@@ -427,11 +435,14 @@ export function AgentPanel({
   onOpenKnowledgeRecord,
   seed
 }: AgentPanelProps): ReactElement {
-  const [activeTab, setActiveTab] = useState<'files' | 'agent' | 'knowledge'>(
-    'agent'
-  )
+  const [activeTab, setActiveTab] = useState<
+    'files' | 'agent' | 'knowledge' | 'skills'
+  >('agent')
   const [knowledgeNewSeq, setKnowledgeNewSeq] = useState(0)
   const consumeKnowledgeNewSeq = useCallback(() => setKnowledgeNewSeq(0), [])
+  const [skillsNewSeq, setSkillsNewSeq] = useState(0)
+  const consumeSkillsNewSeq = useCallback(() => setSkillsNewSeq(0), [])
+  const skills = useSkillsState()
   const [chatId, setChatId] = useState(() => nextId('chat'))
   const [chatCreatedAt, setChatCreatedAt] = useState(() => Date.now())
   const [chatUpdatedAt, setChatUpdatedAt] = useState(() => Date.now())
@@ -913,6 +924,13 @@ export function AgentPanel({
     [rememberRepoStatus]
   )
 
+  // The scan actions send the (possibly user-edited) skill prompt; the
+  // shipped constants remain only as a fallback while skills are loading.
+  const skillById = useMemo(
+    () => new Map(skills.skills.map((s) => [s.id, s])),
+    [skills.skills]
+  )
+
   const scanCodebase = useCallback(() => {
     if (!knowledgeTarget || !knowledgeRepoStatus?.root || busy || compacting) {
       return
@@ -920,8 +938,17 @@ export function AgentPanel({
     setSelectedTargetKey(targetKey(knowledgeTarget))
     setRepoEnabled(true)
     setActiveTab('agent')
-    sendPrompt(REPO_SCAN_PROMPT, knowledgeTarget, true)
-  }, [knowledgeTarget, knowledgeRepoStatus, busy, compacting, sendPrompt])
+    const prompt =
+      skillById.get(SCAN_CODEBASE_SKILL_ID)?.prompt ?? REPO_SCAN_PROMPT
+    sendPrompt(prompt, knowledgeTarget, true)
+  }, [
+    knowledgeTarget,
+    knowledgeRepoStatus,
+    busy,
+    compacting,
+    sendPrompt,
+    skillById
+  ])
 
   /** Follow-up scan scoped by the focus text from the targeted-scan dialog. */
   const targetedScan = useCallback(
@@ -932,9 +959,37 @@ export function AgentPanel({
       setSelectedTargetKey(targetKey(knowledgeTarget))
       setRepoEnabled(true)
       setActiveTab('agent')
-      sendPrompt(repoTargetedScanPrompt(focus), knowledgeTarget, true)
+      const template = skillById.get(TARGETED_SCAN_SKILL_ID)?.prompt
+      sendPrompt(
+        template
+          ? applySkillArgs(template, focus)
+          : repoTargetedScanPrompt(focus),
+        knowledgeTarget,
+        true
+      )
     },
-    [knowledgeTarget, knowledgeRepoStatus, busy, compacting, sendPrompt]
+    [
+      knowledgeTarget,
+      knowledgeRepoStatus,
+      busy,
+      compacting,
+      sendPrompt,
+      skillById
+    ]
+  )
+
+  /** Runs a skill from the Skills tab as a normal turn against the chat target. */
+  const runSkill = useCallback(
+    (skill: Skill, prompt: string) => {
+      if (busy || compacting) return
+      setActiveTab('agent')
+      // The scan skills only make sense with the codebase tools available.
+      const forceRepo =
+        skill.id === SCAN_CODEBASE_SKILL_ID ||
+        skill.id === TARGETED_SCAN_SKILL_ID
+      sendPrompt(prompt, target, forceRepo)
+    },
+    [busy, compacting, sendPrompt, target]
   )
 
   const stop = useCallback(() => {
@@ -1151,6 +1206,13 @@ export function AgentPanel({
         >
           Knowledge
         </button>
+        <button
+          className={`agent-tab${activeTab === 'skills' ? ' is-active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('skills')}
+        >
+          Skills
+        </button>
         <div className="agent-tabbar__spacer" />
         <button
           className="icon-btn icon-btn--sm"
@@ -1159,15 +1221,18 @@ export function AgentPanel({
               ? 'New chat'
               : activeTab === 'knowledge'
                 ? 'New knowledge record'
-                : fileHome
-                  ? 'New query file'
-                  : 'Connect to a database to add a query file'
+                : activeTab === 'skills'
+                  ? 'New skill'
+                  : fileHome
+                    ? 'New query file'
+                    : 'Connect to a database to add a query file'
           }
           disabled={activeTab === 'files' && !fileHome}
           type="button"
           onClick={() => {
             if (activeTab === 'agent') newChat()
             else if (activeTab === 'knowledge') setKnowledgeNewSeq((s) => s + 1)
+            else if (activeTab === 'skills') setSkillsNewSeq((s) => s + 1)
             else if (fileHome)
               files.createFile(fileHome.connId, fileHome.database)
           }}
@@ -1177,6 +1242,15 @@ export function AgentPanel({
       </div>
       {activeTab === 'files' ? (
         <FilesPanel files={files} connNames={connNames} />
+      ) : activeTab === 'skills' ? (
+        <SkillsPanel
+          state={skills}
+          connNames={connNames}
+          newSeq={skillsNewSeq}
+          onNewConsumed={consumeSkillsNewSeq}
+          onRun={runSkill}
+          canRun={!busy && !compacting}
+        />
       ) : activeTab === 'knowledge' ? (
         <KnowledgePanel
           state={knowledge}

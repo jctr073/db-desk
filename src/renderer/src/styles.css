@@ -3646,6 +3646,69 @@ body.is-grid-col-resizing {
 .kn-delete:hover {
   text-decoration: underline;
 }
+/* --- Skills tab (reuses the kn-* list/editor shells) --- */
+.skills__error {
+  flex: 0 0 auto;
+  margin: 8px 10px 0;
+  padding: 6px 9px;
+  border: 1px solid var(--red);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+.sk-group {
+  padding: 4px 0 8px;
+}
+.sk-group__header {
+  padding: 6px 10px 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.sk-item {
+  cursor: pointer;
+}
+.sk-item__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sk-item__desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.sk-item__run {
+  flex: 0 0 auto;
+}
+.sk-editor__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sk-editor__scope {
+  width: 100%;
+  max-width: none;
+}
+.sk-editor__prompt {
+  min-height: 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  margin-bottom: 6px;
+}
+
 .kn-provenance {
   margin-bottom: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
