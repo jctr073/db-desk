@@ -1791,6 +1791,25 @@ body.is-grid-col-resizing {
   font-weight: 600;
   cursor: pointer;
 }
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 15px;
+  border: none;
+  border-radius: 7px;
+  background: var(--red);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-danger:disabled,
+.btn-cancel:disabled,
+.dialog__close:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 
 /* ------------------------------------------------------------------ *
  * New Connection dialog                                                *
@@ -2025,6 +2044,31 @@ body.is-grid-col-resizing {
 .close-queries-dialog__discard {
   color: var(--red);
 }
+.detach-dialog {
+  width: 430px;
+}
+.detach-dialog__icon {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
+.detach-dialog__body {
+  min-height: 0;
+  padding-top: 16px;
+  padding-bottom: 16px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.detach-dialog__body p {
+  margin: 0;
+}
+.detach-dialog__body p + p {
+  margin-top: 8px;
+  color: var(--red);
+}
+.detach-dialog__body strong {
+  color: var(--text);
+}
 .btn-test {
   display: inline-flex;
   align-items: center;
@@ -2218,6 +2262,25 @@ body.is-grid-col-resizing {
 .refs-pop__badge--lfk {
   border-style: dashed;
   opacity: 0.85;
+}
+.refs-pop__badge--name {
+  color: var(--text-faint);
+  border-color: var(--border-soft);
+  font-weight: 600;
+  opacity: 0.75;
+}
+.refs-pop__more {
+  width: 100%;
+  padding: 5px 8px 4px;
+  border: none;
+  background: none;
+  color: var(--accent-strong);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.refs-pop__more:hover {
+  text-decoration: underline;
 }
 .refs-pop__empty {
   padding: 10px 8px;
@@ -3627,6 +3690,69 @@ body.is-grid-col-resizing {
 .kn-delete:hover {
   text-decoration: underline;
 }
+/* --- Skills tab (reuses the kn-* list/editor shells) --- */
+.skills__error {
+  flex: 0 0 auto;
+  margin: 8px 10px 0;
+  padding: 6px 9px;
+  border: 1px solid var(--red);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+.sk-group {
+  padding: 4px 0 8px;
+}
+.sk-group__header {
+  padding: 6px 10px 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.sk-item {
+  cursor: pointer;
+}
+.sk-item__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sk-item__desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.sk-item__run {
+  flex: 0 0 auto;
+}
+.sk-editor__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sk-editor__scope {
+  width: 100%;
+  max-width: none;
+}
+.sk-editor__prompt {
+  min-height: 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  margin-bottom: 6px;
+}
+
 .kn-provenance {
   margin-bottom: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -3651,9 +3777,53 @@ body.is-grid-col-resizing {
   line-height: 1.5;
   font-family: inherit;
 }
-.kn-textarea--sql {
+.kn-sql-input {
+  display: grid;
+  width: 100%;
+  background: var(--panel-hi);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.kn-sql-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.kn-sql-input__highlight,
+.kn-sql-input__control {
+  grid-area: 1 / 1;
+  width: 100%;
+  min-width: 0;
+  min-height: calc(7 * 1.5em + 12px);
+  max-height: 45vh;
+  margin: 0;
+  padding: 6px 9px;
+  border: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.kn-sql-input__highlight {
+  pointer-events: none;
+  color: var(--text);
+  overflow: hidden;
+}
+.kn-sql-input__control {
+  position: relative;
+  resize: vertical;
+  field-sizing: content;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  -webkit-text-fill-color: transparent;
+  outline: none;
+  overflow: auto;
+}
+.kn-sql-input__control::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .kn-segs {
   display: inline-flex;

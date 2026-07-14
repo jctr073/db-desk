@@ -32,6 +32,15 @@ import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import type { McpServerStatus } from '../../../shared/mcp'
 import { REPO_SCAN_PROMPT, repoTargetedScanPrompt } from '../../../shared/repo'
 import type { RepoStatus } from '../../../shared/repo'
+import {
+  SCAN_CODEBASE_SKILL_ID,
+  TARGETED_SCAN_SKILL_ID,
+  applySkillArgs,
+  skillNeedsRepo
+} from '../../../shared/skills'
+import type { Skill } from '../../../shared/skills'
+import { SkillsPanel } from '../skills/SkillsPanel'
+import { useSkillsState } from '../skills/useSkillsState'
 import { NodeIcon } from '../connections/NodeIcon'
 import { KIND_LABELS, isKnownKind, recordTitle } from '../knowledge/format'
 import { KnowledgePanel } from '../knowledge/KnowledgePanel'
@@ -43,9 +52,11 @@ import type {
   KnowledgeNav,
   KnowledgeState
 } from '../knowledge/useKnowledgeState'
-import { highlightSql, stripSqlComments } from '../sql/highlight'
+import { stripSqlComments } from '../sql/highlight'
 import type { FileState } from '../files/useFileState'
+import { DetachCodebaseDialog } from './DetachCodebaseDialog'
 import type { EditorBridge } from './editorBridge'
+import { SqlCode } from './SqlCode'
 import type { QueryTarget } from './useQueryRunner'
 import {
   ArrowUpIcon,
@@ -318,24 +329,6 @@ function splitFences(text: string): { code: boolean; body: string }[] {
   })
 }
 
-/** SQL text with editor-palette token coloring (see --sql-* tokens). */
-function SqlCode({ sql }: { sql: string }): ReactElement {
-  const segments = useMemo(() => highlightSql(sql), [sql])
-  return (
-    <>
-      {segments.map((seg, i) =>
-        seg.cls ? (
-          <span key={i} className={`sql-${seg.cls}`}>
-            {seg.text}
-          </span>
-        ) : (
-          seg.text
-        )
-      )}
-    </>
-  )
-}
-
 function AssistantText({
   text,
   onInsert,
@@ -444,11 +437,14 @@ export function AgentPanel({
   onOpenKnowledgeRecord,
   seed
 }: AgentPanelProps): ReactElement {
-  const [activeTab, setActiveTab] = useState<'files' | 'agent' | 'knowledge'>(
-    'agent'
-  )
+  const [activeTab, setActiveTab] = useState<
+    'files' | 'agent' | 'knowledge' | 'skills'
+  >('agent')
   const [knowledgeNewSeq, setKnowledgeNewSeq] = useState(0)
   const consumeKnowledgeNewSeq = useCallback(() => setKnowledgeNewSeq(0), [])
+  const [skillsNewSeq, setSkillsNewSeq] = useState(0)
+  const consumeSkillsNewSeq = useCallback(() => setSkillsNewSeq(0), [])
+  const skills = useSkillsState()
   const [chatId, setChatId] = useState(() => nextId('chat'))
   const [chatCreatedAt, setChatCreatedAt] = useState(() => Date.now())
   const [chatUpdatedAt, setChatUpdatedAt] = useState(() => Date.now())
@@ -494,6 +490,10 @@ export function AgentPanel({
   const [repoMenuOpen, setRepoMenuOpen] = useState(false)
   /** The knowledge panel's "Targeted scan…" focus dialog. */
   const [targetedScanOpen, setTargetedScanOpen] = useState(false)
+  const [detachRequest, setDetachRequest] = useState<{
+    target: QueryTarget
+    repoName: string | null
+  } | null>(null)
   // On by default: once a codebase is attached, using it is opt-out per chat.
   const [repoEnabled, setRepoEnabled] = useState(true)
 
@@ -922,12 +922,25 @@ export function AgentPanel({
     [rememberRepoStatus, target?.connId]
   )
 
-  /** Detaches the codebase from the target's connection. */
-  const clearRepo = useCallback(
-    (connId: string) => {
-      void window.dbDesk.repo.clear(connId).then(rememberRepoStatus)
+  /** Deletes the target's knowledge base, then detaches its codebase. */
+  const detachCodebase = useCallback(
+    async (request: NonNullable<typeof detachRequest>): Promise<void> => {
+      await window.dbDesk.knowledge.deleteForDatabase(
+        request.target.connId,
+        request.target.database
+      )
+      const status = await window.dbDesk.repo.clear(request.target.connId)
+      rememberRepoStatus(status)
+      setDetachRequest(null)
     },
     [rememberRepoStatus]
+  )
+
+  // The scan actions send the (possibly user-edited) skill prompt; the
+  // shipped constants remain only as a fallback while skills are loading.
+  const skillById = useMemo(
+    () => new Map(skills.skills.map((s) => [s.id, s])),
+    [skills.skills]
   )
 
   const scanCodebase = useCallback(() => {
@@ -937,21 +950,86 @@ export function AgentPanel({
     setSelectedTargetKey(targetKey(knowledgeTarget))
     setRepoEnabled(true)
     setActiveTab('agent')
-    sendPrompt(REPO_SCAN_PROMPT, knowledgeTarget, true)
-  }, [knowledgeTarget, knowledgeRepoStatus, busy, compacting, sendPrompt])
+    const prompt =
+      skillById.get(SCAN_CODEBASE_SKILL_ID)?.prompt ?? REPO_SCAN_PROMPT
+    // This launch point collects no input; strip any {{args}} a user edit
+    // added so the placeholder never reaches the model as literal text.
+    sendPrompt(applySkillArgs(prompt, ''), knowledgeTarget, true)
+  }, [
+    knowledgeTarget,
+    knowledgeRepoStatus,
+    busy,
+    compacting,
+    sendPrompt,
+    skillById
+  ])
 
   /** Follow-up scan scoped by the focus text from the targeted-scan dialog. */
   const targetedScan = useCallback(
     (focus: string) => {
-      if (!knowledgeTarget || !knowledgeRepoStatus?.root || busy || compacting) {
+      if (
+        !knowledgeTarget ||
+        !knowledgeRepoStatus?.root ||
+        busy ||
+        compacting
+      ) {
         return
       }
       setSelectedTargetKey(targetKey(knowledgeTarget))
       setRepoEnabled(true)
       setActiveTab('agent')
-      sendPrompt(repoTargetedScanPrompt(focus), knowledgeTarget, true)
+      const template = skillById.get(TARGETED_SCAN_SKILL_ID)?.prompt
+      sendPrompt(
+        template
+          ? applySkillArgs(template, focus)
+          : repoTargetedScanPrompt(focus),
+        knowledgeTarget,
+        true
+      )
     },
-    [knowledgeTarget, knowledgeRepoStatus, busy, compacting, sendPrompt]
+    [
+      knowledgeTarget,
+      knowledgeRepoStatus,
+      busy,
+      compacting,
+      sendPrompt,
+      skillById
+    ]
+  )
+
+  /**
+   * Runs a skill from the Skills tab as a normal chat turn. Returns a
+   * user-facing reason when the run cannot happen, or null on success —
+   * the panel surfaces the reason instead of silently doing nothing.
+   */
+  const runSkill = useCallback(
+    (skill: Skill, prompt: string): string | null => {
+      if (busy || compacting) {
+        return 'The agent is busy — wait for the current turn to finish.'
+      }
+      // A connection-scoped skill runs against its own connection, never
+      // whatever the chat happened to target.
+      const runTarget = skill.connId
+        ? (targets.find((t) => t.connId === skill.connId) ?? null)
+        : target
+      if (skill.connId && !runTarget) {
+        return `Connect to ${connNames[skill.connId] ?? 'this skill’s connection'} to run it.`
+      }
+      if (skillNeedsRepo(skill.id)) {
+        if (!runTarget) {
+          return 'Connect to a database first — this skill scans its attached codebase.'
+        }
+        if (!repoStatuses[runTarget.connId]?.root) {
+          return 'Attach a codebase to this connection first (Knowledge tab → folder menu).'
+        }
+        setRepoEnabled(true)
+      }
+      if (runTarget) setSelectedTargetKey(targetKey(runTarget))
+      setActiveTab('agent')
+      sendPrompt(prompt, runTarget, skillNeedsRepo(skill.id))
+      return null
+    },
+    [busy, compacting, sendPrompt, target, targets, connNames, repoStatuses]
   )
 
   const stop = useCallback(() => {
@@ -1147,13 +1225,6 @@ export function AgentPanel({
     <section className="agent-panel">
       <div className="agent-tabbar">
         <button
-          className={`agent-tab${activeTab === 'files' ? ' is-active' : ''}`}
-          type="button"
-          onClick={() => setActiveTab('files')}
-        >
-          SQL Files
-        </button>
-        <button
           className={`agent-tab${activeTab === 'agent' ? ' is-active' : ''}`}
           type="button"
           onClick={() => setActiveTab('agent')}
@@ -1168,6 +1239,20 @@ export function AgentPanel({
         >
           Knowledge
         </button>
+        <button
+          className={`agent-tab${activeTab === 'files' ? ' is-active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('files')}
+        >
+          SQL Files
+        </button>
+        <button
+          className={`agent-tab${activeTab === 'skills' ? ' is-active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('skills')}
+        >
+          Skills
+        </button>
         <div className="agent-tabbar__spacer" />
         <button
           className="icon-btn icon-btn--sm"
@@ -1176,15 +1261,18 @@ export function AgentPanel({
               ? 'New chat'
               : activeTab === 'knowledge'
                 ? 'New knowledge record'
-                : fileHome
-                  ? 'New query file'
-                  : 'Connect to a database to add a query file'
+                : activeTab === 'skills'
+                  ? 'New skill'
+                  : fileHome
+                    ? 'New query file'
+                    : 'Connect to a database to add a query file'
           }
           disabled={activeTab === 'files' && !fileHome}
           type="button"
           onClick={() => {
             if (activeTab === 'agent') newChat()
             else if (activeTab === 'knowledge') setKnowledgeNewSeq((s) => s + 1)
+            else if (activeTab === 'skills') setSkillsNewSeq((s) => s + 1)
             else if (fileHome)
               files.createFile(fileHome.connId, fileHome.database)
           }}
@@ -1194,6 +1282,15 @@ export function AgentPanel({
       </div>
       {activeTab === 'files' ? (
         <FilesPanel files={files} connNames={connNames} />
+      ) : activeTab === 'skills' ? (
+        <SkillsPanel
+          state={skills}
+          connNames={connNames}
+          newSeq={skillsNewSeq}
+          onNewConsumed={consumeSkillsNewSeq}
+          onRun={runSkill}
+          canRun={!busy && !compacting}
+        />
       ) : activeTab === 'knowledge' ? (
         <KnowledgePanel
           state={knowledge}
@@ -1260,7 +1357,9 @@ export function AgentPanel({
                     <button
                       type="button"
                       className="model-pop__row"
-                      disabled={!knowledgeRepoStatus?.root}
+                      // Also gated on the skills load so an edited scan
+                      // prompt is never silently bypassed by the fallback.
+                      disabled={!knowledgeRepoStatus?.root || skills.loading}
                       title="Send the codebase-scan prompt as a chat message"
                       onClick={() => {
                         setRepoMenuOpen(false)
@@ -1272,7 +1371,7 @@ export function AgentPanel({
                     <button
                       type="button"
                       className="model-pop__row"
-                      disabled={!knowledgeRepoStatus?.root}
+                      disabled={!knowledgeRepoStatus?.root || skills.loading}
                       title="Re-scan a specific part of the codebase with your own focus instructions"
                       onClick={() => {
                         setRepoMenuOpen(false)
@@ -1295,9 +1394,15 @@ export function AgentPanel({
                       type="button"
                       className="model-pop__row"
                       disabled={!knowledgeRepoStatus?.root}
+                      title="Detach the codebase and delete this database's knowledge"
                       onClick={() => {
                         setRepoMenuOpen(false)
-                        clearRepo(knowledgeTarget.connId)
+                        setDetachRequest({
+                          target: knowledgeTarget,
+                          repoName: knowledgeRepoStatus?.root
+                            ? repoRootName(knowledgeRepoStatus.root)
+                            : null
+                        })
                       }}
                     >
                       Detach
@@ -1928,6 +2033,14 @@ export function AgentPanel({
             setTargetedScanOpen(false)
             targetedScan(focus)
           }}
+        />
+      )}
+      {detachRequest && (
+        <DetachCodebaseDialog
+          targetLabel={`${detachRequest.target.connName} / ${detachRequest.target.database}`}
+          repoName={detachRequest.repoName}
+          onClose={() => setDetachRequest(null)}
+          onConfirm={() => detachCodebase(detachRequest)}
         />
       )}
       {exemplarSql !== null && target && (

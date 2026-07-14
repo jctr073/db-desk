@@ -44,6 +44,16 @@ export interface ReferenceLists {
   inbound: ReferenceEdge[]
 }
 
+export interface NamePeer {
+  endpoint: ColumnEndpoint
+  relationKind: RelationKind
+}
+
+export type ColumnPeers =
+  | { kind: 'semantic'; peers: ReferenceEdge[] }
+  | { kind: 'name'; peers: NamePeer[] }
+  | { kind: null; peers: [] }
+
 /** Map key for a column; NUL-joined so dots in names can't collide. */
 export function columnKey(schema: string, table: string, column: string): string {
   return `${schema}\u0000${table}\u0000${column}`
@@ -243,4 +253,120 @@ export function tableReferences(
     outbound: index.edges.filter((edge) => matches(edge.from)),
     inbound: index.edges.filter((edge) => matches(edge.to))
   }
+}
+
+function sameEndpoint(a: ColumnEndpoint, b: ColumnEndpoint): boolean {
+  return a.schema === b.schema && a.table === b.table && a.column === b.column
+}
+
+/**
+ * Other source columns that resolve to one of the subject column's targets.
+ * The returned edges retain their FK/LFK kind for display in the popover.
+ */
+export function semanticPeers(
+  index: ReferenceIndex,
+  subject: ColumnEndpoint
+): ReferenceEdge[] {
+  const targets = index.edges
+    .filter((edge) => sameEndpoint(edge.from, subject))
+    .map((edge) => edge.to)
+
+  if (targets.length === 0) return []
+  return index.edges.filter(
+    (edge) =>
+      !sameEndpoint(edge.from, subject) &&
+      targets.some((target) => sameEndpoint(edge.to, target))
+  )
+}
+
+/** Names too universal to make useful peers, regardless of database prevalence. */
+const NAME_PEER_STOPLIST = new Set([
+  'id',
+  'name',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+  'status',
+  'type',
+  'description'
+])
+
+const NAME_PEER_PREVALENCE_CUTOFF = 0.3
+
+/**
+ * Same-name, same-type-family columns across the database. This is intentionally
+ * independent of the edge graph; columnPeers applies the no-target fallback rule.
+ */
+export function nameBasedPeers(
+  db: DatabaseIntrospection,
+  subject: ColumnEndpoint
+): NamePeer[] {
+  const subjectName = subject.column.toLowerCase()
+  if (NAME_PEER_STOPLIST.has(subjectName)) return []
+
+  let subjectFamily: string | null = null
+  let relationCount = 0
+  let relationsWithName = 0
+  const candidates: Array<NamePeer & { family: string }> = []
+
+  for (const schema of db.schemas) {
+    const groups: Array<[RelationKind, RelationInfo[]]> = [
+      ['table', schema.tables],
+      ['view', schema.views],
+      ['matview', schema.matviews]
+    ]
+    for (const [relationKind, relations] of groups) {
+      for (const relation of relations) {
+        relationCount += 1
+        const matchingColumns = relation.columns.filter(
+          (column) => column.name.toLowerCase() === subjectName
+        )
+        if (matchingColumns.length > 0) relationsWithName += 1
+
+        for (const column of matchingColumns) {
+          const endpoint = {
+            schema: schema.name,
+            table: relation.name,
+            column: column.name
+          }
+          const family = typeFamily(column.dataType)
+          if (sameEndpoint(endpoint, subject)) subjectFamily = family
+          else candidates.push({ endpoint, relationKind, family })
+        }
+      }
+    }
+  }
+
+  if (
+    subjectFamily === null ||
+    relationCount === 0 ||
+    relationsWithName / relationCount > NAME_PEER_PREVALENCE_CUTOFF
+  ) {
+    return []
+  }
+
+  return candidates
+    .filter((candidate) => candidate.family === subjectFamily)
+    .map(({ endpoint, relationKind }) => ({ endpoint, relationKind }))
+}
+
+/**
+ * Resolve peers with strict precedence: a resolved target permits semantic
+ * peers only; name matching is a fallback exclusively for targetless columns.
+ */
+export function columnPeers(
+  index: ReferenceIndex,
+  db: DatabaseIntrospection,
+  subject: ColumnEndpoint
+): ColumnPeers {
+  const hasTarget = index.edges.some((edge) => sameEndpoint(edge.from, subject))
+  if (hasTarget) {
+    const peers = semanticPeers(index, subject)
+    return peers.length > 0
+      ? { kind: 'semantic', peers }
+      : { kind: null, peers: [] }
+  }
+
+  const peers = nameBasedPeers(db, subject)
+  return peers.length > 0 ? { kind: 'name', peers } : { kind: null, peers: [] }
 }

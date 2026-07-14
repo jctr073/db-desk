@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -12,6 +13,7 @@ import {
 import { registerAgentHandlers } from './agent'
 import { registerMcpHandlers, stopAllMcpServers } from './mcp'
 import { clearRepoRoot, registerRepoHandlers } from './repo'
+import { deleteSkillsForConnection, registerSkillHandlers } from './skills'
 import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
 import {
   listQueries,
@@ -30,6 +32,7 @@ import {
   listRecords,
   saveRecord,
   deleteRecord,
+  deleteForDatabase,
   deleteForConnection as deleteKnowledgeForConnection
 } from './knowledge'
 import { extractExemplarReferences } from './exemplar'
@@ -153,6 +156,7 @@ function registerDbHandlers(): void {
     // A deleted connection's repo attachment has nothing to hang off; drop it
     // with the profile (mirrors how the renderer clears queries/knowledge).
     clearRepoRoot(id)
+    deleteSkillsForConnection(id)
     return deleteSaved(id)
   })
 }
@@ -266,12 +270,27 @@ function registerKnowledgeHandlers(
       broadcast(connId, database)
     }
   )
+  ipcMain.handle(
+    'knowledge:deleteForDatabase',
+    (_event, connId: string, database: string) => {
+      deleteForDatabase(connId, database)
+      broadcast(connId, database)
+    }
+  )
   ipcMain.handle('knowledge:deleteForConnection', (_event, connId: string) =>
     deleteKnowledgeForConnection(connId)
   )
 }
 
 app.whenReady().then(() => {
+  // Packaged builds get the icon from the app bundle; in dev the Electron
+  // binary's own icon would show, so override the Dock icon at runtime
+  // (scripts/patch-dev-electron.sh handles the menu-bar name and Finder icon).
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    const devIcon = join(app.getAppPath(), 'resources', 'icon.png')
+    if (existsSync(devIcon)) app.dock?.setIcon(devIcon)
+  }
+
   registerDbHandlers()
   registerExportHandlers()
   registerFileHandlers()
@@ -279,6 +298,7 @@ app.whenReady().then(() => {
   registerAgentHandlers(() => mainWindow)
   registerMcpHandlers(() => mainWindow)
   registerRepoHandlers(() => mainWindow)
+  registerSkillHandlers(() => mainWindow)
   createWindow()
 
   app.on('activate', () => {

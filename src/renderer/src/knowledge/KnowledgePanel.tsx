@@ -423,9 +423,9 @@ export function KnowledgePanel({
                       !
                     </span>
                   )}
-                  {record.source === 'agent' && (
-                    <span className="kn-badge kn-badge--agent">agent</span>
-                  )}
+                  <span className={`kn-badge kn-badge--${record.source}`}>
+                    {record.source}
+                  </span>
                   {record.confidence && (
                     <span
                       className="kn-badge kn-badge--conf"

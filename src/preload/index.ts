@@ -19,6 +19,7 @@ import type {
 } from '../shared/db'
 import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
 import type { KnowledgeRecord, KnowledgeRecordInput } from '../shared/knowledge'
+import type { Skill, SkillSaveInput } from '../shared/skills'
 import type { FileKind } from '../shared/files'
 import type { RepoStatus } from '../shared/repo'
 import type {
@@ -192,6 +193,8 @@ const api = Object.freeze({
       ),
     remove: (connId: string, database: string, id: string): Promise<void> =>
       ipcRenderer.invoke('knowledge:delete', connId, database, id),
+    deleteForDatabase: (connId: string, database: string): Promise<void> =>
+      ipcRenderer.invoke('knowledge:deleteForDatabase', connId, database),
     deleteForConnection: (connId: string): Promise<void> =>
       ipcRenderer.invoke('knowledge:deleteForConnection', connId),
     /** Subscribe to knowledge-change pushes; returns an unsubscribe function. */
@@ -205,6 +208,22 @@ const api = Object.freeze({
       ipcRenderer.on('knowledge:changed', listener)
       return () => {
         ipcRenderer.removeListener('knowledge:changed', listener)
+      }
+    }
+  }),
+  skills: Object.freeze({
+    list: (): Promise<Skill[]> => ipcRenderer.invoke('skills:list'),
+    save: (input: SkillSaveInput): Promise<Skill> =>
+      ipcRenderer.invoke('skills:save', input),
+    /** For a built-in id this resets it to the installed version. */
+    remove: (id: string): Promise<void> =>
+      ipcRenderer.invoke('skills:delete', id),
+    /** Subscribe to skills-change pushes; returns an unsubscribe function. */
+    onChanged: (callback: () => void): (() => void) => {
+      const listener = (_event: IpcRendererEvent): void => callback()
+      ipcRenderer.on('skills:changed', listener)
+      return () => {
+        ipcRenderer.removeListener('skills:changed', listener)
       }
     }
   }),
