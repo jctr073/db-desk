@@ -83,13 +83,27 @@ restores its messages along with its target, model, effort, mode, web-search
 and codebase toggles, and any unsent draft. Each turn
 sees the schema of the connection/database selected in its own target picker
 and the contents of the active SQL editor file, so generated SQL can reference
-real tables and columns. Specific schemas, tables, or views can also be pinned
-to the thread as context chips — via **Add to Agent Thread** on a tree node's
-right-click menu or the composer's **Add context** picker — so the agent focuses
-on the objects you care about. SQL code blocks in a reply get an Insert button that
-drops them into the editor at the cursor, and the agent itself writes its final
-query into the editor through a `write_to_editor` tool when it finishes an
-answer. A globe toggle in the composer (off by default) lets the agent search
+real tables and columns; the current editor selection (with line numbers) is
+sent along too, so "explain this" resolves to what's highlighted. Context can
+also be pinned to the thread as chips: schemas, tables, or views via **Add to
+Agent Thread** on a tree node's right-click menu or the composer's **Add
+context** picker; a frozen snapshot of the editor's selection or whole file
+via **Add Selection/Query to AI Chat** on the editor's right-click menu; and
+live result data via **Add result/selection to AI chat** on the results
+grid's right-click menu — rows are serialized with per-cell and row-count
+caps (and an honest scope label like "rows 4–9 of 500 (selected)") so a huge
+grid can't flood the prompt. Failed runs get a **Fix with AI** button that
+attaches the error and SQL as a chip, prefills the composer, and — for that
+turn — requires the agent to answer with an editor diff rather than prose.
+SQL code blocks in a reply get an Insert button that
+drops them into the editor at the cursor, and the agent itself delivers its
+final query through a `write_to_editor` tool: into an empty editor it is
+applied directly (undo-friendly), otherwise the proposal appears as an inline
+diff over the editor with **Accept**/**Reject** (Esc rejects) — the buffer is
+never overwritten silently. A companion `read_editor` tool lets the agent
+re-read the live buffer and selection mid-turn before proposing, so edits are
+based on what the file says now, not a stale snapshot.
+A globe toggle in the composer (off by default) lets the agent search
 the web when a task calls for it — engine documentation, SQL syntax
 references, or unfamiliar error messages — via Anthropic's server-side web
 search tool.
@@ -226,7 +240,12 @@ control sends a canned prompt (targeting the Knowledge tab's connection and
 switching to the agent chat) that walks the agent through migrations, ORM
 models, query/repository code, and docs, saving what it learns to the local
 knowledge store (verified against the live schema first) with provenance like
-`db/migrate/20240301_add_status.rb@abc1234`. The attachment can be detached
+`db/migrate/20240301_add_status.rb@abc1234`. A **Targeted scan…** action next
+to it opens a small dialog for free-form focus instructions (which part of
+the repo to re-read, what details to add) and sends a follow-up scan scoped
+to that focus — the agent reconciles with existing records first, updating
+them by id instead of duplicating, so the knowledge store can be deepened
+topic by topic after the initial survey. The attachment can be detached
 or repointed to a different directory from that control; in the agent
 composer it is on by default per chat once set and can be toggled off.
 
