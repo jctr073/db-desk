@@ -1,371 +1,122 @@
 # DB Desk
 
-Electron + TypeScript + React + Vite + Monaco Editor foundation for a Mac desktop database client.
+DB Desk is a macOS desktop database workspace for exploring PostgreSQL and
+Databricks, writing and running SQL, inspecting results, and using an
+AI-assisted workflow grounded in the connected schema. It combines a schema
+browser, Monaco editor, result grid, persistent query files, local database
+knowledge, reusable agent skills, MCP tools, and optional source-code context
+in one Electron application.
 
-The shell implements the DB Desk connection panel: a light/dark themed three-pane
-layout with a schema browser tree (connections → databases → schemas → tables,
-views, functions, and more), object filtering, and a New
-Connection dialog. The left connection pane and right agent pane are
-drag-resizable via the dividers on either side of the editor, and each pane
-remembers its width across restarts. Connections are real, and the app speaks
-more than one engine: the New Connection dialog opens with a **Database Type**
-picker (PostgreSQL or Databricks), and the rest of the form — field labels,
-placeholders, the database/catalog term, the secret label, and the
-Parameters/Connection URL tabs — adapts to the selected engine. PostgreSQL
-connects via discrete parameters or a connection URL, preferring SSL/TLS
-automatically and honoring any explicit `sslmode` in a URL, following libpq
-semantics; Databricks connects to a SQL warehouse by server hostname, HTTP path,
-catalog, and personal access token. Creating a connection introspects the
-catalog and populates the tree with actual databases, schemas, tables, columns,
-views, materialized views, indexes, functions, sequences, types, and aggregates
-(enum types expand to list their values).
-A PostgreSQL connection is pinned to the single database chosen at connect time
-(the database field is required); the main process rejects queries or
-introspection against any other database on the server. Databricks keeps the
-multi-catalog model: sibling catalogs are introspected lazily on first expand.
-Connections persist
-across sessions (passwords encrypted at rest via Electron `safeStorage`) and are
-restored offline on launch — reconnect, disconnect, refresh (re-introspect the
-connection's loaded databases to pick up schema changes), and remove are
-available from a right-click menu.
+- [User guide](docs/user-guide.md) — connections, queries, results, AI,
+  knowledge, skills, and other day-to-day features
+- [Technical architecture](docs/architecture.md) — runtime boundaries,
+  dependencies, code structure, persistence, security, and testing
 
-The tree also understands foreign keys — including ones that were never
-declared. PostgreSQL columns with a real FK constraint show an **FK** badge,
-and columns that merely follow naming conventions get a dashed **LFK**
-(logical foreign key) badge, inferred client-side from the cached
-introspection: `customer_id` matches a `customers` table whose primary key is
-`id` (best-effort singularization covers `statuses`, `categories`, `people`,
-and other irregulars) or a `warehouses` table whose primary key is itself
-`warehouse_id`. Inference is deliberately conservative — exact column-name
-matches only, compatible type families (int/uuid/text/numeric), single-column
-primary keys only, declared FKs always win over convention, and never a
-self-reference. Right-clicking a table, view, or column offers **View
-references**: an anchored popover listing what the object **References** and
-what it is **Referenced by** (views and materialized views included, labeled
-as such), each row badged FK or LFK — and clicking a row navigates the tree
-to that column. Reference info is PostgreSQL-only for now. Double-clicking a
-table, view, or materialized view opens a **data preview** — a read-only
-`SELECT *` capped at 100 rows in its own full-height tab, grouped with the
-query files of its connection/database; previewing the same relation again
-refreshes the existing tab.
+## Prerequisites
 
-The SQL editor executes queries for real: a toolbar dropdown picks the
-(connection, database) target, Run (or ⌘⏎) executes the statement under the
-cursor — or the selection — and results land in a grid on the lower half of the
-editor. Each run replaces the live results tab unless it is pinned, in which
-case the next run opens a fresh tab; pinned tabs are titled `Result N · table`
-for scannability (the full statement stays in the tab's tooltip) and can be
-re-run and closed. When more tabs are open than fit the bar, the extras collapse
-into an overflow dropdown that keeps the active tab visible and offers per-tab
-close and a "Close all results" action. Bare
-SELECTs get an automatic `LIMIT 500` (configurable in the toolbar, including no
-limit); statements that can't take an appended LIMIT are truncated to the same
-cap after execution.
+- macOS
+- [Git](https://git-scm.com/)
+- [Node.js](https://nodejs.org/) `20.19+` or `22.12+` and npm
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) only when
+  running the integration tests
 
-Grid columns can be resized by dragging a header's edge (or with the arrow keys
-on the focused resize handle), and clicking row numbers or column headers
-selects rows or columns with the usual Shift range and ⌘ toggle modifiers;
-the top-left corner cell selects the whole grid, and clicking the sole
-selected header again deselects it. An
-**Export** control saves the active result as CSV, tab-delimited text, or JSON:
-with rows selected only the selection is written; otherwise CSV/TSV exports
-re-run the query read-only without the grid limit so the file holds the full
-result set, while JSON exports the rows currently loaded in the grid.
+The Node.js minimum comes from the repository's Vite and electron-vite
+toolchain. A current Node.js 22 release is the simplest choice.
 
-The right-hand panel's **AI Agent** tab turns prompts into SQL. It reads
-`CLAUDE_API_KEY` from `~/.zshrc` (re-read on every request, so no restart is
-needed after editing it), and offers a model and reasoning-effort picker,
-defaulting to Opus 4.8 at `xhigh` effort. Chat history streams per-session with
-a live "thinking" indicator and a Stop button to cancel mid-response. A session
-bar above the thread offers **New chat** and a **Chat history** popover:
-starting a new chat archives the current one, and reopening an archived chat
-restores its messages along with its target, model, effort, mode, web-search
-and codebase toggles, and any unsent draft. Each turn
-sees the schema of the connection/database selected in its own target picker
-and the contents of the active SQL editor file, so generated SQL can reference
-real tables and columns; the current editor selection (with line numbers) is
-sent along too, so "explain this" resolves to what's highlighted. Context can
-also be pinned to the thread as chips: schemas, tables, or views via **Add to
-Agent Thread** on a tree node's right-click menu or the composer's **Add
-context** picker; a frozen snapshot of the editor's selection or whole file
-via **Add Selection/Query to AI Chat** on the editor's right-click menu; and
-live result data via **Add result/selection to AI chat** on the results
-grid's right-click menu — rows are serialized with per-cell and row-count
-caps (and an honest scope label like "rows 4–9 of 500 (selected)") so a huge
-grid can't flood the prompt. Failed runs get a **Fix with AI** button that
-attaches the error and SQL as a chip, prefills the composer, and — for that
-turn — requires the agent to answer with an editor diff rather than prose.
-SQL code blocks in a reply get an Insert button that
-drops them into the editor at the cursor, and the agent itself delivers its
-final query through a `write_to_editor` tool: into an empty editor it is
-applied directly (undo-friendly), otherwise the proposal appears as an inline
-diff over the editor with **Accept**/**Reject** (Esc rejects) — the buffer is
-never overwritten silently. A companion `read_editor` tool lets the agent
-re-read the live buffer and selection mid-turn before proposing, so edits are
-based on what the file says now, not a stale snapshot.
-A globe toggle in the composer (off by default) lets the agent search
-the web when a task calls for it — engine documentation, SQL syntax
-references, or unfamiliar error messages — via Anthropic's server-side web
-search tool.
-
-The agent can also use tools from user-configured **MCP servers**. A split
-plug control in the composer, next to the web-search toggle, opens the MCP
-Servers dialog on click; its adjoining chevron drops down a live list of
-connected servers with per-server status, from which a server row also opens
-the dialog. Servers are added as a command line (spawned as stdio child
-processes), optional environment variables (stored encrypted via
-`safeStorage`), and an enabled toggle; the dialog shows each server's live
-status and the tools it advertises, with restart/edit/remove actions. Tools
-from running servers are
-offered to the model under namespaced names (`mcp__server__tool`) in every
-access mode. Note the deliberate delineation: the access modes below guard the
-*connected database* (the built-in SQL tools); MCP tools act on external
-systems with whatever rights you granted the server process, so their access
-is governed by the server's own credentials, not by the agent's database mode.
-
-The agent panel's mode picker offers three access modes: **Metadata Only**
-(default) — "Writes SQL from the schema tree. Never executes anything on the
-database."; **Read-Only** — "Runs read-only queries to inspect schema and live
-data. Writes are blocked."; and **Write/Admin** — "Can change data and schema
-(DML/DDL). Disabled in this version." Write/Admin is shown in the picker but
-greyed out and unselectable in this release. In Read-Only mode the agent can
-run queries against the selected database through a `run_sql` tool to
-validate its work — every run also lands in the results grid as a pinned tab
-so you can verify the output yourself, and each statement runs with a
-30-second timeout. Agent SQL reaches the database only
-through a guarded channel that allows exactly one statement per call and
-refuses anything not provably read-only (an allowlist classifier over
-SELECT/WITH/SHOW/DESCRIBE and EXPLAIN-of-reads); PostgreSQL additionally runs
-agent statements under a server-side read-only session
-(`default_transaction_read_only`) as a second belt, catching cases the
-client-side classifier can't see (e.g. a `SELECT` that calls a volatile,
-data-writing function). There is no approval or escalation flow — if you want
-a change made, the agent writes the SQL to the editor via `write_to_editor`
-for you to review and run yourself. For maximum safety, connect with a
-read-only database role. Where the engine supports it, Stop
-cancels the in-flight statement on the server (`pg_cancel_backend` for
-PostgreSQL), not just the response stream. Generated SQL is targeted at the
-selected connection's dialect (PostgreSQL vs. Databricks/Spark SQL), so the
-agent uses the right syntax, identifier quoting, and catalog conventions. Three more tools give the agent schema insight beyond the
-summary embedded in its prompt (which now includes foreign-key targets, index
-definitions, row estimates, and enum values, and degrades gracefully on very
-large catalogs): `describe_table` (columns, defaults, constraints, indexes,
-inbound FKs, comments, row estimate), `search_schema` (find tables/columns/
-functions by name), and `explain_query` (query plans, optionally with
-`ANALYZE` for reads). The system prompt and conversation prefix are cached
-with Anthropic prompt caching to cut per-turn cost and latency.
-
-Queries are saved as files. Each tab is a file persisted under the app's
-user-data directory, with metadata (name, owning connection/database) tracked in
-`queries/metadata.json`. Alongside SQL, the editor handles Markdown (`.md`),
-JSON (`.json`), and plain text (`.txt`) — each opens with the matching Monaco
-syntax highlighting, and the non-SQL kinds get a rendered **preview** (an eye
-toggle in the toolbar): Markdown renders to formatted text with highlighted
-code blocks, and JSON is pretty-printed with a parse error shown inline when
-it is malformed.
-
-Every file belongs to a connection. New files can be created from the editor
-tab bar's `+` button (which offers the file type), from the **SQL Files**
-panel, or from the right-click menu on a connection or database in the tree,
-and are auto-named per target (`query1.sql`, `query2.sql`, …). With no
-connection open there is nowhere to put a file, so those buttons are disabled.
-Right-clicking a tab offers **Rename…**, which edits the name inline with
-validation (no empty, slash, or control-character names; duplicate names within
-the same connection/database are rejected; a missing extension is added
-automatically). Each tab keeps its own edit buffer so switching tabs preserves
-unsaved changes, with a per-file dirty indicator; ⌘S (or the Save button)
-writes the active file to disk. Tabs can be closed individually (the tab's ×)
-or a whole connection/database group at once; closing dirty tabs prompts to
-save or discard the changes, and closed files stay saved on disk. With nothing
-open the editor shows an empty state offering a new query plus a list of saved
-files to reopen. The right-hand panel's **SQL Files** tab lists all saved files
-grouped by their owning connection and database, and reopens closed files on
-click. The window uses a custom title bar (centered title, themed to match the
-app), and the light/dark theme toggle lives in the bottom status bar.
-
-The right-hand panel's **Knowledge** tab is a local knowledge store for
-whatever the schema alone can't say: column/table annotations, join
-relationships (including polymorphic joins — a discriminator column mapping
-to different target tables per value), a business glossary of terms and
-synonyms, exemplar question→SQL pairs, and free-form notes. Records are
-plain, pretty-printed JSON, one file per (connection, database) under
-`<userData>/knowledge/<connId>/<databaseSlug>.json` — not a database, holds
-no secrets, and is safe to read, diff, or check into a team's own repo. The AI agent
-reads this store two ways: a `## Local knowledge` section is rendered into
-its system prompt (relationships first, since join rules are highest-stakes,
-then glossary, annotations, and exemplars, degrading gracefully under a char
-budget on large stores) and a `search_knowledge` tool lets it look up specific
-terms, joins, or annotations on demand. Every record surfaced to the agent —
-whether via the system-prompt section, `describe_table`, or `search_knowledge`
-— carries a `[kb:id]` citation tag, and the agent is instructed to cite the
-records that actually shaped its answer inline in its reply; the chat
-transcript renders each tag as a small chip naming the record's kind that
-opens the record in the Knowledge tab on click, so it's visible when the agent
-draws on recorded knowledge instead of the schema alone. Tool calls in the
-transcript are similarly labeled (Run SQL, Describe, Knowledge, Codebase,
-Web, …) with a status icon, so each step the agent took is easy to scan. It
-also writes to the store: a
-`save_knowledge` tool lets the agent record a durable fact stated mid-chat
-(e.g. "that column is actually the admission date") so it survives a chat
-reset instead of being lost; agent-written records are tagged with a
-`source: agent` badge and a confidence level in the Knowledge tab and remain
-fully editable and deletable like any human-authored record. Both tools touch
-only the local store, never the database, so they work in every access mode,
-including Metadata Only. In the schema tree, a right-click on a table or
-column offers **Show knowledge entries** (everything in the knowledge store
-that references it, grouped by kind) and **Add annotation…**, and nodes with any
-knowledge attached show a small dot badge. Queries can be captured as
-exemplars too — a **Save as exemplar…** action on the editor toolbar and on
-SQL code blocks in agent replies opens a dialog to pair the query with a
-question; on save, the columns and tables it touches are extracted (via a
-quick one-shot LLM call, falling back to matching identifiers against the
-live schema if that's unavailable) so the exemplar shows up under "Show
-usages" for the columns it queries.
-
-A codebase can be attached to a connection so the agent can cross-reference
-the app's source alongside the schema. The codebase control in the Knowledge
-tab opens a native directory picker; the chosen root (and HEAD's short
-commit SHA, when it's a git checkout) is stored main-side, keyed by
-connection id — the renderer never has the filesystem path, only a status.
-Attachment statuses are tracked per connection, so the agent chat and the
-Knowledge tab can each point at a different database without losing track of
-either connection's codebase.
-Once attached, three read-only tools (`list_repo_files`, `grep_repo`,
-`read_repo_file`) are sandboxed to that root: paths must resolve lexically
-inside it, symlinks are never followed, conventional secret files (`.env*`,
-private keys, `.npmrc`, …) are invisible to all three, and every primitive is
-capped (visits, results, matches, file size) so a monorepo can't wedge the
-main process. A **Scan codebase** action in the same
-control sends a canned prompt (targeting the Knowledge tab's connection and
-switching to the agent chat) that walks the agent through migrations, ORM
-models, query/repository code, and docs, saving what it learns to the local
-knowledge store (verified against the live schema first) with provenance like
-`db/migrate/20240301_add_status.rb@abc1234`. A **Targeted scan…** action next
-to it opens a small dialog for free-form focus instructions (which part of
-the repo to re-read, what details to add) and sends a follow-up scan scoped
-to that focus — the agent reconciles with existing records first, updating
-them by id instead of duplicating, so the knowledge store can be deepened
-topic by topic after the initial survey. The attachment can be detached
-or repointed to a different directory from that control; in the agent
-composer it is on by default per chat once set and can be toggled off.
-
-## Setup
+## Run locally
 
 ```bash
-npm install
+git clone https://github.com/jctr073/db-desk.git
+cd db-desk
+npm ci
 npm run dev
 ```
 
-## Scripts
+`npm ci` installs the exact dependency versions in `package-lock.json`. The
+postinstall step also gives the development Electron bundle the DB Desk name
+and icon on macOS.
+
+The database features work without an AI provider key. To use the AI Agent,
+add an Anthropic API key to `~/.zshrc`:
 
 ```bash
-npm run dev       # Start the Electron app in development mode
-npm run build     # Typecheck and build production assets
-npm run preview   # Run the built Electron app
-npm run lint      # Run ESLint
-npm run format    # Format project files with Prettier
-npm test          # Run all tests (unit + integration; starts the test DB)
-npm run test:unit # Fast unit tests only (no Docker required)
+export CLAUDE_API_KEY="your-key"
 ```
 
-## Testing
+DB Desk re-reads that file for each request, so the application does not need
+to be restarted after the key is added.
 
-Unit tests are plain [vitest](https://vitest.dev) and need nothing running.
+## Build and preview
 
-Integration tests exercise the real database drivers against a disposable
-PostgreSQL in Docker (`test/docker-compose.yml`), used chiefly to prove the AI
-agent's read-only safety rules against a live engine. `npm test` (and
-`npm run test:integration`) start and seed the container automatically via
-vitest's global setup; you can also manage it directly:
+Compile the main process, preload bridge, and renderer into `out/`:
 
 ```bash
-npm run db:up     # start postgres:17-alpine on localhost:55432 (seeded)
-npm run db:psql   # open psql against the test database
-npm run db:down   # stop and discard it (data is tmpfs — nothing persists)
+npm run build
 ```
 
-The container is isolated from the app: it is reachable only if you add a
-connection pointing at port 55432. Override the port with
-`DBDESK_TEST_PG_PORT`; set `DBDESK_TEST_NO_DOCKER=1` to run the integration
-suite against a Postgres you manage yourself. See `docs/agent-modes.md` §8 for
-what the suite verifies.
+The build command runs both TypeScript checks before producing the application
+assets. Preview the compiled application with:
 
-## Project Structure
-
-```text
-src/
-  main/
-    index.ts             # app bootstrap + db/store/files/agent IPC handlers
-    db.ts                # engine-agnostic facade: routes calls to the driver for a connection's type
-    drivers/
-      types.ts           # Driver contract shared by all engines
-      postgres.ts        # PostgreSQL driver: pooling, introspection + query execution
-      databricks.ts      # Databricks SQL warehouse driver: introspection + query execution
-    store.ts             # saved-connection persistence (safeStorage-encrypted)
-    files.ts             # query-file persistence (.sql files + metadata.json)
-    knowledge.ts         # local knowledge store: CRUD + validation over userData/knowledge/
-    exemplar.ts          # exemplar reference extraction (LLM, with identifier-matching fallback)
-    repo.ts              # codebase attachment: sandboxed list/grep/read over a per-connection repo root
-    agent.ts             # Anthropic agent loop: key loading, schema summary, streaming tool use
-  preload/
-    index.ts             # typed window.dbDesk bridge (db + store + files + agent + repo)
-  shared/
-    db.ts                # wire types shared by main, preload, and renderer
-    dialect.ts           # per-engine registry: form layout, defaults, agent SQL rules, EXPLAIN syntax
-    sql.ts               # statement splitting + auto-LIMIT lexer (main + renderer)
-    agent.ts             # AI agent wire types + model/effort catalog
-    knowledge.ts         # knowledge record types + column-key normalization + usage index
-    repo.ts              # codebase attachment wire types + the "Scan codebase" canned prompt
-  renderer/
-    index.html
-    src/
-      main.tsx
-      App.tsx              # shell: 3 panes + status bar + dialog
-      theme.ts             # light/dark theme hook (persisted)
-      styles.css           # design tokens + component styles
-      components/
-        StatusBar.tsx      # bottom bar: theme toggle
-        EditorPanel.tsx    # tab bar, target/limit toolbar, editor + results split
-        AgentPanel.tsx     # right pane: SQL Files list + AI Agent chat + Knowledge tab
-        FilesPanel.tsx     # saved query files grouped by connection/database
-        FilePreview.tsx    # rendered preview for Markdown / JSON / text files
-        SqlEditor.tsx
-        ResultsPanel.tsx   # result tabs (live + pinned), grid, status bar
-        SaveExemplarDialog.tsx # "Save as exemplar…" from the editor or an agent SQL reply
-        useQueryRunner.ts  # result-tab state machine + query dispatch
-        editorBridge.ts    # imperative handle (active SQL + insert-at-cursor) used by the AI Agent
-        icons.tsx          # shared UI icons
-      files/
-        useFileState.ts    # query-file list/select/create/save/delete state
-      knowledge/
-        useKnowledgeState.ts  # live records + usage index for the active (connection, database)
-        KnowledgePanel.tsx    # record list/filters, "Show usages" view, new-record menu
-        RecordEditor.tsx      # kind-specific forms (annotation/relationship/glossary/exemplar/note)
-        RefInput.tsx          # schema/table/column ref picker used by the forms
-        format.ts             # record titles/summaries, search text, dangling-ref checks
-        treeBadges.ts         # which schema-tree nodes get the "has knowledge" dot badge
-      connections/
-        types.ts
-        treeData.ts        # tree construction from introspection results
-        flatten.ts         # visible-row flattening + filtering
-        references.ts      # FK/logical-FK reference graph over cached introspection
-        useConnectionState.ts
-        ConnectionPanel.tsx
-        ReferencesPopover.tsx # "View references" anchored popover
-        ConnectionTree.tsx
-        TreeRow.tsx
-        NodeIcon.tsx
-        NewConnectionDialog.tsx
-test/
-  docker-compose.yml       # disposable postgres:17-alpine for integration tests
-  seed/                    # schema + idempotent data seed (storefront: customers/orders/order_items)
-  support/statements.ts    # shared statement corpus: expected class + observed engine behaviour
-  unit/                    # vitest unit tests (no Docker)
-  integration/
-    support/               # test DB harness: config, global setup, driver wrappers
-    postgres/              # driver behaviour vs. a real read-only session + read-only role
+```bash
+npm run preview
 ```
 
-## Monaco Notes
+This repository currently builds runnable Electron assets; it does not define
+a packaging or installer script.
 
-Monaco is loaded from the local `monaco-editor` package through `@monaco-editor/react`. The renderer configures `loader.config({ monaco })` and registers Vite-bundled web workers with `?worker` imports, so the app does not depend on CDN-hosted Monaco assets and remains compatible with packaged Electron builds.
+## Tests
+
+Run the fast, Docker-free unit suite:
+
+```bash
+npm run test:unit
+```
+
+Run the integration suite against the disposable PostgreSQL test database:
+
+```bash
+npm run test:integration
+```
+
+Run every test:
+
+```bash
+npm test
+```
+
+The integration setup starts and seeds PostgreSQL 17 on `localhost:55432`
+automatically. The container remains available after the tests for inspection;
+stop it with `npm run db:down`, or set `DBDESK_TEST_DOCKER_DOWN=1` to tear it
+down automatically after the run.
+
+## Useful commands
+
+| Command                    | Purpose                                                     |
+| -------------------------- | ----------------------------------------------------------- |
+| `npm run dev`              | Start DB Desk in development mode with hot reload.          |
+| `npm run build`            | Typecheck and compile production assets into `out/`.        |
+| `npm run preview`          | Launch the compiled application. Run `build` first.         |
+| `npm run typecheck`        | Typecheck the Electron and renderer TypeScript projects.    |
+| `npm run lint`             | Check the repository with ESLint.                           |
+| `npm run format`           | Format repository files with Prettier. This writes changes. |
+| `npm run test:unit`        | Run the unit tests without Docker.                          |
+| `npm run test:integration` | Run the live PostgreSQL integration tests.                  |
+| `npm test`                 | Run the unit and integration projects.                      |
+| `npm run db:up`            | Start and seed the disposable PostgreSQL test database.     |
+| `npm run db:psql`          | Open `psql` in the running test container.                  |
+| `npm run db:down`          | Stop the test database and discard its data.                |
+
+Useful integration-test environment variables:
+
+| Variable                    | Purpose                                                |
+| --------------------------- | ------------------------------------------------------ |
+| `DBDESK_TEST_PG_PORT`       | Override the default host port, `55432`.               |
+| `DBDESK_TEST_PG_HOST`       | Use a different PostgreSQL host.                       |
+| `DBDESK_TEST_NO_DOCKER=1`   | Use an already-running compatible PostgreSQL database. |
+| `DBDESK_TEST_DOCKER_DOWN=1` | Remove the Docker test database after the suite.       |
+
+## Learn more
+
+See the [user guide](docs/user-guide.md) to start using DB Desk, or the
+[technical architecture](docs/architecture.md) to understand and extend the
+codebase.
