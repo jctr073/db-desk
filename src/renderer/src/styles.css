@@ -2729,7 +2729,9 @@ body.is-grid-col-resizing {
 .composer__input {
   display: block;
   width: 100%;
-  resize: none;
+  min-height: 3em;
+  max-height: 40vh;
+  resize: vertical;
   border: none;
   background: transparent;
   color: var(--text);
