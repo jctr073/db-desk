@@ -141,23 +141,33 @@ functions by name), and `explain_query` (query plans, optionally with
 `ANALYZE` for reads). The system prompt and conversation prefix are cached
 with Anthropic prompt caching to cut per-turn cost and latency.
 
-Queries are saved as files. Each tab is a `.sql` file persisted under the app's
+Queries are saved as files. Each tab is a file persisted under the app's
 user-data directory, with metadata (name, owning connection/database) tracked in
-`queries/metadata.json`. New query files can be created from the editor tab bar's
-`+` button or from the right-click menu on a connection or database in the tree,
-and are auto-named per target (`query1.sql`, `query2.sql`, …). Right-clicking a
-tab offers **Rename…**, which edits the name inline with validation (no empty,
-slash, or control-character names; duplicate names within the same connection/
-database are rejected; a missing `.sql` suffix is added automatically). Each
-tab keeps its own edit buffer so switching tabs preserves unsaved changes,
-with a per-file dirty indicator; ⌘S (or the Save button) writes the active
-file to disk. Tabs can be closed individually (the tab's ×) or a whole
-connection/database group at once; closing dirty tabs prompts to save or
-discard the changes, and closed files stay saved on disk. The
-right-hand panel's **SQL Files** tab lists all saved files grouped by their
-owning connection and database, and reopens closed files on click. The window
-uses a custom title bar (centered title, themed to match the app), and the
-light/dark theme toggle lives in the bottom status bar.
+`queries/metadata.json`. Alongside SQL, the editor handles Markdown (`.md`),
+JSON (`.json`), and plain text (`.txt`) — each opens with the matching Monaco
+syntax highlighting, and the non-SQL kinds get a rendered **preview** (an eye
+toggle in the toolbar): Markdown renders to formatted text with highlighted
+code blocks, and JSON is pretty-printed with a parse error shown inline when
+it is malformed.
+
+Every file belongs to a connection. New files can be created from the editor
+tab bar's `+` button (which offers the file type), from the **SQL Files**
+panel, or from the right-click menu on a connection or database in the tree,
+and are auto-named per target (`query1.sql`, `query2.sql`, …). With no
+connection open there is nowhere to put a file, so those buttons are disabled.
+Right-clicking a tab offers **Rename…**, which edits the name inline with
+validation (no empty, slash, or control-character names; duplicate names within
+the same connection/database are rejected; a missing extension is added
+automatically). Each tab keeps its own edit buffer so switching tabs preserves
+unsaved changes, with a per-file dirty indicator; ⌘S (or the Save button)
+writes the active file to disk. Tabs can be closed individually (the tab's ×)
+or a whole connection/database group at once; closing dirty tabs prompts to
+save or discard the changes, and closed files stay saved on disk. With nothing
+open the editor shows an empty state offering a new query plus a list of saved
+files to reopen. The right-hand panel's **SQL Files** tab lists all saved files
+grouped by their owning connection and database, and reopens closed files on
+click. The window uses a custom title bar (centered title, themed to match the
+app), and the light/dark theme toggle lives in the bottom status bar.
 
 The right-hand panel's **Knowledge** tab is a local knowledge store for
 whatever the schema alone can't say: column/table annotations, join
@@ -299,6 +309,7 @@ src/
         EditorPanel.tsx    # tab bar, target/limit toolbar, editor + results split
         AgentPanel.tsx     # right pane: SQL Files list + AI Agent chat + Knowledge tab
         FilesPanel.tsx     # saved query files grouped by connection/database
+        FilePreview.tsx    # rendered preview for Markdown / JSON / text files
         SqlEditor.tsx
         ResultsPanel.tsx   # result tabs (live + pinned), grid, status bar
         SaveExemplarDialog.tsx # "Save as exemplar…" from the editor or an agent SQL reply
