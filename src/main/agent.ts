@@ -51,7 +51,16 @@ import {
   listRepoFiles,
   readRepoFile
 } from './repo'
-import { listRecords, saveRecord } from './knowledge'
+import {
+  addLink,
+  createBase,
+  defaultKbForTarget,
+  groupsForTarget,
+  linksForTarget,
+  saveRecord,
+  targetsForBase,
+  validateKnowledgeRecord
+} from './knowledge'
 import { normalizeColumnKey } from '../shared/knowledge'
 import type {
   AnnotationRecord,
@@ -305,10 +314,38 @@ function liveRefKeys(target: AgentTargetRef): Set<string> | null {
 //
 // The knowledge store is app-local: rendering it into the prompt and searching
 // it never touches the warehouse, so these helpers carry no access-mode gate.
-// Records are read fresh from listRecords on every prompt build (they are
-// small), so saves and deletes take effect on the very next turn with no cache
-// to invalidate — unlike the schema summary, which is introspection-priced and
-// cached in schemaCache above.
+// Knowledge is organized as free-standing bases linked to (connection,
+// database) targets; a turn reads the union of every base linked to its
+// target and writes to one "active" base (see resolveActiveKbId). Records are
+// read fresh from the store on every prompt build (they are small), so saves
+// and deletes take effect on the very next turn with no cache to invalidate —
+// unlike the schema summary, which is introspection-priced and cached in
+// schemaCache above.
+
+/**
+ * The base a turn writes to (save_knowledge) and reads its codebase from
+ * (repo tools). A renderer-supplied `target.kbId` is honored only when that
+ * base is actually linked to the target — anything else fails closed to the
+ * target's default linked base (same trust model as the repo flag). Null when
+ * the target has no linked bases at all.
+ */
+function resolveActiveKbId(target: AgentTargetRef): string | null {
+  if (target.kbId) {
+    const linked = linksForTarget(target.connId, target.database).some(
+      (l) => l.kbId === target.kbId
+    )
+    if (linked) return target.kbId
+  }
+  return defaultKbForTarget(target.connId, target.database)
+}
+
+/** Union of records across every base linked to the target — what
+ * search_knowledge and describe_table consult. */
+function allRecordsForTarget(target: AgentTargetRef): KnowledgeRecord[] {
+  return groupsForTarget(target.connId, target.database).flatMap(
+    (g) => g.records
+  )
+}
 
 /** The five kinds this build renders; unknown kinds are preserved on disk but skipped here. */
 const KNOWN_KNOWLEDGE_KINDS = new Set<string>([
@@ -438,10 +475,7 @@ function renderKnowledge(records: KnowledgeRecord[], detail: KnowledgeDetail): s
     return ''
   }
 
-  const lines: string[] = [
-    '## Local knowledge',
-    'Knowledge recorded locally in DB Desk by the user and past agent sessions — business meaning and join rules the database catalog does not carry. Trust it when writing queries.'
-  ]
+  const lines: string[] = []
   if (relationships.length > 0) {
     lines.push('', 'Relationships (join rules):')
     for (const rel of relationships) {
@@ -493,27 +527,60 @@ function renderKnowledge(records: KnowledgeRecord[], detail: KnowledgeDetail): s
       }
     }
   }
-  return lines.join('\n')
+  // Sections above each push a leading '' separator; drop the first one so a
+  // group body never starts with a blank line under its heading.
+  return lines.join('\n').replace(/^\n+/, '')
+}
+
+/** One linked base's contribution to the prompt section: its display name,
+ * optional schema scope (from the link), and records. */
+export interface KnowledgePromptGroup {
+  name: string
+  schema?: string
+  records: KnowledgeRecord[]
 }
 
 /**
- * The "## Local knowledge" prompt section, degrading tier by tier under its
- * budget instead of cutting mid-text (mirror of summarizeSchema). Empty store
- * renders nothing. Exported for unit tests.
+ * The "## Local knowledge" prompt section: one titled subsection per linked
+ * base, degrading tier by tier under the shared budget instead of cutting
+ * mid-text (mirror of summarizeSchema). A schema-scoped link is surfaced as
+ * context on its subsection — records are presented as recorded, never
+ * rewritten. Empty bases render nothing; no non-empty base renders nothing.
+ * Exported for unit tests.
  */
-export function summarizeKnowledge(records: KnowledgeRecord[]): string {
-  const full = renderKnowledge(records, 'full')
+export function summarizeKnowledge(groups: KnowledgePromptGroup[]): string {
+  const render = (detail: KnowledgeDetail): string => {
+    const sections: string[] = []
+    for (const group of groups) {
+      const body = renderKnowledge(group.records, detail)
+      if (body === '') continue
+      const scope = group.schema
+        ? `\nThis knowledge base describes the "${singleLine(group.schema)}" schema of this database. Its records may name schemas as they exist in the source codebase's own engine — map them onto "${singleLine(group.schema)}" here.`
+        : ''
+      sections.push(
+        `### Knowledge base: ${singleLine(group.name)}${scope}\n${body}`
+      )
+    }
+    if (sections.length === 0) return ''
+    return [
+      '## Local knowledge',
+      'Knowledge recorded locally in DB Desk by the user and past agent sessions — business meaning and join rules the database catalog does not carry. Trust it when writing queries.',
+      '',
+      sections.join('\n\n')
+    ].join('\n')
+  }
+  const full = render('full')
   if (full === '') return ''
   if (full.length <= KNOWLEDGE_SUMMARY_MAX_CHARS) return full
   const abridgedNote =
     '\n(local knowledge abridged to fit context — use search_knowledge to retrieve full entries)'
   for (const detail of ['no-note-bodies', 'no-exemplar-sql'] as const) {
-    const rendered = renderKnowledge(records, detail)
+    const rendered = render(detail)
     if (rendered.length + abridgedNote.length <= KNOWLEDGE_SUMMARY_MAX_CHARS) {
       return rendered + abridgedNote
     }
   }
-  const minimal = renderKnowledge(records, 'terms')
+  const minimal = render('terms')
   if (minimal.length + abridgedNote.length <= KNOWLEDGE_SUMMARY_MAX_CHARS) {
     return minimal + abridgedNote
   }
@@ -856,11 +923,15 @@ export function buildSystemPrompt(
     parts.push('', 'Database schema:', schemaSummary)
   }
   if (req.target) {
-    // Read fresh on every build (records are small); saves and deletes —
-    // from the UI or the agent's own tools — apply on the next turn without
-    // any cache to invalidate.
+    // Read fresh on every build (records are small); saves, deletes, and
+    // link changes — from the UI or the agent's own tools — apply on the
+    // next turn without any cache to invalidate.
     const knowledge = summarizeKnowledge(
-      listRecords(req.target.connId, req.target.database)
+      groupsForTarget(req.target.connId, req.target.database).map((g) => ({
+        name: g.base.name,
+        schema: g.link.schema,
+        records: g.records
+      }))
     )
     if (knowledge) parts.push('', knowledge)
   }
@@ -1304,7 +1375,7 @@ type Sender = (evt: AgentEvent) => void
  * registerAgentHandlers; a no-op until then (e.g. in unit tests) so the write
  * still succeeds without a window.
  */
-let broadcastKnowledgeChanged: (connId: string, database: string) => void = () => {}
+let broadcastKnowledgeChanged: (kbId: string) => void = () => {}
 
 function toolError(
   base: Anthropic.ToolResultBlockParam,
@@ -1571,12 +1642,10 @@ async function execDescribeTable(
     ok: true,
     summary: name
   })
-  // Locally recorded annotations and relationships ride along after the
-  // DB-native detail so one describe_table call carries both.
-  const local = renderTableKnowledge(
-    listRecords(target.connId, target.database),
-    name
-  )
+  // Locally recorded annotations and relationships — from every base linked
+  // to the target — ride along after the DB-native detail so one
+  // describe_table call carries both.
+  const local = renderTableKnowledge(allRecordsForTarget(target), name)
   return { ...base, content: local ? `${res.data}\n\n${local}` : res.data }
 }
 
@@ -1680,10 +1749,7 @@ export function execSearchKnowledge(
     name: block.name,
     sql: `search knowledge "${query}"`
   })
-  const all = searchKnowledgeRecords(
-    listRecords(target.connId, target.database),
-    query
-  )
+  const all = searchKnowledgeRecords(allRecordsForTarget(target), query)
   const hits = all.slice(0, KNOWLEDGE_SEARCH_MAX_HITS)
   send({
     type: 'tool_result',
@@ -1707,13 +1773,15 @@ export function execSearchKnowledge(
 /**
  * save_knowledge: writes one record into the local knowledge store. No
  * access-mode gate on purpose — it only writes DB Desk's app-local store, never
- * the warehouse — but it does require a connected target (records are keyed to
- * connId + database). `source` is forced to 'agent'; the record is validated
- * with the same `validateKnowledgeRecord` the UI save path uses (via
- * saveRecord), so malformed payloads become a useful tool error rather than a
- * bad write. A present `id` that matches an existing record updates it in place
- * (preserving createdAt, stamping updatedAt); otherwise a new record is minted.
- * On success it fires the `knowledge:changed` push so open knowledge views
+ * the warehouse — but it does require a connected target. New records land in
+ * the turn's active base (`resolveActiveKbId`); when the target has no linked
+ * base yet, one named after the database is created and linked so the first
+ * save always succeeds. An update by `id` is routed to whichever linked base
+ * holds that record — search_knowledge spans all of them, so the id may come
+ * from any. `source` is forced to 'agent'; the record is validated with the
+ * same `validateKnowledgeRecord` the UI save path uses (via saveRecord), so
+ * malformed payloads become a useful tool error rather than a bad write. On
+ * success it fires the `knowledge:changed` push so open knowledge views
  * refresh. Exported for unit tests.
  */
 export function execSaveKnowledge(
@@ -1749,12 +1817,33 @@ export function execSaveKnowledge(
     name: block.name,
     sql: input.id ? `update knowledge ${kindLabel}` : `save knowledge ${kindLabel}`
   })
-  const existed =
-    typeof input.id === 'string' &&
-    listRecords(target.connId, target.database).some((r) => r.id === input.id)
+  // An id from search_knowledge may live in any linked base; update it where
+  // it is rather than duplicating it into the active base.
+  const holder =
+    typeof input.id === 'string'
+      ? groupsForTarget(target.connId, target.database).find((g) =>
+          g.records.some((r) => r.id === input.id)
+        )
+      : undefined
+  const existed = holder !== undefined
+  let kbId = holder?.base.id ?? resolveActiveKbId(target)
   let saved: KnowledgeRecord
   try {
-    saved = saveRecord(target.connId, target.database, draft)
+    if (!kbId) {
+      // First knowledge for this target: create and link a base named after
+      // the database so the save lands somewhere durable and discoverable.
+      // Validate the draft before creating anything — a rejected record must
+      // not leave an empty auto-created base and link behind.
+      validateKnowledgeRecord(draft)
+      const created = createBase(target.database)
+      addLink({
+        kbId: created.id,
+        connId: target.connId,
+        database: target.database
+      })
+      kbId = created.id
+    }
+    saved = saveRecord(kbId, draft)
   } catch (err) {
     return toolError(
       base,
@@ -1765,7 +1854,7 @@ export function execSaveKnowledge(
       `save_knowledge rejected the record: ${describeError(err)}`
     )
   }
-  broadcastKnowledgeChanged(target.connId, target.database)
+  broadcastKnowledgeChanged(kbId)
   // Flag (never block) refs the live schema cannot satisfy: the record is
   // saved either way — dangling refs are legal in the store — but the model
   // should fix a typo or lower the confidence rather than leave it silent.
@@ -2216,11 +2305,12 @@ async function runAgentTurn(
   const mcpTools = mcpToolsForTurn()
   const mcpByName = new Map(mcpTools.map((t) => [t.namespacedName, t]))
   // Repo access requires both halves: the renderer's per-chat toggle AND a
-  // main-side configured root for the target connection. The request never
-  // carries a path, so a tampered renderer can at most toggle access to the
-  // directory the user already attached through the main-process picker.
-  const repoRoot =
-    req.repo && req.target ? getRepoRoot(req.target.connId) : null
+  // main-side configured root on the turn's active knowledge base. The
+  // request never carries a path, so a tampered renderer can at most toggle
+  // access to a directory the user already attached through the main-process
+  // picker, on a base actually linked to the target.
+  const activeKbId = req.target ? resolveActiveKbId(req.target) : null
+  const repoRoot = req.repo && activeKbId ? getRepoRoot(activeKbId) : null
   const repo: RepoPromptInfo | null = repoRoot
     ? { root: repoRoot, commit: await getRepoCommit(repoRoot) }
     : null
@@ -2594,11 +2684,16 @@ export function registerAgentHandlers(
     if (win && !win.isDestroyed()) win.webContents.send('agent:event', evt)
   }
   // Mirror the UI save path's push so the save_knowledge tool refreshes any
-  // open renderer knowledge views.
-  broadcastKnowledgeChanged = (connId, database) => {
+  // open renderer knowledge views. The event names the base plus every
+  // (connection, database) target linked to it, so views keyed by target can
+  // match without knowing the link table.
+  broadcastKnowledgeChanged = (kbId) => {
     const win = getWindow()
     if (win && !win.isDestroyed()) {
-      win.webContents.send('knowledge:changed', { connId, database })
+      win.webContents.send('knowledge:changed', {
+        kbId,
+        targets: targetsForBase(kbId)
+      })
     }
   }
 

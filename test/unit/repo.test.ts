@@ -1,14 +1,21 @@
 /**
  * Unit tests for the sandboxed repo-access module (src/main/repo.ts): the
  * lexical path sandbox (resolveRepoPath), the minimal glob compiler
- * (globToRegExp), the sensitive-filename guard (isSensitiveName), and the
- * three read-only primitives (listRepoFiles, grepRepo, readRepoFile) against
- * real temp-directory fixtures, including the symlink-escape guards.
+ * (globToRegExp), the sensitive-filename guard (isSensitiveName), the three
+ * read-only primitives (listRepoFiles, grepRepo, readRepoFile) against real
+ * temp-directory fixtures (including the symlink-escape guards), and the
+ * repo-root persistence delegation to the owning knowledge base
+ * (getRepoRoot/clearRepoRoot now proxy knowledge.ts's
+ * getBaseRepoRoot/setBaseRepoRoot, keyed by kbId, since v2 dropped repo.ts's
+ * own per-connection `repo-roots.json`).
  *
- * repo.ts imports `app`, `dialog`, and `ipcMain` from `electron` at module
- * top (for its persistence/IPC helpers, which this file does not exercise),
- * so `electron` is mocked the same way knowledge.test.ts and
- * agentKnowledge.test.ts do it: just enough surface to satisfy the import.
+ * repo.ts imports `dialog` and `ipcMain` from `electron` at module top (for
+ * its IPC helpers, which this file does not exercise) and, via knowledge.ts,
+ * `app` for userData-relative persistence. `electron` is mocked the same way
+ * knowledge.test.ts and agentKnowledge.test.ts do it — `app.getPath('userData')`
+ * resolves to a fresh per-test temp dir — so the sandbox tests below (which
+ * never touch persistence) and the new persistence-delegation tests share one
+ * mock.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,15 +29,26 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+let userDataDir: string
+
 vi.mock('electron', () => ({
   app: {
-    getPath: (): string => {
-      throw new Error('unexpected getPath call')
+    getPath: (name: string): string => {
+      if (name !== 'userData') throw new Error(`unexpected getPath(${name})`)
+      return userDataDir
     }
   },
   dialog: { showOpenDialog: vi.fn() },
   ipcMain: { handle: (): void => {} }
 }))
+
+beforeEach(() => {
+  userDataDir = mkdtempSync(join(tmpdir(), 'db-desk-repo-userdata-'))
+})
+
+afterEach(() => {
+  rmSync(userDataDir, { recursive: true, force: true })
+})
 
 import {
   globToRegExp,
@@ -386,5 +404,57 @@ describe('readRepoFile', () => {
     } finally {
       rmSync(outside, { recursive: true, force: true })
     }
+  })
+})
+
+describe('repo root persistence (delegates to the owning knowledge base)', () => {
+  // getRepoRoot/clearRepoRoot no longer own any storage; they proxy
+  // knowledge.ts's getBaseRepoRoot/setBaseRepoRoot keyed by kbId. Dynamic
+  // import + vi.resetModules() gives each test a cold knowledge-store cache,
+  // independent of the statically-imported sandbox functions above.
+  let repoMod: typeof import('../../src/main/repo')
+  let knowledge: typeof import('../../src/main/knowledge')
+
+  beforeEach(async () => {
+    vi.resetModules()
+    repoMod = await import('../../src/main/repo')
+    knowledge = await import('../../src/main/knowledge')
+  })
+
+  it('getRepoRoot reads the root persisted on the base via setBaseRepoRoot', () => {
+    const base = knowledge.createBase('Repo base')
+    const codeDir = mkdtempSync(join(tmpdir(), 'db-desk-repo-code-'))
+    try {
+      knowledge.setBaseRepoRoot(base.id, codeDir)
+      expect(repoMod.getRepoRoot(base.id)).toBe(codeDir)
+    } finally {
+      rmSync(codeDir, { recursive: true, force: true })
+    }
+  })
+
+  it('returns null for a base with no repo root attached', () => {
+    const base = knowledge.createBase('Bare base')
+    expect(repoMod.getRepoRoot(base.id)).toBeNull()
+  })
+
+  it('clearRepoRoot detaches the root without deleting the base', () => {
+    const base = knowledge.createBase('Repo base')
+    const codeDir = mkdtempSync(join(tmpdir(), 'db-desk-repo-code-'))
+    try {
+      knowledge.setBaseRepoRoot(base.id, codeDir)
+      repoMod.clearRepoRoot(base.id)
+      expect(repoMod.getRepoRoot(base.id)).toBeNull()
+      expect(knowledge.getBase(base.id)).not.toBeNull()
+    } finally {
+      rmSync(codeDir, { recursive: true, force: true })
+    }
+  })
+
+  it('reflects a root that vanished from disk as detached', () => {
+    const base = knowledge.createBase('Repo base')
+    const codeDir = mkdtempSync(join(tmpdir(), 'db-desk-repo-code-'))
+    knowledge.setBaseRepoRoot(base.id, codeDir)
+    rmSync(codeDir, { recursive: true, force: true })
+    expect(repoMod.getRepoRoot(base.id)).toBeNull()
   })
 })

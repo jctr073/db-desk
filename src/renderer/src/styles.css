@@ -3432,6 +3432,72 @@ body.is-grid-col-resizing {
   color: var(--text-faint);
   cursor: default;
 }
+/* Knowledge-base row: which base the target's records come from + manage menu. */
+.kn-base-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.kn-base-select {
+  height: 28px;
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--panel);
+}
+.kn-base-manage {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.kn-base-manage__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-hi);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.kn-base-manage__btn:not(:disabled):hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.kn-base-manage__btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.kn-base-pop {
+  top: 32px;
+  bottom: auto;
+  left: auto;
+  right: 0;
+  width: min(230px, calc(100vw - 24px));
+}
+.kn-base-create {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.kn-base-create:hover {
+  border-color: var(--accent-strong);
+}
 .kn-filters {
   flex: 0 0 auto;
   display: flex;

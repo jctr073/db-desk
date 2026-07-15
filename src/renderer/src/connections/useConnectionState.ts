@@ -342,9 +342,10 @@ export function useConnectionState(): ConnectionState {
   const removeConnection = useCallback(
     (id: string) => {
       void window.dbDesk.db.disconnect(id)
+      // store:delete now unlinks the connection's knowledge links in main;
+      // bases themselves survive, so there is nothing to delete here.
       void window.dbDesk.store.delete(id)
       void window.dbDesk.files.deleteForConnection(id)
-      void window.dbDesk.knowledge.deleteForConnection(id)
       dropSchemas(id)
       setProfiles((prev) => {
         const next = { ...prev }

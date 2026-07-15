@@ -29,6 +29,8 @@ import type {
   AgentPromptIntent
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
+import { pickDefaultLink } from '../../../shared/knowledge'
+import type { KnowledgeLink } from '../../../shared/knowledge'
 import type { McpServerStatus } from '../../../shared/mcp'
 import { REPO_SCAN_PROMPT, repoTargetedScanPrompt } from '../../../shared/repo'
 import type { RepoStatus } from '../../../shared/repo'
@@ -484,15 +486,21 @@ export function AgentPanel({
   const [mcpStatuses, setMcpStatuses] = useState<McpServerStatus[]>([])
   // Off by default: web browsing is opt-in per session.
   const [webSearch, setWebSearch] = useState(false)
+  // Codebase attachment now lives on the knowledge base, so repo status is
+  // keyed by kbId. A target's status is that of its default linked base.
   const [repoStatuses, setRepoStatuses] = useState<Record<string, RepoStatus>>(
     {}
   )
+  /** Every knowledge link, so any target's default base resolves in-process. */
+  const [links, setLinks] = useState<KnowledgeLink[]>([])
   const [repoMenuOpen, setRepoMenuOpen] = useState(false)
   /** The knowledge panel's "Targeted scan…" focus dialog. */
   const [targetedScanOpen, setTargetedScanOpen] = useState(false)
   const [detachRequest, setDetachRequest] = useState<{
     target: QueryTarget
+    kbId: string
     repoName: string | null
+    baseName: string | null
   } | null>(null)
   // On by default: once a codebase is attached, using it is opt-out per chat.
   const [repoEnabled, setRepoEnabled] = useState(true)
@@ -514,8 +522,53 @@ export function AgentPanel({
     targets.find(
       (t) => knowledgeTargetKeyOf(t.connId, t.database) === knowledgeTargetKey
     ) ?? null
+
+  /**
+   * A (connection, database) target's default knowledge base — the shared
+   * pickDefaultLink rule over its links, so the composer, scans, and the agent
+   * write path all agree on which base is "active" when none is named.
+   */
+  const defaultBaseFor = useCallback(
+    (connId: string | undefined, database: string | undefined): string | null => {
+      if (!connId || !database) return null
+      const forTarget = links.filter(
+        (l) => l.connId === connId && l.database === database
+      )
+      return pickDefaultLink(forTarget)?.kbId ?? null
+    },
+    [links]
+  )
+
+  /** The codebase status of a target's default base, or null when it has none. */
+  const repoStatusFor = useCallback(
+    (
+      connId: string | undefined,
+      database: string | undefined
+    ): RepoStatus | null => {
+      const kbId = defaultBaseFor(connId, database)
+      return kbId ? (repoStatuses[kbId] ?? null) : null
+    },
+    [defaultBaseFor, repoStatuses]
+  )
+
+  /**
+   * The default base for a target, creating and linking one (named after the
+   * database) when the target has none yet — used before any operation that
+   * needs a kbId (attach codebase, save exemplar).
+   */
+  const ensureDefaultBase = useCallback(
+    async (connId: string, database: string): Promise<string> => {
+      const existing = defaultBaseFor(connId, database)
+      if (existing) return existing
+      const base = await window.dbDesk.knowledge.createBase(database)
+      await window.dbDesk.knowledge.addLink({ kbId: base.id, connId, database })
+      return base.id
+    },
+    [defaultBaseFor]
+  )
+
   const knowledgeRepoStatus = knowledgeTarget
-    ? (repoStatuses[knowledgeTarget.connId] ?? null)
+    ? repoStatusFor(knowledgeTarget.connId, knowledgeTarget.database)
     : null
 
   // Knowledge records for the CHAT target — the knowledge tab may be viewing
@@ -525,9 +578,14 @@ export function AgentPanel({
     target?.connId ?? null,
     target?.database ?? null
   )
+  // A [kb:id] citation can name a record in any base linked to the chat target,
+  // so resolve over the union of all its bases, not just the selected one.
   const chatRecordById = useMemo(
-    () => new Map(chatKnowledge.records.map((r) => [r.id, r])),
-    [chatKnowledge.records]
+    () =>
+      new Map(
+        chatKnowledge.groups.flatMap((g) => g.records).map((r) => [r.id, r])
+      ),
+    [chatKnowledge.groups]
   )
   const targetRef = useRef(target)
   targetRef.current = target
@@ -589,24 +647,56 @@ export function AgentPanel({
     return window.dbDesk.mcp.onChanged(setMcpStatuses)
   }, [])
 
-  // Load attachments for both independently selected database targets. The
-  // agent toggle follows the chat target; management follows Knowledge.
+  // Keep the link table live so any target's default base resolves without a
+  // round-trip; structural pushes cover bases/links created or removed.
   useEffect(() => {
-    const connIds = [
-      ...new Set([target?.connId, knowledgeTarget?.connId])
-    ].filter((connId): connId is string => !!connId)
     let cancelled = false
-    for (const connId of connIds) {
-      void window.dbDesk.repo.get(connId).then((status) => {
-        if (cancelled) return
-        setRepoStatuses((current) => ({ ...current, [connId]: status }))
-        if (connId === target?.connId && status.root) setRepoEnabled(true)
+    const load = (): void => {
+      void window.dbDesk.knowledge
+        .listLinks()
+        .then((next) => {
+          if (!cancelled) setLinks(next)
+        })
+        .catch(() => {
+          // Best-effort: a failed load simply leaves targets with no base.
+        })
+    }
+    load()
+    const unsubscribe = window.dbDesk.knowledge.onStructureChanged(load)
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
+
+  // Load codebase status for the default base of every connected target, so the
+  // composer's repo flag and the Knowledge tab's attach control both resolve.
+  // Re-runs when the links change (a new default base) or targets come and go.
+  useEffect(() => {
+    let cancelled = false
+    const kbIds = new Set<string>()
+    for (const t of targets) {
+      const kbId = defaultBaseFor(t.connId, t.database)
+      if (kbId) kbIds.add(kbId)
+    }
+    for (const kbId of kbIds) {
+      void window.dbDesk.repo.get(kbId).then((status) => {
+        if (!cancelled) {
+          setRepoStatuses((current) => ({ ...current, [status.kbId]: status }))
+        }
       })
     }
     return () => {
       cancelled = true
     }
-  }, [target?.connId, knowledgeTarget?.connId])
+  }, [targets, defaultBaseFor])
+
+  // Once the chat target's default base has a codebase, default to using it.
+  useEffect(() => {
+    if (repoStatusFor(target?.connId, target?.database)?.root) {
+      setRepoEnabled(true)
+    }
+  }, [target?.connId, target?.database, repoStatusFor])
 
   useEffect(() => {
     const unsubscribe = window.dbDesk.agent.onEvent((evt: AgentEvent) => {
@@ -843,7 +933,9 @@ export function AgentPanel({
       prompt: string,
       promptTarget: QueryTarget | null = target,
       forceRepo = false,
-      intent: AgentPromptIntent = 'chat'
+      intent: AgentPromptIntent = 'chat',
+      /** Active base for the turn; scans set it so writes land in the right base. */
+      kbId: string | null = null
     ) => {
       if (!prompt || busy || compacting) return
       setBusy(true)
@@ -869,13 +961,14 @@ export function AgentPanel({
         webSearch,
         repo:
           !!promptTarget &&
-          !!repoStatuses[promptTarget.connId]?.root &&
+          !!repoStatusFor(promptTarget.connId, promptTarget.database)?.root &&
           (forceRepo || repoEnabled),
         target: promptTarget
           ? {
               connId: promptTarget.connId,
               connName: promptTarget.connName,
-              database: promptTarget.database
+              database: promptTarget.database,
+              ...(kbId ? { kbId } : {})
             }
           : null,
         editor,
@@ -891,7 +984,7 @@ export function AgentPanel({
       effort,
       mode,
       webSearch,
-      repoStatuses,
+      repoStatusFor,
       repoEnabled,
       target,
       editorBridge,
@@ -908,29 +1001,45 @@ export function AgentPanel({
   }, [input, busy, compacting, sendPrompt, target, draftIntent])
 
   const rememberRepoStatus = useCallback((status: RepoStatus) => {
-    setRepoStatuses((current) => ({ ...current, [status.connId]: status }))
+    setRepoStatuses((current) => ({ ...current, [status.kbId]: status }))
   }, [])
 
-  /** Opens the native directory picker for a connection. */
-  const chooseRepo = useCallback(
-    (connId: string) => {
-      void window.dbDesk.repo.choose(connId).then((status) => {
-        rememberRepoStatus(status)
-        if (status.root && connId === target?.connId) setRepoEnabled(true)
-      })
+  /**
+   * Attaches (or changes) a codebase for a target: the codebase lives on the
+   * base, so ensure the target has a default base first, then open the native
+   * directory picker for that base.
+   */
+  const attachCodebase = useCallback(
+    async (t: QueryTarget): Promise<void> => {
+      const kbId = await ensureDefaultBase(t.connId, t.database)
+      const status = await window.dbDesk.repo.choose(kbId)
+      rememberRepoStatus(status)
+      if (
+        status.root &&
+        kbId === defaultBaseFor(target?.connId, target?.database)
+      ) {
+        setRepoEnabled(true)
+      }
     },
-    [rememberRepoStatus, target?.connId]
+    [ensureDefaultBase, rememberRepoStatus, defaultBaseFor, target]
   )
 
-  /** Deletes the target's knowledge base, then detaches its codebase. */
+  /** Clears the base's codebase; its knowledge records are kept. */
   const detachCodebase = useCallback(
-    async (request: NonNullable<typeof detachRequest>): Promise<void> => {
-      await window.dbDesk.knowledge.deleteForDatabase(
-        request.target.connId,
-        request.target.database
-      )
-      const status = await window.dbDesk.repo.clear(request.target.connId)
+    async (kbId: string): Promise<void> => {
+      const status = await window.dbDesk.repo.clear(kbId)
       rememberRepoStatus(status)
+      setDetachRequest(null)
+    },
+    [rememberRepoStatus]
+  )
+
+  /** Clears the codebase and deletes the base everywhere it is linked. */
+  const detachAndDeleteBase = useCallback(
+    async (kbId: string): Promise<void> => {
+      const status = await window.dbDesk.repo.clear(kbId)
+      rememberRepoStatus(status)
+      await window.dbDesk.knowledge.deleteBase(kbId)
       setDetachRequest(null)
     },
     [rememberRepoStatus]
@@ -952,16 +1061,23 @@ export function AgentPanel({
     setActiveTab('agent')
     const prompt =
       skillById.get(SCAN_CODEBASE_SKILL_ID)?.prompt ?? REPO_SCAN_PROMPT
-    // This launch point collects no input; strip any {{args}} a user edit
-    // added so the placeholder never reaches the model as literal text.
-    sendPrompt(applySkillArgs(prompt, ''), knowledgeTarget, true)
+    // Pin the scan to the base whose codebase is attached (the default base) so
+    // its findings are written there. This launch point collects no input;
+    // strip any {{args}} a user edit added so the placeholder never reaches the
+    // model as literal text.
+    const kbId = defaultBaseFor(
+      knowledgeTarget.connId,
+      knowledgeTarget.database
+    )
+    sendPrompt(applySkillArgs(prompt, ''), knowledgeTarget, true, 'chat', kbId)
   }, [
     knowledgeTarget,
     knowledgeRepoStatus,
     busy,
     compacting,
     sendPrompt,
-    skillById
+    skillById,
+    defaultBaseFor
   ])
 
   /** Follow-up scan scoped by the focus text from the targeted-scan dialog. */
@@ -979,12 +1095,18 @@ export function AgentPanel({
       setRepoEnabled(true)
       setActiveTab('agent')
       const template = skillById.get(TARGETED_SCAN_SKILL_ID)?.prompt
+      const kbId = defaultBaseFor(
+        knowledgeTarget.connId,
+        knowledgeTarget.database
+      )
       sendPrompt(
         template
           ? applySkillArgs(template, focus)
           : repoTargetedScanPrompt(focus),
         knowledgeTarget,
-        true
+        true,
+        'chat',
+        kbId
       )
     },
     [
@@ -993,7 +1115,8 @@ export function AgentPanel({
       busy,
       compacting,
       sendPrompt,
-      skillById
+      skillById,
+      defaultBaseFor
     ]
   )
 
@@ -1015,21 +1138,34 @@ export function AgentPanel({
       if (skill.connId && !runTarget) {
         return `Connect to ${connNames[skill.connId] ?? 'this skill’s connection'} to run it.`
       }
-      if (skillNeedsRepo(skill.id)) {
+      const needsRepo = skillNeedsRepo(skill.id)
+      let kbId: string | null = null
+      if (needsRepo) {
         if (!runTarget) {
           return 'Connect to a database first — this skill scans its attached codebase.'
         }
-        if (!repoStatuses[runTarget.connId]?.root) {
+        if (!repoStatusFor(runTarget.connId, runTarget.database)?.root) {
           return 'Attach a codebase to this connection first (Knowledge tab → folder menu).'
         }
+        // Scan-style skills write into the base whose codebase is attached.
+        kbId = defaultBaseFor(runTarget.connId, runTarget.database)
         setRepoEnabled(true)
       }
       if (runTarget) setSelectedTargetKey(targetKey(runTarget))
       setActiveTab('agent')
-      sendPrompt(prompt, runTarget, skillNeedsRepo(skill.id))
+      sendPrompt(prompt, runTarget, needsRepo, 'chat', kbId)
       return null
     },
-    [busy, compacting, sendPrompt, target, targets, connNames, repoStatuses]
+    [
+      busy,
+      compacting,
+      sendPrompt,
+      target,
+      targets,
+      connNames,
+      repoStatusFor,
+      defaultBaseFor
+    ]
   )
 
   const stop = useCallback(() => {
@@ -1319,7 +1455,7 @@ export function AgentPanel({
                 }
                 disabled={!knowledgeTarget}
                 onClick={() => {
-                  if (knowledgeTarget) chooseRepo(knowledgeTarget.connId)
+                  if (knowledgeTarget) void attachCodebase(knowledgeTarget)
                 }}
               >
                 <FolderIcon size={14} />
@@ -1385,7 +1521,7 @@ export function AgentPanel({
                       className="model-pop__row"
                       onClick={() => {
                         setRepoMenuOpen(false)
-                        chooseRepo(knowledgeTarget.connId)
+                        void attachCodebase(knowledgeTarget)
                       }}
                     >
                       Change directory…
@@ -1394,14 +1530,23 @@ export function AgentPanel({
                       type="button"
                       className="model-pop__row"
                       disabled={!knowledgeRepoStatus?.root}
-                      title="Detach the codebase and delete this database's knowledge"
+                      title="Detach the codebase, keeping or deleting the knowledge base"
                       onClick={() => {
                         setRepoMenuOpen(false)
+                        const kbId = defaultBaseFor(
+                          knowledgeTarget.connId,
+                          knowledgeTarget.database
+                        )
+                        if (!kbId) return
                         setDetachRequest({
                           target: knowledgeTarget,
+                          kbId,
                           repoName: knowledgeRepoStatus?.root
                             ? repoRootName(knowledgeRepoStatus.root)
-                            : null
+                            : null,
+                          baseName:
+                            knowledge.groups.find((g) => g.base.id === kbId)
+                              ?.base.name ?? null
                         })
                       }}
                     >
@@ -2039,8 +2184,10 @@ export function AgentPanel({
         <DetachCodebaseDialog
           targetLabel={`${detachRequest.target.connName} / ${detachRequest.target.database}`}
           repoName={detachRequest.repoName}
+          baseName={detachRequest.baseName}
           onClose={() => setDetachRequest(null)}
-          onConfirm={() => detachCodebase(detachRequest)}
+          onDetach={() => detachCodebase(detachRequest.kbId)}
+          onDetachAndDelete={() => detachAndDeleteBase(detachRequest.kbId)}
         />
       )}
       {exemplarSql !== null && target && (

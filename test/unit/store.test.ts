@@ -188,7 +188,8 @@ describe('missing or corrupt file', () => {
 
 describe('knowledge.wipeAll', () => {
   it('removes the knowledge directory', () => {
-    knowledge.saveRecord('c-1', 'analytics', {
+    const base = knowledge.createBase('B')
+    knowledge.saveRecord(base.id, {
       kind: 'note',
       source: 'human',
       title: 't',
@@ -198,7 +199,7 @@ describe('knowledge.wipeAll', () => {
     expect(existsSync(knowledgeDir())).toBe(true)
     knowledge.wipeAll()
     expect(existsSync(knowledgeDir())).toBe(false)
-    expect(knowledge.listRecords('c-1', 'analytics')).toEqual([])
+    expect(knowledge.listBases()).toEqual([])
   })
 
   it('is a no-op when the knowledge directory does not exist', () => {

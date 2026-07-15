@@ -1,10 +1,11 @@
 /**
- * Main-process codebase attachment: persists a per-connection local repository
- * root and gives the agent read-only, sandboxed access to it (list / grep /
- * read). The root is chosen through a main-process directory dialog and stored
- * main-side, keyed by connection id — the renderer never supplies a filesystem
- * path over IPC, so a compromised renderer cannot point the agent at arbitrary
- * directories. The renderer talks to it through `repo:*` IPC handles.
+ * Main-process codebase attachment: manages the local repository root attached
+ * to a knowledge base and gives the agent read-only, sandboxed access to it
+ * (list / grep / read). The root is chosen through a main-process directory
+ * dialog and persisted main-side on the knowledge base itself (knowledge.ts) —
+ * the renderer never supplies a filesystem path over IPC, so a compromised
+ * renderer cannot point the agent at arbitrary directories. The renderer talks
+ * to it through `repo:*` IPC handles, keyed by knowledge base id.
  *
  * Sandbox invariants (enforced here, not in the agent loop):
  * - every agent-supplied path is relative and must resolve lexically inside
@@ -19,14 +20,14 @@
  */
 
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
-import { app, dialog, ipcMain } from 'electron'
+import { dialog, ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 
+import { getBaseRepoRoot, setBaseRepoRoot } from './knowledge'
 import type { RepoStatus } from '../shared/repo'
 
 const execFileAsync = promisify(execFile)
@@ -91,59 +92,20 @@ export function isSensitiveName(name: string): boolean {
   )
 }
 
-// --- Persistence (house pattern: module cache + JSON under userData) --------
+// --- Persistence -------------------------------------------------------------
 
-interface StoredRepoRoot {
-  connId: string
-  root: string
+/**
+ * The attached repo root for a knowledge base, or null. Never
+ * renderer-supplied; persistence lives on the base itself (knowledge.ts),
+ * which also treats a root that vanished (unmounted volume, deleted checkout)
+ * as detached rather than surfacing ENOENT tool errors mid-conversation.
+ */
+export function getRepoRoot(kbId: string): string | null {
+  return getBaseRepoRoot(kbId)
 }
 
-let cache: StoredRepoRoot[] | null = null
-
-function storePath(): string {
-  return join(app.getPath('userData'), 'repo-roots.json')
-}
-
-function load(): StoredRepoRoot[] {
-  if (cache) return cache
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(storePath(), 'utf8'))
-    cache = Array.isArray(parsed)
-      ? (parsed as StoredRepoRoot[]).filter(
-          (r) =>
-            !!r && typeof r.connId === 'string' && typeof r.root === 'string'
-        )
-      : []
-  } catch {
-    cache = []
-  }
-  return cache
-}
-
-function persist(records: StoredRepoRoot[]): void {
-  cache = records
-  const path = storePath()
-  mkdirSync(join(path, '..'), { recursive: true })
-  writeFileSync(path, JSON.stringify(records, null, 2), 'utf8')
-}
-
-/** The attached repo root for a connection, or null. Never renderer-supplied. */
-export function getRepoRoot(connId: string): string | null {
-  const record = load().find((r) => r.connId === connId)
-  if (!record) return null
-  // A root that vanished (unmounted volume, deleted checkout) reads as
-  // detached rather than surfacing ENOENT tool errors mid-conversation.
-  return existsSync(record.root) ? record.root : null
-}
-
-function setRepoRoot(connId: string, root: string): void {
-  const records = load().filter((r) => r.connId !== connId)
-  records.push({ connId, root })
-  persist(records)
-}
-
-export function clearRepoRoot(connId: string): void {
-  persist(load().filter((r) => r.connId !== connId))
+export function clearRepoRoot(kbId: string): void {
+  setBaseRepoRoot(kbId, null)
 }
 
 /** Short SHA of HEAD for provenance strings, or null outside a git checkout. */
@@ -479,21 +441,21 @@ export async function readRepoFile(
 
 // --- IPC ----------------------------------------------------------------------
 
-async function statusFor(connId: string): Promise<RepoStatus> {
-  const root = getRepoRoot(connId)
+async function statusFor(kbId: string): Promise<RepoStatus> {
+  const root = getRepoRoot(kbId)
   return {
-    connId,
+    kbId,
     root,
     commit: root ? await getRepoCommit(root) : null
   }
 }
 
 export function registerRepoHandlers(getWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('repo:get', (_event, connId: string) => statusFor(connId))
+  ipcMain.handle('repo:get', (_event, kbId: string) => statusFor(kbId))
 
   // The path enters the system here and only here: a native directory picker
   // owned by the main process.
-  ipcMain.handle('repo:choose', async (_event, connId: string) => {
+  ipcMain.handle('repo:choose', async (_event, kbId: string) => {
     const win = getWindow()
     const result = win
       ? await dialog.showOpenDialog(win, {
@@ -503,12 +465,12 @@ export function registerRepoHandlers(getWindow: () => BrowserWindow | null): voi
         })
       : await dialog.showOpenDialog({ properties: ['openDirectory'] })
     const picked = result.canceled ? null : result.filePaths[0]
-    if (picked) setRepoRoot(connId, picked)
-    return statusFor(connId)
+    if (picked) setBaseRepoRoot(kbId, picked)
+    return statusFor(kbId)
   })
 
-  ipcMain.handle('repo:clear', (_event, connId: string) => {
-    clearRepoRoot(connId)
-    return statusFor(connId)
+  ipcMain.handle('repo:clear', (_event, kbId: string) => {
+    clearRepoRoot(kbId)
+    return statusFor(kbId)
   })
 }

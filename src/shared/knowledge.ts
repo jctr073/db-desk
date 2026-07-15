@@ -10,6 +10,85 @@
  * usage index can be complete.
  */
 
+/**
+ * A knowledge base is a named, free-standing collection of knowledge records —
+ * typically everything learned from one code repository. It is not owned by a
+ * connection: KnowledgeLink rows attach it to any number of (connection,
+ * database) targets, optionally scoped to one schema. One repo backing prod /
+ * staging / dev databases = one base with three links; two repos writing to
+ * one database = two bases each linked to that database.
+ */
+export interface KnowledgeBase {
+  /** `kb-${Date.now()}-${rand}` (house id pattern); doubles as the filename. */
+  id: string
+  name: string
+  /**
+   * Absolute path of the attached codebase, or null when none. Set only via
+   * the main-process directory picker — never renderer-supplied.
+   */
+  repoRoot: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** A base plus derived display fields, for list surfaces. */
+export interface KnowledgeBaseSummary extends KnowledgeBase {
+  recordCount: number
+  /** Number of links pointing at this base (0 = orphaned). */
+  linkCount: number
+}
+
+/**
+ * Attaches one knowledge base to one (connection, database) target. `schema`
+ * scopes the attachment to a single schema of that database — e.g. a repo's
+ * base linked to the `contract_db` schema of a Databricks catalog — and is
+ * surfaced to the agent as context ("this base describes schema X"); records
+ * are not rewritten.
+ */
+export interface KnowledgeLink {
+  /** `kl-${Date.now()}-${rand}`. */
+  id: string
+  kbId: string
+  connId: string
+  database: string
+  /** Absent = the base applies to the whole database. */
+  schema?: string
+  createdAt: number
+}
+
+/** Caller-supplied fields of a link; the store mints id and createdAt. */
+export interface KnowledgeLinkInput {
+  kbId: string
+  connId: string
+  database: string
+  schema?: string
+}
+
+/**
+ * One linked base's contribution to a (connection, database) target: the wire
+ * shape of `knowledge:listForTarget`, and what the agent prompt renders as a
+ * titled knowledge section.
+ */
+export interface KnowledgeTargetGroup {
+  base: KnowledgeBase
+  link: KnowledgeLink
+  records: KnowledgeRecord[]
+}
+
+/**
+ * The link a target falls back to when no base is named explicitly: the
+ * oldest database-wide link, else the oldest schema-scoped one. Pure and
+ * shared so the main process (agent write path) and the renderer (panel
+ * default selection) can never disagree. `links` must already be filtered to
+ * one (connection, database) target.
+ */
+export function pickDefaultLink(links: KnowledgeLink[]): KnowledgeLink | null {
+  const sorted = [...links].sort(
+    (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)
+  )
+  return sorted.find((l) => l.schema === undefined) ?? sorted[0] ?? null
+}
+
 export type KnowledgeSource = 'human' | 'agent'
 
 export interface ColumnRef {
