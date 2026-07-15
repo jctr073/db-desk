@@ -2834,7 +2834,7 @@ body.is-grid-col-resizing {
   opacity: 0.5;
   cursor: default;
 }
-/* Web-browsing toggle: dim when off, accent when on. */
+/* Compact composer toolbar button; optional active state uses the accent. */
 .composer__web {
   display: inline-flex;
   align-items: center;
@@ -2857,7 +2857,7 @@ body.is-grid-col-resizing {
   background: color-mix(in srgb, var(--accent) 14%, var(--panel));
   color: var(--accent-strong);
 }
-/* MCP split control: plug opens settings, chevron lists connected servers. */
+/* Split control shared by codebase attachment and its options menu. */
 .mcp-ctl {
   position: relative;
   display: inline-flex;
@@ -2914,7 +2914,28 @@ body.is-grid-col-resizing {
   color: var(--text-faint);
   line-height: 1.4;
 }
-/* Codebase attach control: same split-button/popover shape as MCP. */
+.agent-tools-ctl {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.agent-tools-pop__row {
+  gap: 12px;
+}
+.agent-tools-pop__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.agent-tools-pop__state {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 500;
+}
+.agent-tools-pop__row.is-active .agent-tools-pop__state {
+  color: var(--accent-strong);
+}
+/* Codebase attach control uses the shared split-button/popover shape. */
 .repo-pop__info {
   word-break: break-all;
 }
