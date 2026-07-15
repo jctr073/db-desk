@@ -67,6 +67,21 @@ export const BUILTIN_TYPES = [
   'varchar', 'xml'
 ]
 
+/**
+ * Everyday query keywords, in rough frequency-of-use order. The completion
+ * provider ranks these ahead of the rest of KEYWORDS so that e.g. typing
+ * "wh" offers WHERE before WHEN. Must stay a subset of KEYWORDS.
+ */
+export const COMMON_KEYWORDS = [
+  'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'GROUP BY', 'ORDER BY',
+  'LIMIT', 'AND', 'OR', 'ON', 'AS', 'INNER JOIN', 'HAVING', 'DISTINCT',
+  'CASE', 'WITH', 'UNION ALL', 'INSERT INTO', 'UPDATE', 'SET', 'DELETE FROM',
+  'DESC', 'ASC', 'IN', 'NOT', 'IS NULL', 'IS NOT NULL', 'BETWEEN', 'LIKE',
+  'ILIKE', 'EXISTS', 'OFFSET'
+]
+
+export const COMMON_KEYWORD_RANK = new Map(COMMON_KEYWORDS.map((kw, i) => [kw, i]))
+
 const KEYWORD_WORDS = new Set(KEYWORDS.flatMap((kw) => kw.toLowerCase().split(' ')))
 
 /** True when `name` needs double quotes to be used as an identifier. */
