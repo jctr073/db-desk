@@ -191,6 +191,18 @@ export function KnowledgePanel({
     () => (intro ? buildRefKeySet(intro) : null),
     [intro]
   )
+  /** Introspected schema names, for the link dialogs' schema pickers. */
+  const schemaOptions = useMemo(
+    () => intro?.schemas.map((s) => s.name) ?? [],
+    [intro]
+  )
+  /** " · schema: a, b" suffix for a group's dropdown/list labels. */
+  const schemasLabel = (links: Array<{ schema?: string }>): string => {
+    const scopes = links.map((l) => l.schema).filter((s): s is string => !!s)
+    return scopes.length > 0
+      ? ` · schema${scopes.length === 1 ? '' : 's'}: ${scopes.join(', ')}`
+      : ''
+  }
   // Usage lookups span every linked base (state.index is the union), so the
   // record map must too — a hit can point at a base other than the selected one.
   const allRecords = useMemo(
@@ -266,13 +278,17 @@ export function KnowledgePanel({
 
   // --- Knowledge-base management. Structural changes reload the groups via
   // the hook's onStructureChanged subscription, so these only fire the API. ---
-  const createAndLinkBase = async (name: string): Promise<void> => {
-    if (!state.connId || !state.database) return
+  const createAndLinkBase = async (
+    name: string,
+    schema?: string
+  ): Promise<void> => {
+    if (!state.connId || !state.database || !schema) return
     const base = await window.dbDesk.knowledge.createBase(name)
     await window.dbDesk.knowledge.addLink({
       kbId: base.id,
       connId: state.connId,
-      database: state.database
+      database: state.database,
+      schema
     })
     // Select the new base immediately instead of waiting for the reload.
     state.setSelectedKbId(base.id)
@@ -286,7 +302,7 @@ export function KnowledgePanel({
 
   const linkExistingBase = async (
     kbId: string,
-    schema: string | undefined
+    schema: string
   ): Promise<void> => {
     if (!state.connId || !state.database) return
     await window.dbDesk.knowledge.addLink({
@@ -300,22 +316,32 @@ export function KnowledgePanel({
 
   const openLinkDialog = async (): Promise<void> => {
     setManageOpen(false)
-    const all = await window.dbDesk.knowledge.listBases()
-    const linked = new Set(state.groups.map((g) => g.base.id))
-    setLinkCandidates(all.filter((b) => !linked.has(b.id)))
+    // Every base is a candidate: links are schema-scoped, so a base already
+    // linked to one schema can still be linked to another (relinking an
+    // existing scope is a harmless no-op in the store).
+    setLinkCandidates(await window.dbDesk.knowledge.listBases())
   }
 
   const unlinkSelectedBase = (): void => {
     setManageOpen(false)
     if (!selectedGroup) return
+    const scopes = selectedGroup.links
+      .map((l) => l.schema)
+      .filter((s): s is string => !!s)
+    const scopeText =
+      scopes.length > 0
+        ? ` (schema${scopes.length === 1 ? '' : 's'} ${scopes.join(', ')})`
+        : ''
     if (
       !window.confirm(
-        `Unlink "${selectedGroup.base.name}" from this database? The base and its records are kept — only the link to this database is removed.`
+        `Unlink "${selectedGroup.base.name}" from this database${scopeText}? The base and its records are kept — only the links to this database are removed.`
       )
     ) {
       return
     }
-    void window.dbDesk.knowledge.removeLink(selectedGroup.link.id)
+    for (const link of selectedGroup.links) {
+      void window.dbDesk.knowledge.removeLink(link.id)
+    }
   }
 
   const deleteSelectedBase = (): void => {
@@ -331,9 +357,11 @@ export function KnowledgePanel({
     void window.dbDesk.knowledge.deleteBase(selectedGroup.base.id)
   }
 
-  /** Empty-state shortcut: a base named after the database, linked here. */
+  /** Empty-state shortcut: the new-base dialog prefilled with the database
+   * name. A dialog rather than a one-click create because links are
+   * schema-scoped — the schema choice has to be explicit. */
   const createDefaultBase = (): void => {
-    if (state.database) void createAndLinkBase(state.database)
+    if (state.database) setBaseDialog('new')
   }
 
   const saveDraft = async (
@@ -422,7 +450,7 @@ export function KnowledgePanel({
               {state.groups.map((g) => (
                 <option key={g.base.id} value={g.base.id}>
                   {g.base.name} · {g.records.length}
-                  {g.link.schema ? ` · schema: ${g.link.schema}` : ''}
+                  {schemasLabel(g.links)}
                 </option>
               ))}
             </select>
@@ -652,7 +680,7 @@ export function KnowledgePanel({
                 {!selectedGroup && state.groups.length > 1 && (
                   <div className="kn-group__header">
                     {group.base.name} · {records.length}
-                    {group.link.schema ? ` · schema: ${group.link.schema}` : ''}
+                    {schemasLabel(group.links)}
                   </div>
                 )}
                 {records.map((record) => {
@@ -737,7 +765,9 @@ export function KnowledgePanel({
           subtitle={
             capTarget ? `${capTarget.connName} / ${capTarget.database}` : ''
           }
+          initialName={state.groups.length === 0 ? state.database ?? '' : ''}
           submitLabel="Create Base"
+          schemaOptions={schemaOptions}
           onSubmit={createAndLinkBase}
           onClose={() => setBaseDialog(null)}
         />
@@ -758,6 +788,7 @@ export function KnowledgePanel({
             capTarget ? `${capTarget.connName} / ${capTarget.database}` : ''
           }
           bases={linkCandidates}
+          schemaOptions={schemaOptions}
           onLink={linkExistingBase}
           onClose={() => setLinkCandidates(null)}
         />

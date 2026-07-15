@@ -7,26 +7,30 @@ import { BookIcon, CloseIcon } from './icons'
 interface LinkBaseDialogProps {
   /** "connName / database" shown as the dialog subtitle. */
   targetLabel: string
-  /** Bases the target is not already linked to; empty disables the picker. */
+  /** Every existing base; a base may gain links to several schemas. */
   bases: KnowledgeBaseSummary[]
-  /** Called with the chosen base and an optional schema scope. */
-  onLink: (kbId: string, schema: string | undefined) => Promise<void>
+  /** Introspected schema names of the target database; empty falls back to a
+   * free-text schema field (introspection not loaded yet). */
+  schemaOptions: string[]
+  /** Called with the chosen base and the required schema scope. */
+  onLink: (kbId: string, schema: string) => Promise<void>
   onClose: () => void
 }
 
 /**
- * Links an existing knowledge base to the current (connection, database)
- * target, optionally scoping it to a single schema (multi-schema engines such
- * as Databricks). Follows the house dialog pattern.
+ * Links an existing knowledge base to one schema of the current (connection,
+ * database) target — links are always schema-scoped. Follows the house
+ * dialog pattern.
  */
 export function LinkBaseDialog({
   targetLabel,
   bases,
+  schemaOptions,
   onLink,
   onClose
 }: LinkBaseDialogProps): ReactElement {
   const [kbId, setKbId] = useState(bases[0]?.id ?? '')
-  const [schema, setSchema] = useState('')
+  const [schema, setSchema] = useState(schemaOptions[0] ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,10 +48,15 @@ export function LinkBaseDialog({
       setError('Choose a knowledge base to link.')
       return
     }
+    const trimmedSchema = schema.trim()
+    if (!trimmedSchema) {
+      setError('A schema is required — knowledge bases link at the schema level.')
+      return
+    }
     setError(null)
     setSaving(true)
     try {
-      await onLink(kbId, schema.trim() || undefined)
+      await onLink(kbId, trimmedSchema)
       onClose()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -90,7 +99,7 @@ export function LinkBaseDialog({
           </label>
           {bases.length === 0 ? (
             <div className="url-hint">
-              Every existing base is already linked to this database.
+              No knowledge bases exist yet — create one first.
             </div>
           ) : (
             <select
@@ -109,24 +118,39 @@ export function LinkBaseDialog({
           )}
           <div style={{ marginTop: 11 }}>
             <label className="field-label" htmlFor="link-schema">
-              SCHEMA (OPTIONAL)
+              SCHEMA
             </label>
-            <input
-              id="link-schema"
-              className="text-input"
-              placeholder="Scope this base to one schema, e.g. contract_db"
-              value={schema}
-              onChange={(event) => setSchema(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  void submit()
-                }
-              }}
-            />
+            {schemaOptions.length > 0 ? (
+              <select
+                id="link-schema"
+                className="text-input"
+                value={schema}
+                onChange={(event) => setSchema(event.target.value)}
+              >
+                {schemaOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                id="link-schema"
+                className="text-input"
+                placeholder="e.g. contract_db"
+                value={schema}
+                onChange={(event) => setSchema(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void submit()
+                  }
+                }}
+              />
+            )}
             <div className="url-hint">
-              Leave blank to apply the base to the whole database. A schema
-              scopes it to that one schema (for multi-schema engines).
+              Knowledge bases link at the schema level: the base applies to
+              this one schema. Link again to attach it to another schema.
             </div>
           </div>
           {error && <div className="mcp-form-error">{error}</div>}

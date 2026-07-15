@@ -253,10 +253,11 @@ const api = Object.freeze({
     /**
      * Save a question→SQL exemplar into a base; the main process extracts the
      * SQL's structured references at save time (against the live connection)
-     * so it participates in usage lookups.
+     * so it participates in usage lookups. A null kbId creates and links a
+     * base for the target (scoped to the schema the SQL references).
      */
     saveExemplar: (
-      kbId: string,
+      kbId: string | null,
       connId: string,
       database: string,
       question: string,

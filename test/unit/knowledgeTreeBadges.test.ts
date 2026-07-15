@@ -9,10 +9,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildUsageIndex } from '../../src/shared/knowledge'
-import type { KnowledgeRecord } from '../../src/shared/knowledge'
+import type { KnowledgeLink, KnowledgeRecord } from '../../src/shared/knowledge'
 import {
   knowledgeBadgeIds,
-  treeNodeRef
+  schemaLinkBadgeIds,
+  treeNodeRef,
+  treeSchemaRef
 } from '../../src/renderer/src/knowledge/treeBadges'
 import { assignIds, databaseChildren, findNode } from '../../src/renderer/src/connections/treeData'
 import type { TreeNode } from '../../src/renderer/src/connections/types'
@@ -211,5 +213,69 @@ describe('treeNodeRef', () => {
       database: 'App/DB',
       ref: { schema: 'Sales Data', table: 'Order/Items', column: 'qty' }
     })
+  })
+})
+
+describe('schemaLinkBadgeIds', () => {
+  const link = (
+    id: string,
+    connId: string,
+    database: string,
+    schema?: string
+  ): KnowledgeLink => ({
+    id,
+    kbId: 'kb-1',
+    connId,
+    database,
+    ...(schema === undefined ? {} : { schema }),
+    createdAt: 1
+  })
+
+  it('marks the schema node a link targets, and nothing else', () => {
+    const ids = schemaLinkBadgeIds(buildTree(), [
+      link('kl-1', 'c-1', 'app_db', 'public')
+    ])
+    expect(ids).toEqual(new Set(['c-1/app_db/public']))
+  })
+
+  it('matches database and schema names case-insensitively', () => {
+    const ids = schemaLinkBadgeIds(buildTree(), [
+      link('kl-1', 'c-1', 'APP_DB', 'Public')
+    ])
+    expect(ids.has('c-1/app_db/public')).toBe(true)
+  })
+
+  it('ignores links for other connections or databases', () => {
+    const ids = schemaLinkBadgeIds(buildTree(), [
+      link('kl-1', 'c-2', 'app_db', 'public'),
+      link('kl-2', 'c-1', 'other_db', 'public')
+    ])
+    expect(ids.size).toBe(0)
+  })
+
+  it('ignores unmigrated schema-less links and an empty link table', () => {
+    expect(schemaLinkBadgeIds(buildTree(), [link('kl-1', 'c-1', 'app_db')]).size).toBe(0)
+    expect(schemaLinkBadgeIds(buildTree(), []).size).toBe(0)
+  })
+})
+
+describe('treeSchemaRef', () => {
+  it('derives connection, database and schema from the ancestor labels', () => {
+    const tree = buildTree()
+    const node = findNode('c-1/app_db/public', tree)!
+    expect(treeSchemaRef(node, tree)).toEqual({
+      connId: 'c-1',
+      connName: 'Local',
+      database: 'app_db',
+      schema: 'public'
+    })
+  })
+
+  it('returns null for non-schema nodes', () => {
+    const tree = buildTree()
+    expect(treeSchemaRef(findNode('c-1/app_db', tree)!, tree)).toBeNull()
+    expect(
+      treeSchemaRef(findNode('c-1/app_db/public/tables/users', tree)!, tree)
+    ).toBeNull()
   })
 })

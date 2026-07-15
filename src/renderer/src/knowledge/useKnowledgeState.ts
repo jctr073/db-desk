@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { buildUsageIndex, pickDefaultLink } from '../../../shared/knowledge'
 import type {
   ColumnRef,
+  KnowledgeBaseSummary,
+  KnowledgeLink,
   KnowledgeRecord,
   KnowledgeRecordInput,
   KnowledgeTargetGroup,
@@ -168,7 +170,7 @@ export function useKnowledgeState(
       const kbId =
         owner ??
         selectedKbId ??
-        pickDefaultLink(groups.map((g) => g.link))?.kbId ??
+        pickDefaultLink(groups.flatMap((g) => g.links))?.kbId ??
         null
       if (!kbId) return null
       try {
@@ -245,6 +247,50 @@ export function useKnowledgeState(
     remove,
     clearLoadError
   }
+}
+
+/** The whole base list and link table, for structure-level UI. */
+export interface KnowledgeStructure {
+  bases: KnowledgeBaseSummary[]
+  links: KnowledgeLink[]
+}
+
+/**
+ * Every knowledge base and every link, kept live: backs the connection
+ * tree's schema-node link submenu and "knowledge linked" indicators, which
+ * span all connections rather than one target. Reloads wholesale on every
+ * structural push, and on record pushes too (base summaries carry record
+ * counts) — both lists are small.
+ */
+export function useKnowledgeStructure(): KnowledgeStructure {
+  const [structure, setStructure] = useState<KnowledgeStructure>({
+    bases: [],
+    links: []
+  })
+  useEffect(() => {
+    let cancelled = false
+    const load = (): void => {
+      void Promise.all([
+        window.dbDesk.knowledge.listBases(),
+        window.dbDesk.knowledge.listLinks()
+      ])
+        .then(([bases, links]) => {
+          if (!cancelled) setStructure({ bases, links })
+        })
+        .catch(() => {
+          // Structure UI is best-effort; keep the previous state on failure.
+        })
+    }
+    load()
+    const offChanged = window.dbDesk.knowledge.onChanged(load)
+    const offStructure = window.dbDesk.knowledge.onStructureChanged(load)
+    return () => {
+      cancelled = true
+      offChanged()
+      offStructure()
+    }
+  }, [])
+  return structure
 }
 
 /** The subset of a QueryTarget the badge indexes key off. */

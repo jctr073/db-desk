@@ -282,3 +282,152 @@ describe('migrateLegacyKnowledge', () => {
     )
   })
 })
+
+describe('migrateLinksToSchemaScope', () => {
+  /** Writes a v1-shape links.json directly (addLink now requires a schema,
+   * so schema-less rows can only exist on disk from an older build). */
+  function writeLinksFile(links: unknown[]): void {
+    const dir = join(userDataDir, 'knowledge')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'links.json'),
+      JSON.stringify({ version: 1, links }),
+      'utf8'
+    )
+  }
+
+  function dbWideLink(
+    id: string,
+    kbId: string,
+    connId: string,
+    database: string,
+    createdAt = 1
+  ): Record<string, unknown> {
+    return { id, kbId, connId, database, createdAt }
+  }
+
+  const fallback = (): string => 'public'
+
+  it('expands a database-wide link into one link per schema its records reference', async () => {
+    const base = knowledge.createBase('B')
+    knowledge.saveRecord(base.id, {
+      kind: 'annotation',
+      source: 'human',
+      target: { schema: 'sales', table: 'orders', column: 'id' },
+      text: 'order id'
+    })
+    knowledge.saveRecord(base.id, {
+      kind: 'note',
+      source: 'human',
+      title: 'Billing',
+      body: 'cents',
+      references: [{ schema: 'billing', table: 'invoices' }]
+    })
+    writeLinksFile([dbWideLink('kl-wide', base.id, 'c-1', 'analytics', 7)])
+    vi.resetModules()
+    const reloaded = await import('../../src/main/knowledge')
+
+    reloaded.migrateLinksToSchemaScope(fallback)
+
+    const links = reloaded.listLinks()
+    expect(links.map((l) => l.schema).sort()).toEqual(['billing', 'sales'])
+    for (const link of links) {
+      expect(link).toMatchObject({ kbId: base.id, connId: 'c-1', database: 'analytics' })
+      // Expanded links inherit the original createdAt so default-base
+      // selection (oldest link) is unchanged by the migration.
+      expect(link.createdAt).toBe(7)
+    }
+    // The first expanded link keeps the original id.
+    expect(links.some((l) => l.id === 'kl-wide')).toBe(true)
+  })
+
+  it('dedupes schemas referenced with different casing', async () => {
+    const base = knowledge.createBase('B')
+    knowledge.saveRecord(base.id, {
+      kind: 'annotation',
+      source: 'human',
+      target: { schema: 'Sales', table: 'orders' },
+      text: 'x'
+    })
+    knowledge.saveRecord(base.id, {
+      kind: 'annotation',
+      source: 'human',
+      target: { schema: 'sales', table: 'refunds' },
+      text: 'y'
+    })
+    writeLinksFile([dbWideLink('kl-wide', base.id, 'c-1', 'analytics')])
+    vi.resetModules()
+    const reloaded = await import('../../src/main/knowledge')
+
+    reloaded.migrateLinksToSchemaScope(fallback)
+
+    expect(reloaded.listLinks().map((l) => l.schema)).toEqual(['Sales'])
+  })
+
+  it('falls back to the injected default schema when the base has no schema-bearing records', async () => {
+    const base = knowledge.createBase('Empty')
+    writeLinksFile([dbWideLink('kl-wide', base.id, 'c-db', 'catalog')])
+    vi.resetModules()
+    const reloaded = await import('../../src/main/knowledge')
+
+    reloaded.migrateLinksToSchemaScope((connId) =>
+      connId === 'c-db' ? 'default' : 'public'
+    )
+
+    const links = reloaded.listLinks()
+    expect(links).toHaveLength(1)
+    expect(links[0].schema).toBe('default')
+  })
+
+  it('keeps existing schema-scoped links and skips expansions they already cover', async () => {
+    const base = knowledge.createBase('B')
+    knowledge.saveRecord(base.id, {
+      kind: 'annotation',
+      source: 'human',
+      target: { schema: 'sales', table: 'orders' },
+      text: 'x'
+    })
+    writeLinksFile([
+      { id: 'kl-scoped', kbId: base.id, connId: 'c-1', database: 'analytics', schema: 'SALES', createdAt: 1 },
+      dbWideLink('kl-wide', base.id, 'c-1', 'analytics', 2)
+    ])
+    vi.resetModules()
+    const reloaded = await import('../../src/main/knowledge')
+
+    reloaded.migrateLinksToSchemaScope(fallback)
+
+    // The scoped link already covers 'sales' (case-insensitively), so the
+    // database-wide link expands to nothing and simply disappears.
+    const links = reloaded.listLinks()
+    expect(links).toHaveLength(1)
+    expect(links[0].id).toBe('kl-scoped')
+  })
+
+  it('is a no-op when every link is already schema-scoped', () => {
+    const base = knowledge.createBase('B')
+    const link = knowledge.addLink({
+      kbId: base.id,
+      connId: 'c-1',
+      database: 'analytics',
+      schema: 'public'
+    })
+
+    knowledge.migrateLinksToSchemaScope(fallback)
+
+    expect(knowledge.listLinks()).toEqual([link])
+  })
+
+  it('converts the database-wide links the legacy v1 migration mints', () => {
+    writeLegacyKnowledgeFile(KNOWN_CONN, 'analytics', KNOWN_CONN_DB, [
+      legacyRecord('kn-1')
+    ])
+
+    knowledge.migrateLegacyKnowledge(resolver)
+    knowledge.migrateLinksToSchemaScope(fallback)
+
+    const links = knowledge.linksForTarget(KNOWN_CONN, KNOWN_CONN_DB)
+    expect(links).toHaveLength(1)
+    // The legacy note has no refs, so the link takes the fallback schema.
+    expect(links[0].schema).toBe('public')
+  })
+})

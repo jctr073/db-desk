@@ -529,18 +529,18 @@ function renderKnowledge(records: KnowledgeRecord[], detail: KnowledgeDetail): s
 }
 
 /** One linked base's contribution to the prompt section: its display name,
- * optional schema scope (from the link), and records. */
+ * the schema scopes of its links, and records. */
 export interface KnowledgePromptGroup {
   name: string
-  schema?: string
+  schemas: string[]
   records: KnowledgeRecord[]
 }
 
 /**
  * The "## Local knowledge" prompt section: one titled subsection per linked
  * base, degrading tier by tier under the shared budget instead of cutting
- * mid-text (mirror of summarizeSchema). A schema-scoped link is surfaced as
- * context on its subsection — records are presented as recorded, never
+ * mid-text (mirror of summarizeSchema). The link's schema scopes are surfaced
+ * as context on its subsection — records are presented as recorded, never
  * rewritten. Empty bases render nothing; no non-empty base renders nothing.
  * Exported for unit tests.
  */
@@ -550,9 +550,16 @@ export function summarizeKnowledge(groups: KnowledgePromptGroup[]): string {
     for (const group of groups) {
       const body = renderKnowledge(group.records, detail)
       if (body === '') continue
-      const scope = group.schema
-        ? `\nThis knowledge base describes the "${singleLine(group.schema)}" schema of this database. Its records may name schemas as they exist in the source codebase's own engine — map them onto "${singleLine(group.schema)}" here.`
-        : ''
+      const schemas = group.schemas.filter(
+        (s) => typeof s === 'string' && s !== ''
+      )
+      const scopeNames = schemas
+        .map((s) => `"${singleLine(s)}"`)
+        .join(', ')
+      const scope =
+        schemas.length > 0
+          ? `\nThis knowledge base describes the ${scopeNames} schema${schemas.length === 1 ? '' : 's'} of this database. Its records may name schemas as they exist in the source codebase's own engine — map them onto ${scopeNames} here.`
+          : ''
       sections.push(
         `### Knowledge base: ${singleLine(group.name)}${scope}\n${body}`
       )
@@ -925,7 +932,7 @@ export function buildSystemPrompt(
     const knowledge = summarizeKnowledge(
       groupsForTarget(req.target.connId, req.target.database).map((g) => ({
         name: g.base.name,
-        schema: g.link.schema,
+        schemas: g.links.flatMap((l) => (l.schema ? [l.schema] : [])),
         records: g.records
       }))
     )
@@ -1832,10 +1839,19 @@ export function execSaveKnowledge(
       // not leave an empty auto-created base and link behind.
       validateKnowledgeRecord(draft)
       const created = createBase(target.database)
+      // Links are schema-scoped: derive the scope from the record's own
+      // references, falling back to the engine's default schema when the
+      // record names none.
+      const schema =
+        knowledgeRefs(draft as KnowledgeRecord).find(
+          (ref) => typeof ref.schema === 'string' && ref.schema.trim() !== ''
+        )?.schema ??
+        dialectFor(getConnectionType(target.connId)).defaultSchema
       addLink({
         kbId: created.id,
         connId: target.connId,
-        database: target.database
+        database: target.database,
+        schema
       })
       kbId = created.id
     }

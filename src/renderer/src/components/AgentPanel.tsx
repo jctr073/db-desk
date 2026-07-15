@@ -29,6 +29,7 @@ import type {
   AgentPromptIntent
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
+import { dialectFor } from '../../../shared/dialect'
 import { pickDefaultLink } from '../../../shared/knowledge'
 import type { KnowledgeLink } from '../../../shared/knowledge'
 import type { McpServerStatus } from '../../../shared/mcp'
@@ -568,14 +569,21 @@ export function AgentPanel({
   /**
    * The default base for a target, creating and linking one (named after the
    * database) when the target has none yet — used before any operation that
-   * needs a kbId (attach codebase, save exemplar).
+   * needs a kbId (attach codebase). Links are schema-scoped; with nothing
+   * more specific to go on here, the auto-created link takes the engine's
+   * default schema.
    */
   const ensureDefaultBase = useCallback(
-    async (connId: string, database: string): Promise<string> => {
-      const existing = defaultBaseFor(connId, database)
+    async (t: QueryTarget): Promise<string> => {
+      const existing = defaultBaseFor(t.connId, t.database)
       if (existing) return existing
-      const base = await window.dbDesk.knowledge.createBase(database)
-      await window.dbDesk.knowledge.addLink({ kbId: base.id, connId, database })
+      const base = await window.dbDesk.knowledge.createBase(t.database)
+      await window.dbDesk.knowledge.addLink({
+        kbId: base.id,
+        connId: t.connId,
+        database: t.database,
+        schema: dialectFor(t.connectionType).defaultSchema
+      })
       return base.id
     },
     [defaultBaseFor]
@@ -1115,7 +1123,7 @@ export function AgentPanel({
    */
   const attachCodebase = useCallback(
     async (t: QueryTarget): Promise<void> => {
-      const kbId = await ensureDefaultBase(t.connId, t.database)
+      const kbId = await ensureDefaultBase(t)
       const status = await window.dbDesk.repo.choose(kbId)
       rememberRepoStatus(status)
       if (

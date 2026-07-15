@@ -102,10 +102,10 @@ function allRecords(): KnowledgeRecord[] {
   return knowledge.groupsForTarget(CONN, DB).flatMap((g) => g.records)
 }
 
-/** Creates a base linked database-wide to CONN/DB and returns its id. */
+/** Creates a base linked to the public schema of CONN/DB and returns its id. */
 function seedBase(name = 'Test base'): string {
   const base = knowledge.createBase(name)
-  knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
+  knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
   return base.id
 }
 
@@ -315,11 +315,31 @@ describe('execSaveKnowledge write-target resolution', () => {
     const links = knowledge.listLinks()
     expect(links).toHaveLength(1)
     expect(links[0]).toMatchObject({ connId: CONN, database: DB })
-    expect(links[0].schema).toBeUndefined()
+    // The record names no schema, so the link falls back to the engine's
+    // default schema (mocked connection type is postgres).
+    expect(links[0].schema).toBe('public')
 
     const base = knowledge.getBase(links[0].kbId)
     expect(base?.name).toBe(DB)
     expect(knowledge.listRecords(links[0].kbId)).toHaveLength(1)
+  })
+
+  it("scopes the auto-created link to the schema the record's own refs name", () => {
+    const { send } = collect()
+    const result = agent.execSaveKnowledge(
+      makeReq(),
+      toolUse({
+        kind: 'annotation',
+        target: { schema: 'billing', table: 'invoices', column: 'total' },
+        text: 'in cents'
+      }),
+      send
+    )
+
+    expect(result.is_error).toBeFalsy()
+    const links = knowledge.listLinks()
+    expect(links).toHaveLength(1)
+    expect(links[0].schema).toBe('billing')
   })
 
   it("routes a new record to the target's existing default base rather than creating another", () => {
@@ -373,10 +393,10 @@ describe('execSaveKnowledge write-target resolution', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     const defaultBase = knowledge.createBase('Default repo')
-    knowledge.addLink({ kbId: defaultBase.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: defaultBase.id, connId: CONN, database: DB, schema: 'public' })
     vi.setSystemTime(2_000)
     const otherBase = knowledge.createBase('Other repo')
-    knowledge.addLink({ kbId: otherBase.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: otherBase.id, connId: CONN, database: DB, schema: 'public' })
     vi.useRealTimers()
     // defaultBase's link is older, so it is the target's default — but the
     // record to update lives in otherBase.

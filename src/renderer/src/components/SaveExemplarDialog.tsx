@@ -61,18 +61,15 @@ export function SaveExemplarDialog({
     setError(null)
     setSaving(true)
     try {
-      // The exemplar lands in the target's default base; create and link one
-      // (named after the database) if the target has none yet. Done on save so
-      // an unused, cancelled dialog never mints an empty base.
+      // The exemplar lands in the target's default base. A null kbId lets the
+      // main process create and link one (named after the database, scoped to
+      // the schema the SQL references — links are schema-scoped, and only the
+      // main process sees the extracted references). Resolved on save so an
+      // unused, cancelled dialog never mints an empty base.
       const linked = (await window.dbDesk.knowledge.listLinks()).filter(
         (l) => l.connId === connId && l.database === database
       )
-      let kbId = pickDefaultLink(linked)?.kbId ?? null
-      if (!kbId) {
-        const base = await window.dbDesk.knowledge.createBase(database)
-        await window.dbDesk.knowledge.addLink({ kbId: base.id, connId, database })
-        kbId = base.id
-      }
+      const kbId = pickDefaultLink(linked)?.kbId ?? null
       const saved = await window.dbDesk.knowledge.saveExemplar(
         kbId,
         connId,

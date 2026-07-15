@@ -58,6 +58,7 @@ import {
   listLinks,
   listRecords,
   migrateLegacyKnowledge,
+  migrateLinksToSchemaScope,
   removeLink,
   renameBase,
   saveRecord,
@@ -70,6 +71,7 @@ import {
   writeExportDestination
 } from './dataExport'
 import type { ConnectParams } from '../shared/db'
+import { dialectFor } from '../shared/dialect'
 import type { DataExportFormat } from '../shared/export'
 import type {
   KnowledgeLinkInput,
@@ -400,7 +402,7 @@ function registerKnowledgeHandlers(
     'knowledge:saveExemplar',
     async (
       _event,
-      kbId: string,
+      kbId: string | null,
       connId: string,
       database: string,
       question: string,
@@ -411,6 +413,21 @@ function registerKnowledgeHandlers(
       // (connId, database) pair is the live connection to extract against;
       // the record itself lands in the named base.
       const references = await extractExemplarReferences(connId, database, sql)
+      if (!kbId) {
+        // First knowledge for this target: create a base named after the
+        // database, linked at the schema the exemplar's own references name
+        // (else the engine's default schema — links are schema-scoped).
+        // Done here, after extraction, so the renderer never has to guess.
+        const base = createBase(database)
+        const conn = listSaved().find((c) => c.id === connId)
+        const schema =
+          references.find(
+            (ref) => typeof ref.schema === 'string' && ref.schema.trim() !== ''
+          )?.schema ?? dialectFor(conn?.type).defaultSchema
+        addLink({ kbId: base.id, connId, database, schema })
+        kbId = base.id
+        broadcastStructure()
+      }
       const saved = saveRecord(kbId, {
         kind: 'exemplar',
         source: 'human',
@@ -444,6 +461,14 @@ app.whenReady().then(() => {
   migrateLegacyKnowledge((connId) => {
     const conn = listSaved().find((c) => c.id === connId)
     return conn ? { name: conn.name, database: conn.database } : null
+  })
+  // Then expand any database-wide links (v1 shape, including ones the legacy
+  // migration above just minted) into the schema-scoped links the store now
+  // requires. The fallback schema follows the connection's engine; a link
+  // whose connection no longer exists gets the PostgreSQL default.
+  migrateLinksToSchemaScope((connId) => {
+    const conn = listSaved().find((c) => c.id === connId)
+    return dialectFor(conn?.type).defaultSchema
   })
 
   // The exemplar extractor keeps no Electron imports (unit-testability), so

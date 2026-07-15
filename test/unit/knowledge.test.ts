@@ -3,11 +3,12 @@
  *
  * v2 of the store holds free-standing knowledge bases (`knowledge/bases/
  * <kbId>.json`) plus a link table (`knowledge/links.json`) attaching bases to
- * (connection, database) targets, optionally scoped to one schema. This file
- * covers base CRUD, record CRUD per base, link CRUD/dedupe, target
+ * (connection, database, schema) targets — every link is schema-scoped. This
+ * file covers base CRUD, record CRUD per base, link CRUD/dedupe, target
  * aggregation (groupsForTarget/linksForTarget/defaultKbForTarget), path
- * safety, corrupt-file quarantine, and wipeAll. v1-to-v2 migration
- * (migrateLegacyKnowledge) has its own file: knowledgeMigrate.test.ts.
+ * safety, corrupt-file quarantine, and wipeAll. The migrations
+ * (migrateLegacyKnowledge, migrateLinksToSchemaScope) have their own file:
+ * knowledgeMigrate.test.ts.
  *
  * Like a hypothetical store.ts test, this is one of the first unit tests to
  * mock Electron's `app`: there is no real Electron process under Vitest's
@@ -38,7 +39,11 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { ColumnRef, KnowledgeRecordInput } from '../../src/shared/knowledge'
+import type {
+  ColumnRef,
+  KnowledgeLinkInput,
+  KnowledgeRecordInput
+} from '../../src/shared/knowledge'
 
 let userDataDir: string
 
@@ -168,7 +173,7 @@ describe('knowledge base CRUD', () => {
     vi.setSystemTime(2_000)
     const second = knowledge.createBase('Second')
     knowledge.saveRecord(second.id, annotation)
-    knowledge.addLink({ kbId: second.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: second.id, connId: CONN, database: DB, schema: 'public' })
     vi.useRealTimers()
 
     const summaries = knowledge.listBases()
@@ -201,8 +206,8 @@ describe('knowledge base CRUD', () => {
   it('deleteBase removes the base file, evicts the cache, and drops its links', () => {
     const base = knowledge.createBase('B')
     knowledge.saveRecord(base.id, annotation)
-    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
-    knowledge.addLink({ kbId: base.id, connId: 'c-2', database: 'other' })
+    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
+    knowledge.addLink({ kbId: base.id, connId: 'c-2', database: 'other', schema: 'public' })
     expect(existsSync(basePath(base.id))).toBe(true)
 
     knowledge.deleteBase(base.id)
@@ -215,8 +220,13 @@ describe('knowledge base CRUD', () => {
   it('deleteBase leaves links to other bases untouched', () => {
     const kept = knowledge.createBase('Kept')
     const doomed = knowledge.createBase('Doomed')
-    const survivor = knowledge.addLink({ kbId: kept.id, connId: CONN, database: DB })
-    knowledge.addLink({ kbId: doomed.id, connId: CONN, database: DB })
+    const survivor = knowledge.addLink({
+      kbId: kept.id,
+      connId: CONN,
+      database: DB,
+      schema: 'public'
+    })
+    knowledge.addLink({ kbId: doomed.id, connId: CONN, database: DB, schema: 'public' })
 
     knowledge.deleteBase(doomed.id)
 
@@ -543,15 +553,6 @@ describe('id and identifier hygiene', () => {
 })
 
 describe('links', () => {
-  it('creates a database-wide link', () => {
-    const base = knowledge.createBase('B')
-    const link = knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
-    expect(link.id).toMatch(/^kl-\d+-[a-z0-9]+$/)
-    expect(link.schema).toBeUndefined()
-    expect(link.createdAt).toBeGreaterThan(0)
-    expect(knowledge.listLinks()).toEqual([link])
-  })
-
   it('creates a schema-scoped link', () => {
     const base = knowledge.createBase('B')
     const link = knowledge.addLink({
@@ -560,22 +561,30 @@ describe('links', () => {
       database: DB,
       schema: 'analytics'
     })
+    expect(link.id).toMatch(/^kl-\d+-[a-z0-9]+$/)
     expect(link.schema).toBe('analytics')
+    expect(link.createdAt).toBeGreaterThan(0)
+    expect(knowledge.listLinks()).toEqual([link])
+  })
+
+  it('rejects a link without a schema — links exist only at the schema level', () => {
+    const base = knowledge.createBase('B')
+    expect(() =>
+      knowledge.addLink({
+        kbId: base.id,
+        connId: CONN,
+        database: DB
+      } as unknown as KnowledgeLinkInput)
+    ).toThrow(/Link schema/)
+    expect(knowledge.listLinks()).toEqual([])
   })
 
   it('dedupes an identical link (same base, target and scope)', () => {
     const base = knowledge.createBase('B')
-    const first = knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
-    const second = knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
+    const first = knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
+    const second = knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
     expect(second).toEqual(first)
     expect(knowledge.listLinks()).toHaveLength(1)
-  })
-
-  it('does not dedupe links differing only by schema scope', () => {
-    const base = knowledge.createBase('B')
-    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
-    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
-    expect(knowledge.listLinks()).toHaveLength(2)
   })
 
   it('does not dedupe links scoped to different schemas', () => {
@@ -587,25 +596,25 @@ describe('links', () => {
 
   it('allows the same base linked to multiple targets', () => {
     const base = knowledge.createBase('B')
-    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
-    knowledge.addLink({ kbId: base.id, connId: 'c-2', database: 'other' })
+    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
+    knowledge.addLink({ kbId: base.id, connId: 'c-2', database: 'other', schema: 'public' })
     expect(knowledge.listLinks()).toHaveLength(2)
   })
 
   it('addLink throws for an unknown base', () => {
     expect(() =>
-      knowledge.addLink({ kbId: 'kb-nope', connId: CONN, database: DB })
+      knowledge.addLink({ kbId: 'kb-nope', connId: CONN, database: DB, schema: 'public' })
     ).toThrow(/Unknown knowledge base/)
   })
 
   it('addLink validates the database name', () => {
     const base = knowledge.createBase('B')
     expect(() =>
-      knowledge.addLink({ kbId: base.id, connId: CONN, database: '' })
+      knowledge.addLink({ kbId: base.id, connId: CONN, database: '', schema: 'public' })
     ).toThrow(/Link database/)
   })
 
-  it('addLink validates the schema name when given', () => {
+  it('addLink validates the schema name', () => {
     const base = knowledge.createBase('B')
     expect(() =>
       knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: '  ' })
@@ -614,8 +623,8 @@ describe('links', () => {
 
   it('removeLink drops one link without touching others', () => {
     const base = knowledge.createBase('B')
-    const a = knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
-    const b = knowledge.addLink({ kbId: base.id, connId: 'c-2', database: DB })
+    const a = knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
+    const b = knowledge.addLink({ kbId: base.id, connId: 'c-2', database: DB, schema: 'public' })
     knowledge.removeLink(a.id)
     expect(knowledge.listLinks()).toEqual([b])
   })
@@ -630,12 +639,12 @@ describe('linksForTarget, defaultKbForTarget and pickDefaultLink ordering', () =
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     const b1 = knowledge.createBase('B1')
-    const l1 = knowledge.addLink({ kbId: b1.id, connId: CONN, database: DB })
+    const l1 = knowledge.addLink({ kbId: b1.id, connId: CONN, database: DB, schema: 'public' })
     vi.setSystemTime(2_000)
     const b2 = knowledge.createBase('B2')
-    const l2 = knowledge.addLink({ kbId: b2.id, connId: CONN, database: DB })
+    const l2 = knowledge.addLink({ kbId: b2.id, connId: CONN, database: DB, schema: 'public' })
     // A link for a different target must not appear.
-    knowledge.addLink({ kbId: b2.id, connId: CONN, database: 'other' })
+    knowledge.addLink({ kbId: b2.id, connId: CONN, database: 'other', schema: 'public' })
 
     expect(knowledge.linksForTarget(CONN, DB).map((l) => l.id)).toEqual([
       l1.id,
@@ -647,31 +656,7 @@ describe('linksForTarget, defaultKbForTarget and pickDefaultLink ordering', () =
     expect(knowledge.defaultKbForTarget(CONN, DB)).toBeNull()
   })
 
-  it('prefers the oldest database-wide link even when a schema-scoped link is older', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(1_000)
-    const scoped = knowledge.createBase('Scoped')
-    knowledge.addLink({ kbId: scoped.id, connId: CONN, database: DB, schema: 'public' })
-    vi.setSystemTime(2_000)
-    const wide = knowledge.createBase('Wide')
-    knowledge.addLink({ kbId: wide.id, connId: CONN, database: DB })
-
-    expect(knowledge.defaultKbForTarget(CONN, DB)).toBe(wide.id)
-  })
-
-  it('picks the oldest of several database-wide links', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(1_000)
-    const first = knowledge.createBase('First')
-    knowledge.addLink({ kbId: first.id, connId: CONN, database: DB })
-    vi.setSystemTime(2_000)
-    const second = knowledge.createBase('Second')
-    knowledge.addLink({ kbId: second.id, connId: CONN, database: DB })
-
-    expect(knowledge.defaultKbForTarget(CONN, DB)).toBe(first.id)
-  })
-
-  it('falls back to the oldest schema-scoped link when there is no database-wide link', () => {
+  it('picks the oldest link, across schemas', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     const first = knowledge.createBase('First scoped')
@@ -682,6 +667,18 @@ describe('linksForTarget, defaultKbForTarget and pickDefaultLink ordering', () =
 
     expect(knowledge.defaultKbForTarget(CONN, DB)).toBe(first.id)
   })
+
+  it('picks the oldest of several links to the same schema', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    const first = knowledge.createBase('First')
+    knowledge.addLink({ kbId: first.id, connId: CONN, database: DB, schema: 'public' })
+    vi.setSystemTime(2_000)
+    const second = knowledge.createBase('Second')
+    knowledge.addLink({ kbId: second.id, connId: CONN, database: DB, schema: 'public' })
+
+    expect(knowledge.defaultKbForTarget(CONN, DB)).toBe(first.id)
+  })
 })
 
 describe('groupsForTarget', () => {
@@ -689,12 +686,12 @@ describe('groupsForTarget', () => {
     expect(knowledge.groupsForTarget(CONN, DB)).toEqual([])
   })
 
-  it('aggregates every linked base, oldest link first, with its own records and link', () => {
+  it('aggregates every linked base, oldest link first, with its own records and links', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     const b1 = knowledge.createBase('B1')
     knowledge.saveRecord(b1.id, annotation)
-    knowledge.addLink({ kbId: b1.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: b1.id, connId: CONN, database: DB, schema: 'public' })
     vi.setSystemTime(2_000)
     const b2 = knowledge.createBase('B2')
     knowledge.saveRecord(b2.id, note)
@@ -705,13 +702,30 @@ describe('groupsForTarget', () => {
     expect(groups.map((g) => g.base.id)).toEqual([b1.id, b2.id])
     expect(groups[0].records).toHaveLength(1)
     expect(groups[0].records[0].kind).toBe('annotation')
-    expect(groups[1].link.schema).toBe('reporting')
+    expect(groups[1].links.map((l) => l.schema)).toEqual(['reporting'])
     expect(groups[1].records[0].kind).toBe('note')
+  })
+
+  it('merges several schema links of one base into a single group', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    const base = knowledge.createBase('B')
+    knowledge.saveRecord(base.id, annotation)
+    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'a' })
+    vi.setSystemTime(2_000)
+    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'b' })
+    vi.useRealTimers()
+
+    const groups = knowledge.groupsForTarget(CONN, DB)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].links.map((l) => l.schema)).toEqual(['a', 'b'])
+    // Records appear once, not once per link.
+    expect(groups[0].records).toHaveLength(1)
   })
 
   it('prunes a dangling link (base file gone) instead of surfacing an empty group', async () => {
     const base = knowledge.createBase('B')
-    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
     rmSync(basePath(base.id))
     // Cold cache so the missing file is actually noticed (loadBase serves
     // from its in-memory cache otherwise).
@@ -725,8 +739,13 @@ describe('groupsForTarget', () => {
   it('leaves other links alone when pruning one dangling link', async () => {
     const gone = knowledge.createBase('Gone')
     const kept = knowledge.createBase('Kept')
-    knowledge.addLink({ kbId: gone.id, connId: CONN, database: DB })
-    const survivor = knowledge.addLink({ kbId: kept.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: gone.id, connId: CONN, database: DB, schema: 'public' })
+    const survivor = knowledge.addLink({
+      kbId: kept.id,
+      connId: CONN,
+      database: DB,
+      schema: 'public'
+    })
     rmSync(basePath(gone.id))
     vi.resetModules()
     const reloaded = await import('../../src/main/knowledge')
@@ -740,9 +759,9 @@ describe('groupsForTarget', () => {
 describe('targetsForBase', () => {
   it('returns the unique set of targets a base is linked to', () => {
     const base = knowledge.createBase('B')
-    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
     knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
-    knowledge.addLink({ kbId: base.id, connId: 'c-2', database: 'other' })
+    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'reporting' })
+    knowledge.addLink({ kbId: base.id, connId: 'c-2', database: 'other', schema: 'public' })
 
     const targets = knowledge.targetsForBase(base.id)
     expect(targets).toHaveLength(2)
@@ -760,9 +779,14 @@ describe('deleteLinksForConnection', () => {
   it('drops every link for the connection but leaves the bases intact', () => {
     const b1 = knowledge.createBase('B1')
     const b2 = knowledge.createBase('B2')
-    knowledge.addLink({ kbId: b1.id, connId: CONN, database: DB })
-    knowledge.addLink({ kbId: b2.id, connId: CONN, database: 'other' })
-    const unrelated = knowledge.addLink({ kbId: b1.id, connId: 'c-2', database: DB })
+    knowledge.addLink({ kbId: b1.id, connId: CONN, database: DB, schema: 'public' })
+    knowledge.addLink({ kbId: b2.id, connId: CONN, database: 'other', schema: 'public' })
+    const unrelated = knowledge.addLink({
+      kbId: b1.id,
+      connId: 'c-2',
+      database: DB,
+      schema: 'public'
+    })
 
     knowledge.deleteLinksForConnection(CONN)
 
@@ -806,7 +830,7 @@ describe('knowledge base id path safety', () => {
         /Invalid knowledge base id/
       )
       expect(() =>
-        knowledge.addLink({ kbId, connId: CONN, database: DB })
+        knowledge.addLink({ kbId, connId: CONN, database: DB, schema: 'public' })
       ).toThrow(/Invalid knowledge base id/)
     }
   })
@@ -815,7 +839,7 @@ describe('knowledge base id path safety', () => {
     const base = knowledge.createBase('B')
     for (const connId of evil) {
       expect(() =>
-        knowledge.addLink({ kbId: base.id, connId, database: DB })
+        knowledge.addLink({ kbId: base.id, connId, database: DB, schema: 'public' })
       ).toThrow(/Invalid connection id/)
     }
   })
@@ -902,7 +926,7 @@ describe('corrupt and malformed files', () => {
 
   it('quarantines an unparseable links.json instead of losing every link', async () => {
     const base = knowledge.createBase('B')
-    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
     writeFileSync(linksPath(), '{ "version": 1, "links": [ trailing-junk', 'utf8')
 
     vi.resetModules()
@@ -919,14 +943,14 @@ describe('corrupt and malformed files', () => {
     )
 
     // A subsequent link starts a fresh table without touching the backup.
-    reloaded.addLink({ kbId: base.id, connId: CONN, database: DB })
+    reloaded.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
     expect(reloaded.listLinks()).toHaveLength(1)
     expect(readdirSync(dir)).toContain(quarantined[0])
   })
 
   it('drops shapeless entries from links.json on load', async () => {
     const base = knowledge.createBase('B')
-    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
     const parsed = JSON.parse(readFileSync(linksPath(), 'utf8'))
     parsed.links.push(null, 42, { id: 'kl-bad' })
     writeFileSync(linksPath(), JSON.stringify(parsed), 'utf8')
@@ -938,7 +962,7 @@ describe('corrupt and malformed files', () => {
 
   it('persists links.json atomically (no .tmp residue, parseable result)', () => {
     const base = knowledge.createBase('B')
-    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
     expect(existsSync(`${linksPath()}.tmp`)).toBe(false)
     expect(() => JSON.parse(readFileSync(linksPath(), 'utf8'))).not.toThrow()
   })
@@ -948,7 +972,7 @@ describe('wipeAll', () => {
   it('removes bases and links, clearing the in-memory caches', () => {
     const base = knowledge.createBase('B')
     knowledge.saveRecord(base.id, annotation)
-    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
     expect(existsSync(join(userDataDir, 'knowledge'))).toBe(true)
 
     knowledge.wipeAll()

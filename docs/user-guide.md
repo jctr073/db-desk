@@ -291,11 +291,16 @@ its tools are offered to the model under namespaced names.
 
 The **Knowledge** tab stores facts that schema introspection cannot express.
 Facts live in named **knowledge bases** — free-standing collections, typically
-one per code repository — that you link to connections. One base can be linked
-to several connections (say, the prod, staging, and dev copies of the same
-database), one database can be linked to several bases (two services writing
-to one schema), and on multi-schema catalogs a link can be scoped to a single
-schema so each schema draws on the repository that owns it.
+one per code repository — that you link to connections at the **schema level**:
+every link attaches one base to one schema of one connection's database. One
+base can be linked to several schemas or several connections (say, the prod,
+staging, and dev copies of the same database), and one schema can draw on
+several bases (two services writing to one schema).
+
+The quickest way to manage links is the connection tree: right-click a schema
+and open the **Knowledge bases** submenu to check or uncheck bases for that
+schema, or create a new one — schemas with linked bases show the accent dot.
+The Knowledge tab's Manage menu offers the same linking through dialogs.
 
 Choose a connection/database target — the list shows every linked base's
 records grouped under a header per base, or pick a single base in the dropdown
@@ -319,11 +324,11 @@ of warning. Schema-tree dots identify objects with attached knowledge, and
 **Show knowledge entries** opens the reverse-usage view for an object.
 
 The agent receives every base linked to the active target in its prompt —
-grouped by base, with schema-scoped links called out — and can search across
-them on demand. It can also save a fact learned in conversation, which lands
-in the target's default base (created automatically on first save if none is
-linked). Agent-authored records show their source and confidence and remain
-fully editable. When knowledge influences a response, `[kb:…]` citations
+grouped by base, with each link's schema scope called out — and can search
+across them on demand. It can also save a fact learned in conversation, which
+lands in the target's default base (created automatically on first save if
+none is linked, linked to the schema the fact itself references). Agent-
+authored records show their source and confidence and remain fully editable. When knowledge influences a response, `[kb:…]` citations
 render as clickable chips that open the source record.
 
 Deleting a connection removes its links but never a knowledge base itself, so

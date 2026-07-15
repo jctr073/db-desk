@@ -2202,6 +2202,44 @@ body.is-grid-col-resizing {
   margin: 4px 6px;
   background: var(--border-soft);
 }
+/* Nested submenu (e.g. a schema node's "Knowledge bases"): the wrapper
+   anchors the flyout, which opens to the right of its parent item. */
+.ctx-menu__subwrap {
+  position: relative;
+}
+.ctx-menu__item--sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+}
+.ctx-menu--sub {
+  position: absolute;
+  left: calc(100% - 2px);
+  top: -5px;
+  min-width: 170px;
+  max-width: 260px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.ctx-menu__item--check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.ctx-menu__check {
+  width: 12px;
+  min-width: 12px;
+  text-align: center;
+  color: var(--accent-strong);
+  font-size: 11px;
+  line-height: 1;
+}
+.ctx-menu__check-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .refs-pop {
   position: fixed;
   width: max-content;
