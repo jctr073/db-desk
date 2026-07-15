@@ -3,9 +3,11 @@
  * collections of knowledge records, typically one per code repository) as
  * pretty-printed JSON under `userData/knowledge/bases/`, plus a link table
  * (`knowledge/links.json`) that attaches each base to any number of
- * (connection, database) targets — optionally scoped to one schema of that
- * database. One repo backing prod/staging/dev = one base, three links; two
- * repos writing to one database = two bases linked to the same target.
+ * (connection, database, schema) targets. Every link is schema-scoped; v1 of
+ * the link table allowed database-wide links (no schema), which
+ * `migrateLinksToSchemaScope` expands once at startup. One repo backing
+ * prod/staging/dev = one base, three links; two repos writing to one schema =
+ * two bases linked to the same target.
  *
  * Follows the house pattern of `files.ts`/`store.ts` (module-level cache,
  * ensureDir, load/persist, CRUD). No secrets live here, so — unlike
@@ -49,8 +51,8 @@ import type {
 
 /** Current on-disk version of a base file (v1 = per-(conn, db) files). */
 const BASE_FILE_VERSION = 2
-/** Current on-disk version of the link table. */
-const LINKS_FILE_VERSION = 1
+/** Current on-disk version of the link table (v2 = every link schema-scoped). */
+const LINKS_FILE_VERSION = 2
 /** Longest accepted base name / schema scope (UI fields, prompt headers). */
 const MAX_NAME_CHARS = 120
 
@@ -533,9 +535,10 @@ export function linksForTarget(connId: string, database: string): KnowledgeLink[
 }
 
 /**
- * Attach a base to a (connection, database) target, optionally scoped to one
- * schema. Adding a link identical to an existing one (same base, target, and
- * scope) returns the existing link instead of duplicating it.
+ * Attach a base to a (connection, database, schema) target. The schema scope
+ * is required — links exist only at the connection + schema level. Adding a
+ * link identical to an existing one (same base and target) returns the
+ * existing link instead of duplicating it.
  */
 export function addLink(input: KnowledgeLinkInput): KnowledgeLink {
   if (!input || typeof input !== 'object') {
@@ -547,17 +550,14 @@ export function addLink(input: KnowledgeLinkInput): KnowledgeLink {
     throw new Error(`Unknown knowledge base: ${input.kbId}`)
   }
   const database = validateName(input.database, 'Link database')
-  const schema =
-    input.schema === undefined || input.schema === null
-      ? undefined
-      : validateName(input.schema, 'Link schema')
+  const schema = validateName(input.schema, 'Link schema')
   const links = loadLinks()
   const existing = links.find(
     (l) =>
       l.kbId === input.kbId &&
       l.connId === input.connId &&
       l.database === database &&
-      (l.schema ?? '') === (schema ?? '')
+      l.schema === schema
   )
   if (existing) return existing
   const link: KnowledgeLink = {
@@ -565,11 +565,41 @@ export function addLink(input: KnowledgeLinkInput): KnowledgeLink {
     kbId: input.kbId,
     connId: input.connId,
     database,
-    ...(schema === undefined ? {} : { schema }),
+    schema,
     createdAt: Date.now()
   }
   persistLinks([...links, link])
   return link
+}
+
+/**
+ * Insert a database-wide (schema-less) link, used only by the v1 migration:
+ * v1 files carry no schema information, and `migrateLinksToSchemaScope` —
+ * which runs right after at startup — expands these into schema-scoped links
+ * from the base's record references. Never exposed to callers; `addLink`
+ * requires a schema.
+ */
+function addDatabaseWideLink(
+  kbId: string,
+  connId: string,
+  database: string
+): void {
+  const links = loadLinks()
+  if (
+    links.some(
+      (l) =>
+        l.kbId === kbId &&
+        l.connId === connId &&
+        l.database === database &&
+        l.schema === undefined
+    )
+  ) {
+    return
+  }
+  persistLinks([
+    ...links,
+    { id: generateId('kl'), kbId, connId, database, createdAt: Date.now() }
+  ])
 }
 
 export function removeLink(linkId: string): void {
@@ -656,23 +686,38 @@ export function deleteRecord(kbId: string, id: string): void {
 
 /**
  * Everything the agent (and the knowledge panel) should see for one
- * (connection, database): each linked base with its records, oldest link
- * first. A link whose base file has vanished is pruned from the table rather
- * than surfaced as an empty group.
+ * (connection, database): one group per linked base with its records, oldest
+ * link first. A base linked to several schemas of the database contributes a
+ * single group carrying all of those links, so its records are never
+ * duplicated downstream (prompt sections, panel lists). A link whose base
+ * file has vanished is pruned from the table rather than surfaced as an
+ * empty group.
  */
 export function groupsForTarget(
   connId: string,
   database: string
 ): KnowledgeTargetGroup[] {
   const groups: KnowledgeTargetGroup[] = []
+  const byBase = new Map<string, KnowledgeTargetGroup>()
   const dangling: string[] = []
   for (const link of linksForTarget(connId, database)) {
+    const existing = byBase.get(link.kbId)
+    if (existing) {
+      existing.links.push(link)
+      continue
+    }
     const loaded = loadBase(link.kbId)
     if (!loaded) {
       dangling.push(link.id)
       continue
     }
-    groups.push({ base: loaded.base, link, records: loaded.records })
+    const group: KnowledgeTargetGroup = {
+      base: loaded.base,
+      links: [link],
+      records: loaded.records
+    }
+    byBase.set(link.kbId, group)
+    groups.push(group)
   }
   if (dangling.length > 0) {
     persistLinks(loadLinks().filter((l) => !dangling.includes(l.id)))
@@ -681,10 +726,9 @@ export function groupsForTarget(
 }
 
 /**
- * The base a turn writes to when the request names none: the oldest
- * database-wide link's base, falling back to the oldest schema-scoped one
- * (rule shared with the renderer via `pickDefaultLink`). Null when the target
- * has no links at all (callers then create-and-link).
+ * The base a turn writes to when the request names none: the oldest link's
+ * base (rule shared with the renderer via `pickDefaultLink`). Null when the
+ * target has no links at all (callers then create-and-link).
  */
 export function defaultKbForTarget(
   connId: string,
@@ -839,7 +883,7 @@ export function migrateLegacyKnowledge(
         updatedAt: now
       }
       persistBase({ base, records })
-      addLink({ kbId: base.id, connId, database })
+      addDatabaseWideLink(base.id, connId, database)
       const ids = migratedByConn.get(connId) ?? []
       ids.push(base.id)
       migratedByConn.set(connId, ids)
@@ -882,7 +926,7 @@ export function migrateLegacyKnowledge(
         uniqueBaseName(`${conn.name} / ${conn.database}`, usedNames)
       )
       setBaseRepoRoot(base.id, root)
-      addLink({ kbId: base.id, connId, database: conn.database })
+      addDatabaseWideLink(base.id, connId, conn.database)
     }
     try {
       renameSync(
@@ -893,4 +937,98 @@ export function migrateLegacyKnowledge(
       console.error('knowledge: could not rename legacy repo-roots.json:', err)
     }
   }
+}
+
+// --- v1 → v2 link migration -------------------------------------------------
+
+/**
+ * Every distinct schema named by a structured ref anywhere in `records`,
+ * first-seen casing preserved, engine-style case-insensitive dedup. Walks the
+ * same ref fields as `buildUsageIndex`; refs whose schema would fail link
+ * validation (empty, oversized, control characters) are skipped.
+ */
+function refSchemas(records: KnowledgeRecord[]): string[] {
+  const seen = new Map<string, string>()
+  const add = (ref: ColumnRef | undefined | null): void => {
+    if (!ref || typeof ref.schema !== 'string') return
+    const schema = ref.schema.trim()
+    if (
+      schema === '' ||
+      schema.length > MAX_NAME_CHARS ||
+      CONTROL_CHARS.test(schema)
+    ) {
+      return
+    }
+    const key = schema.toLowerCase()
+    if (!seen.has(key)) seen.set(key, schema)
+  }
+  for (const record of records) {
+    switch (record.kind) {
+      case 'annotation':
+        add(record.target)
+        break
+      case 'relationship':
+        add(record.from)
+        add(record.to)
+        add(record.discriminator)
+        if (record.targets) {
+          for (const target of Object.values(record.targets)) add(target)
+        }
+        break
+      case 'glossary':
+        for (const mapping of record.mappings ?? []) add(mapping?.ref)
+        break
+      case 'exemplar':
+      case 'note':
+        for (const ref of record.references ?? []) add(ref)
+        break
+      default:
+        // Unknown/forward-compat kind: nothing structured to read.
+        break
+    }
+  }
+  return [...seen.values()]
+}
+
+/**
+ * One-time expansion of v1 database-wide links (no schema) into the
+ * schema-scoped links the store now requires: one link per schema the base's
+ * records actually reference, falling back to the engine's default schema
+ * (`defaultSchemaFor`, injected by index.ts — knowledge.ts cannot import
+ * store.ts back) when the base has no schema-bearing records. The first
+ * expanded link keeps the original id and createdAt so default-base selection
+ * (oldest link) is unchanged. Idempotent: with no schema-less links on disk
+ * it does nothing. Runs at startup after `migrateLegacyKnowledge`, which
+ * still mints database-wide links from v1 files.
+ */
+export function migrateLinksToSchemaScope(
+  defaultSchemaFor: (connId: string) => string
+): void {
+  const links = loadLinks()
+  if (!links.some((l) => l.schema === undefined)) return
+  const next: KnowledgeLink[] = links.filter((l) => l.schema !== undefined)
+  const covered = (link: KnowledgeLink, schema: string): boolean =>
+    next.some(
+      (l) =>
+        l.kbId === link.kbId &&
+        l.connId === link.connId &&
+        l.database === link.database &&
+        (l.schema ?? '').toLowerCase() === schema.toLowerCase()
+    )
+  for (const link of links) {
+    if (link.schema !== undefined) continue
+    const schemas = refSchemas(loadBase(link.kbId)?.records ?? [])
+    if (schemas.length === 0) schemas.push(defaultSchemaFor(link.connId))
+    let keepId = true
+    for (const schema of schemas) {
+      if (covered(link, schema)) continue
+      next.push({
+        ...link,
+        id: keepId ? link.id : generateId('kl'),
+        schema
+      })
+      keepId = false
+    }
+  }
+  persistLinks(next)
 }

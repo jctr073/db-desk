@@ -1,12 +1,12 @@
-import { app } from 'electron'
 import {
+  copyFileSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
   existsSync,
   unlinkSync
 } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import {
   defaultExtension,
@@ -15,6 +15,7 @@ import {
   supportedExtension
 } from '../shared/files'
 import type { FileKind } from '../shared/files'
+import { setSqlFilesDir, sqlFilesDir } from './settings'
 
 export interface QueryFile {
   id: string
@@ -37,7 +38,7 @@ interface StoredQueryMetadata {
 let metadataCache: QueryFile[] | null = null
 
 function queriesDir(): string {
-  return join(app.getPath('userData'), 'queries')
+  return sqlFilesDir()
 }
 
 function metadataPath(): string {
@@ -269,6 +270,51 @@ export function deleteQuery(id: string): void {
   if (existsSync(path)) {
     unlinkSync(path)
   }
+}
+
+/**
+ * Repoint query storage at `newDir`, moving every tracked file and the
+ * metadata index there. Copies everything first and only then deletes the
+ * originals, so a failed copy leaves the old directory authoritative. Files
+ * already present in the destination are left alone unless they collide with
+ * a tracked id; a stale metadata.json there is overwritten.
+ */
+export function moveQueryStorage(newDir: string): number {
+  const oldDir = queriesDir()
+  if (resolve(newDir) === resolve(oldDir)) return 0
+
+  const metadata = loadMetadata()
+  mkdirSync(newDir, { recursive: true })
+
+  const moved: string[] = []
+  for (const file of metadata) {
+    const src = join(oldDir, `${file.id}.sql`)
+    if (!existsSync(src)) continue
+    copyFileSync(src, join(newDir, `${file.id}.sql`))
+    moved.push(src)
+  }
+  writeFileSync(
+    join(newDir, 'metadata.json'),
+    JSON.stringify(metadata, null, 2),
+    'utf8'
+  )
+
+  // The new directory is complete; switch over, then clean up the old one.
+  setSqlFilesDir(newDir)
+  metadataCache = metadata
+  for (const src of moved) {
+    try {
+      unlinkSync(src)
+    } catch {
+      // A leftover copy in the abandoned directory is harmless.
+    }
+  }
+  try {
+    unlinkSync(join(oldDir, 'metadata.json'))
+  } catch {
+    // Same: stale index in a directory the app no longer reads.
+  }
+  return moved.length
 }
 
 export function deleteQueriesForConnection(connId: string): void {

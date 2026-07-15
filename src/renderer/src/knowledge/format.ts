@@ -6,7 +6,7 @@
  */
 
 import type { DatabaseIntrospection } from '../../../shared/db'
-import { normalizeColumnKey } from '../../../shared/knowledge'
+import { normalizeColumnKey, tableNameAliases } from '../../../shared/knowledge'
 import type {
   ColumnRef,
   KnowledgeKind,
@@ -151,16 +151,21 @@ export function recordRefs(record: KnowledgeRecord): ColumnRef[] {
  * Every valid normalized ref key (`schema.table` and `schema.table.column`)
  * in an introspection, across tables, views, and materialized views. Refs
  * missing from this set are dangling — rendered with a warning, never deleted.
+ * Each relation also registers its `tableNameAliases`, so a base linked to
+ * both a Postgres database and a Databricks catalog resolves refs across the
+ * schema-prefix naming convention instead of warning on every record.
  */
 export function buildRefKeySet(intro: DatabaseIntrospection): Set<string> {
   const keys = new Set<string>()
   for (const schema of intro.schemas) {
     for (const rel of [...schema.tables, ...schema.views, ...schema.matviews]) {
-      keys.add(normalizeColumnKey({ schema: schema.name, table: rel.name }))
-      for (const col of rel.columns) {
-        keys.add(
-          normalizeColumnKey({ schema: schema.name, table: rel.name, column: col.name })
-        )
+      for (const table of [rel.name, ...tableNameAliases(schema.name, rel.name)]) {
+        keys.add(normalizeColumnKey({ schema: schema.name, table }))
+        for (const col of rel.columns) {
+          keys.add(
+            normalizeColumnKey({ schema: schema.name, table, column: col.name })
+          )
+        }
       }
     }
   }

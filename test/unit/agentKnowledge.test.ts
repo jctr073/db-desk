@@ -166,17 +166,23 @@ const POLY_INSTRUCTION =
  * grouping (covered separately below). */
 function oneGroup(
   records: KnowledgeRecord[],
-  overrides: { name?: string; schema?: string } = {}
-): Array<{ name: string; schema?: string; records: KnowledgeRecord[] }> {
-  return [{ name: overrides.name ?? 'Test base', schema: overrides.schema, records }]
+  overrides: { name?: string; schemas?: string[] } = {}
+): Array<{ name: string; schemas: string[]; records: KnowledgeRecord[] }> {
+  return [
+    {
+      name: overrides.name ?? 'Test base',
+      schemas: overrides.schemas ?? [],
+      records
+    }
+  ]
 }
 
-/** Creates a base linked database-wide to CONN/DB and returns its id — the
- * common setup for tests that seed records through the store so the agent
+/** Creates a base linked to the public schema of CONN/DB and returns its id —
+ * the common setup for tests that seed records through the store so the agent
  * read path (buildSystemPrompt, execSearchKnowledge) can aggregate them. */
 function seedBase(name = 'Test base'): string {
   const base = knowledge.createBase(name)
-  knowledge.addLink({ kbId: base.id, connId: CONN, database: DB })
+  knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
   return base.id
 }
 
@@ -329,8 +335,8 @@ describe('summarizeKnowledge', () => {
 describe('summarizeKnowledge with multiple groups', () => {
   it('renders each non-empty group as its own "### Knowledge base:" section, in group order', () => {
     const text = agent.summarizeKnowledge([
-      { name: 'App repo', records: [annotation(ref('public', 'users', 'id'), 'primary key')] },
-      { name: 'Billing repo', records: [note('Billing quirks', 'Amounts are in cents.')] }
+      { name: 'App repo', schemas: [], records: [annotation(ref('public', 'users', 'id'), 'primary key')] },
+      { name: 'Billing repo', schemas: [], records: [note('Billing quirks', 'Amounts are in cents.')] }
     ])
     expect(text).toContain('### Knowledge base: App repo')
     expect(text).toContain('### Knowledge base: Billing repo')
@@ -345,10 +351,10 @@ describe('summarizeKnowledge with multiple groups', () => {
     const text = agent.summarizeKnowledge([
       {
         name: 'Scoped repo',
-        schema: 'sales',
+        schemas: ['sales'],
         records: [annotation(ref('public', 'orders', 'id'), 'order id')]
       },
-      { name: 'Unscoped repo', records: [note('Note', 'body')] }
+      { name: 'Unscoped repo', schemas: [], records: [note('Note', 'body')] }
     ])
     const scopedSection = text.slice(
       text.indexOf('### Knowledge base: Scoped repo'),
@@ -362,18 +368,32 @@ describe('summarizeKnowledge with multiple groups', () => {
     expect(unscopedSection).not.toContain('describes the')
   })
 
+  it('lists every schema scope when a base is linked to several', () => {
+    const text = agent.summarizeKnowledge([
+      {
+        name: 'Multi repo',
+        schemas: ['sales', 'billing'],
+        records: [note('Note', 'body')]
+      }
+    ])
+    expect(text).toContain(
+      'This knowledge base describes the "sales", "billing" schemas of this database.'
+    )
+    expect(text).toContain('map them onto "sales", "billing" here')
+  })
+
   it('skips an empty group but still renders its non-empty sibling', () => {
     const future = { ...envelope(), kind: 'metric', expr: 'x' } as unknown as KnowledgeRecord
     const text = agent.summarizeKnowledge([
-      { name: 'Empty repo', records: [future] },
-      { name: 'Real repo', records: [note('Note', 'body')] }
+      { name: 'Empty repo', schemas: [], records: [future] },
+      { name: 'Real repo', schemas: [], records: [note('Note', 'body')] }
     ])
     expect(text).not.toContain('Empty repo')
     expect(text).toContain('### Knowledge base: Real repo')
   })
 
   it('renders nothing when every group is empty', () => {
-    expect(agent.summarizeKnowledge([{ name: 'Empty', records: [] }])).toBe('')
+    expect(agent.summarizeKnowledge([{ name: 'Empty', schemas: [], records: [] }])).toBe('')
   })
 
   it('degrades every group together under one shared budget, not one group at a time', () => {
@@ -384,8 +404,8 @@ describe('summarizeKnowledge with multiple groups', () => {
       bigGroupB.push(note(`B note ${i}`, 'y'.repeat(1_000)))
     }
     const text = agent.summarizeKnowledge([
-      { name: 'Repo A', records: bigGroupA },
-      { name: 'Repo B', records: bigGroupB }
+      { name: 'Repo A', schemas: [], records: bigGroupA },
+      { name: 'Repo B', schemas: [], records: bigGroupB }
     ])
     expect(text.length).toBeLessThanOrEqual(agent.KNOWLEDGE_SUMMARY_MAX_CHARS)
     expect(text).toContain('local knowledge abridged')
@@ -427,7 +447,7 @@ describe('buildSystemPrompt local-knowledge section', () => {
 
   it('renders one section per base linked to the target', () => {
     const appKb = knowledge.createBase('App repo')
-    knowledge.addLink({ kbId: appKb.id, connId: CONN, database: DB })
+    knowledge.addLink({ kbId: appKb.id, connId: CONN, database: DB, schema: 'public' })
     knowledge.saveRecord(appKb.id, {
       kind: 'annotation',
       source: 'human',

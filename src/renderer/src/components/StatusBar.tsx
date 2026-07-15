@@ -1,11 +1,9 @@
 import type { ReactElement } from 'react'
 
-import type { Theme } from '../theme'
-import { MoonIcon, SunIcon } from './icons'
+import { CogIcon } from './icons'
 
 interface StatusBarProps {
-  theme: Theme
-  onToggleTheme: () => void
+  onOpenSettings: () => void
   /** Connection the active editor tab runs against, e.g. "Connection · wcap_dev". */
   connText: string
   /** Active query result summary, e.g. "SELECT · 3 rows · 22 ms". */
@@ -15,8 +13,7 @@ interface StatusBarProps {
 }
 
 export function StatusBar({
-  theme,
-  onToggleTheme,
+  onOpenSettings,
   connText,
   queryText,
   queryTarget
@@ -25,12 +22,12 @@ export function StatusBar({
     <div className="statusbar">
       <button
         className="statusbar__btn"
-        onClick={onToggleTheme}
-        title="Toggle theme"
-        aria-label="Toggle theme"
+        onClick={onOpenSettings}
+        title="Settings"
+        aria-label="Settings"
         type="button"
       >
-        {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+        <CogIcon size={15} />
       </button>
       {connText && <span className="statusbar__sel">{connText}</span>}
       {connText && queryText && (

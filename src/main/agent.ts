@@ -11,10 +11,6 @@
  * or schema are blocked outright, in every mode.
  */
 
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-
 import Anthropic from '@anthropic-ai/sdk'
 import { ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
@@ -41,7 +37,8 @@ import type {
   AgentSendRequest,
   AgentTargetRef
 } from '../shared/agent'
-import { AGENT_MODELS, API_KEY_VAR, resolveAgentMode } from '../shared/agent'
+import { AGENT_MODELS, resolveAgentMode } from '../shared/agent'
+import { apiKeyVarName, loadApiKey } from './settings'
 import { callMcpTool, mcpToolsForTurn } from './mcp'
 import type { McpAgentTool } from './mcp'
 import {
@@ -61,7 +58,7 @@ import {
   targetsForBase,
   validateKnowledgeRecord
 } from './knowledge'
-import { normalizeColumnKey } from '../shared/knowledge'
+import { normalizeColumnKey, tableNameAliases } from '../shared/knowledge'
 import type {
   AnnotationRecord,
   ColumnRef,
@@ -98,33 +95,6 @@ const KNOWLEDGE_SEARCH_MAX_HITS = 20
 const KNOWLEDGE_HIT_MAX_CHARS = 1_000
 /** Cap on web searches the model may run in a single turn. */
 const WEB_SEARCH_MAX_USES = 5
-
-interface KeyInfo {
-  key: string | null
-  source: 'zshrc' | 'env' | null
-}
-
-function readKeyFromZshrc(): string | null {
-  try {
-    const text = readFileSync(join(homedir(), '.zshrc'), 'utf8')
-    const re = new RegExp(`^\\s*(?:export\\s+)?${API_KEY_VAR}\\s*=\\s*["']?([^"'\\s#]+)`, 'gm')
-    let match: RegExpExecArray | null
-    let last: string | null = null
-    while ((match = re.exec(text)) !== null) last = match[1]
-    return last
-  } catch {
-    return null
-  }
-}
-
-/** Re-read on every call so edits to ~/.zshrc apply without an app restart. */
-function loadKey(): KeyInfo {
-  const fromFile = readKeyFromZshrc()
-  if (fromFile) return { key: fromFile, source: 'zshrc' }
-  const fromEnv = process.env[API_KEY_VAR]
-  if (fromEnv) return { key: fromEnv, source: 'env' }
-  return { key: null, source: null }
-}
 
 interface ChatState {
   messages: Anthropic.MessageParam[]
@@ -308,7 +278,10 @@ async function schemaSummaryFor(target: AgentTargetRef): Promise<string> {
  * Every normalized ref key the live schema can satisfy — `schema.table` for
  * each relation plus `schema.table.column` for each column — or null when no
  * introspection has been cached for the target this session. Used to flag
- * (never block) save_knowledge records whose refs match nothing real.
+ * (never block) save_knowledge records whose refs match nothing real. Each
+ * relation also registers its `tableNameAliases`, matching the renderer's
+ * buildRefKeySet, so refs authored against the other engine's naming
+ * convention (schema-prefixed Databricks tables) aren't reported unresolved.
  */
 function liveRefKeys(target: AgentTargetRef): Set<string> | null {
   const db = introspectionCache.get(schemaCacheKey(target))
@@ -316,15 +289,17 @@ function liveRefKeys(target: AgentTargetRef): Set<string> | null {
   const keys = new Set<string>()
   for (const schema of db.schemas) {
     for (const rel of [...schema.tables, ...schema.views, ...schema.matviews]) {
-      keys.add(normalizeColumnKey({ schema: schema.name, table: rel.name }))
-      for (const col of rel.columns) {
-        keys.add(
-          normalizeColumnKey({
-            schema: schema.name,
-            table: rel.name,
-            column: col.name
-          })
-        )
+      for (const table of [rel.name, ...tableNameAliases(schema.name, rel.name)]) {
+        keys.add(normalizeColumnKey({ schema: schema.name, table }))
+        for (const col of rel.columns) {
+          keys.add(
+            normalizeColumnKey({
+              schema: schema.name,
+              table,
+              column: col.name
+            })
+          )
+        }
       }
     }
   }
@@ -554,18 +529,18 @@ function renderKnowledge(records: KnowledgeRecord[], detail: KnowledgeDetail): s
 }
 
 /** One linked base's contribution to the prompt section: its display name,
- * optional schema scope (from the link), and records. */
+ * the schema scopes of its links, and records. */
 export interface KnowledgePromptGroup {
   name: string
-  schema?: string
+  schemas: string[]
   records: KnowledgeRecord[]
 }
 
 /**
  * The "## Local knowledge" prompt section: one titled subsection per linked
  * base, degrading tier by tier under the shared budget instead of cutting
- * mid-text (mirror of summarizeSchema). A schema-scoped link is surfaced as
- * context on its subsection — records are presented as recorded, never
+ * mid-text (mirror of summarizeSchema). The link's schema scopes are surfaced
+ * as context on its subsection — records are presented as recorded, never
  * rewritten. Empty bases render nothing; no non-empty base renders nothing.
  * Exported for unit tests.
  */
@@ -575,9 +550,16 @@ export function summarizeKnowledge(groups: KnowledgePromptGroup[]): string {
     for (const group of groups) {
       const body = renderKnowledge(group.records, detail)
       if (body === '') continue
-      const scope = group.schema
-        ? `\nThis knowledge base describes the "${singleLine(group.schema)}" schema of this database. Its records may name schemas as they exist in the source codebase's own engine — map them onto "${singleLine(group.schema)}" here.`
-        : ''
+      const schemas = group.schemas.filter(
+        (s) => typeof s === 'string' && s !== ''
+      )
+      const scopeNames = schemas
+        .map((s) => `"${singleLine(s)}"`)
+        .join(', ')
+      const scope =
+        schemas.length > 0
+          ? `\nThis knowledge base describes the ${scopeNames} schema${schemas.length === 1 ? '' : 's'} of this database. Its records may name schemas as they exist in the source codebase's own engine — map them onto ${scopeNames} here.`
+          : ''
       sections.push(
         `### Knowledge base: ${singleLine(group.name)}${scope}\n${body}`
       )
@@ -950,7 +932,7 @@ export function buildSystemPrompt(
     const knowledge = summarizeKnowledge(
       groupsForTarget(req.target.connId, req.target.database).map((g) => ({
         name: g.base.name,
-        schema: g.link.schema,
+        schemas: g.links.flatMap((l) => (l.schema ? [l.schema] : [])),
         records: g.records
       }))
     )
@@ -1857,10 +1839,19 @@ export function execSaveKnowledge(
       // not leave an empty auto-created base and link behind.
       validateKnowledgeRecord(draft)
       const created = createBase(target.database)
+      // Links are schema-scoped: derive the scope from the record's own
+      // references, falling back to the engine's default schema when the
+      // record names none.
+      const schema =
+        knowledgeRefs(draft as KnowledgeRecord).find(
+          (ref) => typeof ref.schema === 'string' && ref.schema.trim() !== ''
+        )?.schema ??
+        dialectFor(getConnectionType(target.connId)).defaultSchema
       addLink({
         kbId: created.id,
         connId: target.connId,
-        database: target.database
+        database: target.database,
+        schema
       })
       kbId = created.id
     }
@@ -2287,12 +2278,12 @@ async function runAgentTurn(
   req: AgentSendRequest,
   send: Sender
 ): Promise<void> {
-  const { key } = loadKey()
+  const { key } = loadApiKey()
   if (!key) {
     send({
       type: 'error',
       chatId: req.chatId,
-      message: `No API key found. Add \`export ${API_KEY_VAR}=...\` to ~/.zshrc and try again.`
+      message: `No API key found. Add one in Settings, or add \`export ${apiKeyVarName()}=...\` to ~/.zshrc and try again.`
     })
     return
   }
@@ -2609,11 +2600,11 @@ async function compactChat(
   chatId: string,
   modelId: string
 ): Promise<AgentCompactResult> {
-  const { key } = loadKey()
+  const { key } = loadApiKey()
   if (!key) {
     return {
       ok: false,
-      error: `No API key found. Add \`export ${API_KEY_VAR}=...\` to ~/.zshrc and try again.`
+      error: `No API key found. Add one in Settings, or add \`export ${apiKeyVarName()}=...\` to ~/.zshrc and try again.`
     }
   }
   const chat = chats.get(chatId)
@@ -2755,8 +2746,8 @@ export function registerAgentHandlers(
   }
 
   ipcMain.handle('agent:keyStatus', (): AgentKeyStatus => {
-    const { key, source } = loadKey()
-    return { found: key !== null, source }
+    const { key, source } = loadApiKey()
+    return { found: key !== null, source, varName: apiKeyVarName() }
   })
 
   ipcMain.handle('agent:send', async (_event, req: AgentSendRequest) => {

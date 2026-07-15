@@ -6,7 +6,7 @@
  */
 
 import { normalizeColumnKey } from '../../../shared/knowledge'
-import type { ColumnRef, UsageIndex } from '../../../shared/knowledge'
+import type { ColumnRef, KnowledgeLink, UsageIndex } from '../../../shared/knowledge'
 import type { TreeNode } from '../connections/types'
 
 const RELATION_KINDS = new Set<TreeNode['kind']>(['table', 'view', 'matview'])
@@ -45,6 +45,40 @@ export function knowledgeBadgeIds(
           }
         }
         if (marked) ids.add(rel.id)
+      }
+    }
+  }
+  return ids
+}
+
+/**
+ * Ids of schema tree nodes that have a knowledge base linked, across every
+ * connection in the tree — the schema-level "knowledge attached" indicator.
+ * Matches by ancestor labels (never by parsing slug ids). Database and schema
+ * names compare case-insensitively: Postgres folds unquoted identifiers,
+ * Unity Catalog is case-insensitive, and a migrated link may carry a record
+ * ref's casing rather than the catalog's.
+ */
+export function schemaLinkBadgeIds(
+  tree: TreeNode[],
+  links: KnowledgeLink[]
+): Set<string> {
+  const ids = new Set<string>()
+  if (links.length === 0) return ids
+  const keys = new Set(
+    links.flatMap((l) =>
+      l.schema
+        ? [`${l.connId}\n${l.database.toLowerCase()}\n${l.schema.toLowerCase()}`]
+        : []
+    )
+  )
+  for (const conn of tree) {
+    for (const db of conn.children ?? []) {
+      if (db.kind !== 'database') continue
+      for (const schema of db.children ?? []) {
+        if (schema.kind !== 'schema') continue
+        const key = `${conn.id}\n${db.label.toLowerCase()}\n${schema.label.toLowerCase()}`
+        if (keys.has(key)) ids.add(schema.id)
       }
     }
   }
@@ -99,4 +133,31 @@ export function treeNodeRef(node: TreeNode, tree: TreeNode[]): TreeNodeRef | nul
     }
   }
   return null
+}
+
+export interface TreeSchemaRef {
+  connId: string
+  connName: string
+  database: string
+  schema: string
+}
+
+/**
+ * Knowledge-link target coordinates for a schema tree node, read from the
+ * ancestor chain's raw labels (same rule as `treeNodeRef` — never parsed out
+ * of the slug-based node id). Null for any other node kind.
+ */
+export function treeSchemaRef(
+  node: TreeNode,
+  tree: TreeNode[]
+): TreeSchemaRef | null {
+  if (node.kind !== 'schema') return null
+  const path = nodePath(node, tree)
+  if (!path || path.length < 3) return null
+  return {
+    connId: path[0].id,
+    connName: path[0].label,
+    database: path[1].label,
+    schema: node.label
+  }
 }

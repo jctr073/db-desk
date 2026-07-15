@@ -2,10 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import type { MouseEvent, ReactElement } from 'react'
 
 import type { AgentDbObjectItem } from '../../../shared/agent'
-import type { ColumnRef } from '../../../shared/knowledge'
+import type {
+  ColumnRef,
+  KnowledgeBaseSummary,
+  KnowledgeLink
+} from '../../../shared/knowledge'
+import { BaseNameDialog } from '../components/BaseNameDialog'
 import { formatRef } from '../knowledge/format'
-import { treeNodeRef } from '../knowledge/treeBadges'
+import { treeNodeRef, treeSchemaRef } from '../knowledge/treeBadges'
+import type { TreeSchemaRef } from '../knowledge/treeBadges'
 import {
+  ChevronRightIcon,
   ChevronUpIcon,
   CloseIcon,
   DatabaseIcon,
@@ -48,6 +55,10 @@ interface ConnectionPanelProps {
   ) => void
   /** Ids of nodes that have local knowledge attached (dot badge). */
   knowledgeIds?: Set<string>
+  /** Every knowledge base, for the schema node's link/unlink submenu. */
+  knowledgeBases?: KnowledgeBaseSummary[]
+  /** Every knowledge link, for the submenu's checkmarks. */
+  knowledgeLinks?: KnowledgeLink[]
 }
 
 /** Tree kinds that can ride along to the agent thread as context chips. */
@@ -109,7 +120,9 @@ export function ConnectionPanel({
   onOpenDataPreview,
   onAddToAgentThread,
   onKnowledgeAction,
-  knowledgeIds
+  knowledgeIds,
+  knowledgeBases,
+  knowledgeLinks
 }: ConnectionPanelProps): ReactElement {
   const rows = useMemo(
     () => flattenTree(state.tree, { expanded: state.expanded, filter: state.filter }),
@@ -117,12 +130,49 @@ export function ConnectionPanel({
   )
 
   const [menu, setMenu] = useState<MenuState | null>(null)
+  // Whether the schema node's "Knowledge bases" submenu is open; reset with
+  // every newly opened menu.
+  const [kbSubOpen, setKbSubOpen] = useState(false)
+  // Schema target for the "New knowledge base…" dialog; null while closed.
+  const [newKbFor, setNewKbFor] = useState<TreeSchemaRef | null>(null)
   const menuNode = menu ? findNode(menu.nodeId, state.tree) : null
   const menuContextItem = menuNode ? contextItemFor(menuNode) : null
   const menuRef =
     menuNode && KNOWLEDGE_KINDS.has(menuNode.kind)
       ? treeNodeRef(menuNode, state.tree)
       : null
+  const menuSchemaRef = menuNode ? treeSchemaRef(menuNode, state.tree) : null
+
+  /** The link attaching this base to the menu's schema target, if any.
+   * Names compare case-insensitively (engines fold identifier case). */
+  const linkForBase = (kbId: string): KnowledgeLink | undefined => {
+    if (!menuSchemaRef) return undefined
+    return knowledgeLinks?.find(
+      (l) =>
+        l.kbId === kbId &&
+        l.connId === menuSchemaRef.connId &&
+        l.database.toLowerCase() === menuSchemaRef.database.toLowerCase() &&
+        (l.schema ?? '').toLowerCase() === menuSchemaRef.schema.toLowerCase()
+    )
+  }
+
+  /** Toggle a base's link to the menu's schema. The menu stays open so
+   * several bases can be toggled in one visit; the checkmarks refresh via
+   * the structure-changed push. */
+  const toggleSchemaLink = (kbId: string): void => {
+    if (!menuSchemaRef) return
+    const existing = linkForBase(kbId)
+    if (existing) {
+      void window.dbDesk.knowledge.removeLink(existing.id)
+    } else {
+      void window.dbDesk.knowledge.addLink({
+        kbId,
+        connId: menuSchemaRef.connId,
+        database: menuSchemaRef.database,
+        schema: menuSchemaRef.schema
+      })
+    }
+  }
   // References only work where introspection carries FK data (Postgres for now).
   const menuRefIsPostgres =
     !!menuRef &&
@@ -200,6 +250,7 @@ export function ConnectionPanel({
     if (!isMenuKind) return
     event.preventDefault()
     state.toggleRow(node.id, false)
+    setKbSubOpen(false)
     setMenu({
       x: event.clientX,
       y: event.clientY,
@@ -329,6 +380,68 @@ export function ConnectionPanel({
                 >
                   Copy name
                 </button>
+              </>
+            )}
+            {menuSchemaRef && (
+              <>
+                <div className="ctx-menu__sep" />
+                <div
+                  className="ctx-menu__subwrap"
+                  onMouseEnter={() => setKbSubOpen(true)}
+                  onMouseLeave={() => setKbSubOpen(false)}
+                >
+                  <button
+                    className="ctx-menu__item ctx-menu__item--sub"
+                    role="menuitem"
+                    aria-haspopup="menu"
+                    aria-expanded={kbSubOpen}
+                    onClick={() => setKbSubOpen((open) => !open)}
+                  >
+                    Knowledge bases
+                    <ChevronRightIcon />
+                  </button>
+                  {kbSubOpen && (
+                    <div className="ctx-menu ctx-menu--sub" role="menu">
+                      {(knowledgeBases ?? []).map((base) => {
+                        const linked = !!linkForBase(base.id)
+                        return (
+                          <button
+                            key={base.id}
+                            className="ctx-menu__item ctx-menu__item--check"
+                            role="menuitemcheckbox"
+                            aria-checked={linked}
+                            title={
+                              linked
+                                ? `Unlink "${base.name}" from schema ${menuSchemaRef.schema}`
+                                : `Link "${base.name}" to schema ${menuSchemaRef.schema}`
+                            }
+                            onClick={() => toggleSchemaLink(base.id)}
+                          >
+                            <span className="ctx-menu__check">
+                              {linked ? '✓' : ''}
+                            </span>
+                            <span className="ctx-menu__check-label">
+                              {base.name}
+                            </span>
+                          </button>
+                        )
+                      })}
+                      {(knowledgeBases ?? []).length > 0 && (
+                        <div className="ctx-menu__sep" />
+                      )}
+                      <button
+                        className="ctx-menu__item"
+                        role="menuitem"
+                        onClick={() => {
+                          setNewKbFor(menuSchemaRef)
+                          setMenu(null)
+                        }}
+                      >
+                        New knowledge base…
+                      </button>
+                    </div>
+                  )}
+                </div>
               </>
             )}
             {menuRef && (
@@ -509,6 +622,24 @@ export function ConnectionPanel({
             )}
           </div>
         </div>
+      )}
+
+      {newKbFor && (
+        <BaseNameDialog
+          title="New Knowledge Base"
+          subtitle={`${newKbFor.connName} / ${newKbFor.database} / ${newKbFor.schema}`}
+          submitLabel="Create Base"
+          onSubmit={async (name) => {
+            const base = await window.dbDesk.knowledge.createBase(name)
+            await window.dbDesk.knowledge.addLink({
+              kbId: base.id,
+              connId: newKbFor.connId,
+              database: newKbFor.database,
+              schema: newKbFor.schema
+            })
+          }}
+          onClose={() => setNewKbFor(null)}
+        />
       )}
 
       {refsView && (

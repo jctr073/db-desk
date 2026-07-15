@@ -11,6 +11,7 @@ import type {
 import type { ColumnRef } from '../../shared/knowledge'
 import { AgentPanel } from './components/AgentPanel'
 import { EditorPanel } from './components/EditorPanel'
+import { SettingsDialog } from './components/SettingsDialog'
 import { StatusBar } from './components/StatusBar'
 import type { EditorBridge } from './components/editorBridge'
 import { useQueryRunner } from './components/useQueryRunner'
@@ -21,11 +22,12 @@ import { NewConnectionDialog } from './connections/NewConnectionDialog'
 import { useConnectionState } from './connections/useConnectionState'
 import { useTheme } from './theme'
 import { useFileState } from './files/useFileState'
-import { knowledgeBadgeIds } from './knowledge/treeBadges'
+import { knowledgeBadgeIds, schemaLinkBadgeIds } from './knowledge/treeBadges'
 import {
   knowledgeTargetKeyOf,
   useKnowledgeIndexes,
-  useKnowledgeState
+  useKnowledgeState,
+  useKnowledgeStructure
 } from './knowledge/useKnowledgeState'
 import type { KnowledgeNav } from './knowledge/useKnowledgeState'
 
@@ -42,7 +44,10 @@ function storedWidth(key: string, fallback: number, min: number, max: number): n
 }
 
 export function App(): ReactElement {
-  const { theme, toggle } = useTheme()
+  const { theme, preference, setPreference } = useTheme()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const openSettings = useCallback(() => setSettingsOpen(true), [])
+  const closeSettings = useCallback(() => setSettingsOpen(false), [])
   const connections = useConnectionState()
   const files = useFileState()
   const runner = useQueryRunner()
@@ -271,7 +276,11 @@ export function App(): ReactElement {
   )
   const knowledgeIndexes = useKnowledgeIndexes(knowledgeTargets)
 
-  /** Tree nodes with knowledge attached, for the dot badges (O(1) per node). */
+  // Every base and link, for the tree's schema submenu and link indicators.
+  const knowledgeStructure = useKnowledgeStructure()
+
+  /** Tree nodes with knowledge attached, for the dot badges (O(1) per node):
+   * relations/columns referenced by records, plus schemas with a linked base. */
   const knowledgeIds = useMemo(() => {
     const ids = new Set<string>()
     for (const t of targets) {
@@ -281,8 +290,11 @@ export function App(): ReactElement {
         ids.add(id)
       }
     }
+    for (const id of schemaLinkBadgeIds(connections.tree, knowledgeStructure.links)) {
+      ids.add(id)
+    }
     return ids
-  }, [connections.tree, targets, knowledgeIndexes])
+  }, [connections.tree, targets, knowledgeIndexes, knowledgeStructure.links])
 
   const rootId = connections.selected?.split('/')[0]
   const activeConn = rootId
@@ -319,6 +331,8 @@ export function App(): ReactElement {
           onAddToAgentThread={addAgentContext}
           onKnowledgeAction={onKnowledgeAction}
           knowledgeIds={knowledgeIds}
+          knowledgeBases={knowledgeStructure.bases}
+          knowledgeLinks={knowledgeStructure.links}
         />
         <div
           className="col-divider"
@@ -368,12 +382,18 @@ export function App(): ReactElement {
         />
       </div>
       <StatusBar
-        theme={theme}
-        onToggleTheme={toggle}
+        onOpenSettings={openSettings}
         connText={activeTarget ? `Connection · ${activeTarget.connName}` : ''}
         queryText={queryStatus.text}
         queryTarget={queryStatus.target}
       />
+      {settingsOpen && (
+        <SettingsDialog
+          themePreference={preference}
+          onThemePreference={setPreference}
+          onClose={closeSettings}
+        />
+      )}
       <NewConnectionDialog state={connections} />
       {connections.manageDialog &&
         (() => {

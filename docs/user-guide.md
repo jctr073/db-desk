@@ -19,8 +19,13 @@ The window has three resizable areas:
    **Skills** tabs.
 
 Drag either vertical divider to resize its panel. DB Desk remembers both panel
-widths. Use the control in the bottom status bar to switch between light and
-dark themes.
+widths. The gear in the bottom status bar opens **Settings**, with three tabs:
+
+- **Appearance** — light, dark, or follow the OS theme.
+- **Files** — the directory SQL files are stored in. Changing it moves the
+  existing files to the new location.
+- **API Keys** — the Anthropic API key for the AI agent: store one encrypted
+  with the OS keychain, or configure which shell variable to read it from.
 
 ## Connect to a database
 
@@ -191,14 +196,22 @@ selections constrain what is exported.
 ## Use the AI Agent
 
 Database browsing, editing, and queries do not require AI. To enable the agent,
-add the following to `~/.zshrc` and replace the placeholder with an Anthropic
-API key:
+provide an Anthropic API key either way:
 
-```bash
-export CLAUDE_API_KEY="your-key"
-```
+- **Settings → API Keys** — paste a key (with an optional label such as
+  "personal"); it is stored encrypted with your OS keychain and takes priority
+  over the shell variable.
+- **Shell variable** — add the following to `~/.zshrc` and replace the
+  placeholder with your key:
 
-The file is read for every request, so a restart is unnecessary. Select the
+  ```bash
+  export CLAUDE_API_KEY="your-key"
+  ```
+
+  The variable name is configurable in **Settings → API Keys** (for example
+  `ANTHROPIC_API_KEY`).
+
+The key resolves on every request, so a restart is unnecessary. Select the
 agent's connection/database target, model, reasoning effort, and access mode
 before sending a prompt.
 
@@ -278,14 +291,21 @@ its tools are offered to the model under namespaced names.
 
 The **Knowledge** tab stores facts that schema introspection cannot express.
 Facts live in named **knowledge bases** — free-standing collections, typically
-one per code repository — that you link to connections. One base can be linked
-to several connections (say, the prod, staging, and dev copies of the same
-database), one database can be linked to several bases (two services writing
-to one schema), and on multi-schema catalogs a link can be scoped to a single
-schema so each schema draws on the repository that owns it.
+one per code repository — that you link to connections at the **schema level**:
+every link attaches one base to one schema of one connection's database. One
+base can be linked to several schemas or several connections (say, the prod,
+staging, and dev copies of the same database), and one schema can draw on
+several bases (two services writing to one schema).
 
-Choose a connection/database target and a linked knowledge base, search or
-filter its records, and create:
+The quickest way to manage links is the connection tree: right-click a schema
+and open the **Knowledge bases** submenu to check or uncheck bases for that
+schema, or create a new one — schemas with linked bases show the accent dot.
+The Knowledge tab's Manage menu offers the same linking through dialogs.
+
+Choose a connection/database target — the list shows every linked base's
+records grouped under a header per base, or pick a single base in the dropdown
+to focus (and to rename, unlink, or delete it). Search or filter the records,
+and create:
 
 - **annotations** for a table or column;
 - **relationships**, including polymorphic joins;
@@ -294,17 +314,21 @@ filter its records, and create:
 - Markdown **notes** with structured table/column references.
 
 Knowledge is local JSON, not a database table, and contains no connection
-secrets. Records can be edited or deleted. A warning badge identifies a record
-whose structured reference no longer exists in the current schema. Schema-tree
-dots identify objects with attached knowledge, and **Show knowledge entries**
-opens the reverse-usage view for an object.
+secrets. Records can be edited or deleted; new records land in the selected
+base, or in the target's default base when viewing all bases. A warning badge
+identifies a record whose structured reference no longer exists in the current
+schema. When a base is linked across engines whose table names differ only by
+a repeated schema prefix (Postgres `billing.subscriptions` vs Databricks
+`billing.billing_subscriptions`), references resolve across both forms instead
+of warning. Schema-tree dots identify objects with attached knowledge, and
+**Show knowledge entries** opens the reverse-usage view for an object.
 
 The agent receives every base linked to the active target in its prompt —
-grouped by base, with schema-scoped links called out — and can search across
-them on demand. It can also save a fact learned in conversation, which lands
-in the target's default base (created automatically on first save if none is
-linked). Agent-authored records show their source and confidence and remain
-fully editable. When knowledge influences a response, `[kb:…]` citations
+grouped by base, with each link's schema scope called out — and can search
+across them on demand. It can also save a fact learned in conversation, which
+lands in the target's default base (created automatically on first save if
+none is linked, linked to the schema the fact itself references). Agent-
+authored records show their source and confidence and remain fully editable. When knowledge influences a response, `[kb:…]` citations
 render as clickable chips that open the source record.
 
 Deleting a connection removes its links but never a knowledge base itself, so

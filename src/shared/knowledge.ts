@@ -14,9 +14,9 @@
  * A knowledge base is a named, free-standing collection of knowledge records —
  * typically everything learned from one code repository. It is not owned by a
  * connection: KnowledgeLink rows attach it to any number of (connection,
- * database) targets, optionally scoped to one schema. One repo backing prod /
- * staging / dev databases = one base with three links; two repos writing to
- * one database = two bases each linked to that database.
+ * database, schema) targets. One repo backing prod / staging / dev databases =
+ * one base with three links; two repos writing to one schema = two bases each
+ * linked to that schema.
  */
 export interface KnowledgeBase {
   /** `kb-${Date.now()}-${rand}` (house id pattern); doubles as the filename. */
@@ -39,11 +39,13 @@ export interface KnowledgeBaseSummary extends KnowledgeBase {
 }
 
 /**
- * Attaches one knowledge base to one (connection, database) target. `schema`
- * scopes the attachment to a single schema of that database — e.g. a repo's
- * base linked to the `contract_db` schema of a Databricks catalog — and is
- * surfaced to the agent as context ("this base describes schema X"); records
- * are not rewritten.
+ * Attaches one knowledge base to one (connection, database, schema) target —
+ * e.g. a repo's base linked to the `contract_db` schema of a Databricks
+ * catalog. Every link is schema-scoped; the scope is surfaced to the agent as
+ * context ("this base describes schema X") and records are not rewritten.
+ * Pre-v2 link files held database-wide links (no schema); the startup
+ * migration expands those, so a loaded link may transiently lack a schema but
+ * new links never do.
  */
 export interface KnowledgeLink {
   /** `kl-${Date.now()}-${rand}`. */
@@ -51,7 +53,7 @@ export interface KnowledgeLink {
   kbId: string
   connId: string
   database: string
-  /** Absent = the base applies to the whole database. */
+  /** Required on every new link; optional only for unmigrated v1 rows. */
   schema?: string
   createdAt: number
 }
@@ -61,32 +63,33 @@ export interface KnowledgeLinkInput {
   kbId: string
   connId: string
   database: string
-  schema?: string
+  schema: string
 }
 
 /**
  * One linked base's contribution to a (connection, database) target: the wire
  * shape of `knowledge:listForTarget`, and what the agent prompt renders as a
- * titled knowledge section.
+ * titled knowledge section. One group per base — a base linked to several
+ * schemas of the database carries all of those links here, oldest first, so
+ * its records are never duplicated downstream.
  */
 export interface KnowledgeTargetGroup {
   base: KnowledgeBase
-  link: KnowledgeLink
+  links: KnowledgeLink[]
   records: KnowledgeRecord[]
 }
 
 /**
  * The link a target falls back to when no base is named explicitly: the
- * oldest database-wide link, else the oldest schema-scoped one. Pure and
- * shared so the main process (agent write path) and the renderer (panel
- * default selection) can never disagree. `links` must already be filtered to
- * one (connection, database) target.
+ * oldest link. Pure and shared so the main process (agent write path) and the
+ * renderer (panel default selection) can never disagree. `links` must already
+ * be filtered to one (connection, database) target.
  */
 export function pickDefaultLink(links: KnowledgeLink[]): KnowledgeLink | null {
   const sorted = [...links].sort(
     (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)
   )
-  return sorted.find((l) => l.schema === undefined) ?? sorted[0] ?? null
+  return sorted[0] ?? null
 }
 
 export type KnowledgeSource = 'human' | 'agent'
@@ -202,6 +205,28 @@ export type KnowledgeRecordInput =
 export function normalizeColumnKey(ref: ColumnRef): string {
   const parts = ref.column ? [ref.schema, ref.table, ref.column] : [ref.schema, ref.table]
   return parts.join('.').toLowerCase()
+}
+
+/**
+ * Best-effort alternate names a relation should also answer to when a
+ * knowledge base spans engines with different naming conventions. Databricks
+ * workspaces migrated from Postgres commonly repeat the schema name as a
+ * table-name prefix (`billing.subscriptions` → `billing.billing_subscriptions`),
+ * so a ref written against one engine dangles on the other. Ref-key builders
+ * register these aliases alongside the real name — in both directions, since
+ * the checker can't know which engine the ref was authored against:
+ * the schema-prefixed form always, and the stripped form when the name
+ * already carries the prefix. Aliases only widen resolution (fewer false
+ * "missing from schema" warnings); suggestions and stored refs always use the
+ * relation's real name.
+ */
+export function tableNameAliases(schema: string, table: string): string[] {
+  const aliases = [`${schema}_${table}`]
+  const prefix = `${schema.toLowerCase()}_`
+  if (table.toLowerCase().startsWith(prefix) && table.length > prefix.length) {
+    aliases.push(table.slice(prefix.length))
+  }
+  return aliases
 }
 
 /**

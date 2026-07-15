@@ -19,6 +19,7 @@ import type {
 } from '../shared/db'
 import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
 import type { SchemaSelectionConfig } from '../shared/schemaSelection'
+import type { AppSettingsInfo, ChangeSqlDirResult } from '../shared/settings'
 import type {
   KnowledgeBase,
   KnowledgeBaseSummary,
@@ -175,6 +176,26 @@ const api = Object.freeze({
     deleteForConnection: (connId: string): Promise<void> =>
       ipcRenderer.invoke('files:deleteForConnection', connId)
   }),
+  settings: Object.freeze({
+    get: (): Promise<AppSettingsInfo> => ipcRenderer.invoke('settings:get'),
+    /** Directory picker + move; resolves after the files are relocated. */
+    chooseSqlDir: (): Promise<ChangeSqlDirResult> =>
+      ipcRenderer.invoke('settings:chooseSqlDir'),
+    setApiKeyVar: (name: string): Promise<AppSettingsInfo> =>
+      ipcRenderer.invoke('settings:setApiKeyVar', name),
+    setStoredApiKey: (key: string, label: string): Promise<AppSettingsInfo> =>
+      ipcRenderer.invoke('settings:setStoredApiKey', key, label),
+    clearStoredApiKey: (): Promise<AppSettingsInfo> =>
+      ipcRenderer.invoke('settings:clearStoredApiKey'),
+    /** Subscribe to settings-change pushes; returns an unsubscribe function. */
+    onChanged: (callback: () => void): (() => void) => {
+      const listener = (_event: IpcRendererEvent): void => callback()
+      ipcRenderer.on('settings:changed', listener)
+      return () => {
+        ipcRenderer.removeListener('settings:changed', listener)
+      }
+    }
+  }),
   mcp: Object.freeze({
     list: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:list'),
     save: (config: McpServerConfig): Promise<McpServerStatus[]> =>
@@ -232,10 +253,11 @@ const api = Object.freeze({
     /**
      * Save a question→SQL exemplar into a base; the main process extracts the
      * SQL's structured references at save time (against the live connection)
-     * so it participates in usage lookups.
+     * so it participates in usage lookups. A null kbId creates and links a
+     * base for the target (scoped to the schema the SQL references).
      */
     saveExemplar: (
-      kbId: string,
+      kbId: string | null,
       connId: string,
       database: string,
       question: string,

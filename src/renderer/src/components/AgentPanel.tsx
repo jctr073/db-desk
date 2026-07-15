@@ -29,6 +29,7 @@ import type {
   AgentPromptIntent
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
+import { dialectFor } from '../../../shared/dialect'
 import { pickDefaultLink } from '../../../shared/knowledge'
 import type { KnowledgeLink } from '../../../shared/knowledge'
 import type { McpServerStatus } from '../../../shared/mcp'
@@ -568,14 +569,21 @@ export function AgentPanel({
   /**
    * The default base for a target, creating and linking one (named after the
    * database) when the target has none yet — used before any operation that
-   * needs a kbId (attach codebase, save exemplar).
+   * needs a kbId (attach codebase). Links are schema-scoped; with nothing
+   * more specific to go on here, the auto-created link takes the engine's
+   * default schema.
    */
   const ensureDefaultBase = useCallback(
-    async (connId: string, database: string): Promise<string> => {
-      const existing = defaultBaseFor(connId, database)
+    async (t: QueryTarget): Promise<string> => {
+      const existing = defaultBaseFor(t.connId, t.database)
       if (existing) return existing
-      const base = await window.dbDesk.knowledge.createBase(database)
-      await window.dbDesk.knowledge.addLink({ kbId: base.id, connId, database })
+      const base = await window.dbDesk.knowledge.createBase(t.database)
+      await window.dbDesk.knowledge.addLink({
+        kbId: base.id,
+        connId: t.connId,
+        database: t.database,
+        schema: dialectFor(t.connectionType).defaultSchema
+      })
       return base.id
     },
     [defaultBaseFor]
@@ -654,6 +662,10 @@ export function AgentPanel({
 
   useEffect(() => {
     void window.dbDesk.agent.keyStatus().then(setKeyStatus)
+    // Re-check when the user edits key settings, so the notice clears live.
+    return window.dbDesk.settings.onChanged(() => {
+      void window.dbDesk.agent.keyStatus().then(setKeyStatus)
+    })
   }, [])
 
   useEffect(() => {
@@ -1111,7 +1123,7 @@ export function AgentPanel({
    */
   const attachCodebase = useCallback(
     async (t: QueryTarget): Promise<void> => {
-      const kbId = await ensureDefaultBase(t.connId, t.database)
+      const kbId = await ensureDefaultBase(t)
       const status = await window.dbDesk.repo.choose(kbId)
       rememberRepoStatus(status)
       if (
@@ -1796,8 +1808,9 @@ export function AgentPanel({
           {mcpOpen && <McpSettingsDialog onClose={() => setMcpOpen(false)} />}
           {keyMissing && (
             <div className="chat__notice">
-              No API key found — add <code>export {API_KEY_VAR}=…</code> to{' '}
-              <code>~/.zshrc</code>.
+              No API key found — add one in Settings (the gear in the status
+              bar), or add <code>export {keyStatus?.varName ?? API_KEY_VAR}=…</code>{' '}
+              to <code>~/.zshrc</code>.
             </div>
           )}
           <KbRefContext.Provider value={renderKbRef}>

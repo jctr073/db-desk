@@ -141,7 +141,9 @@ export function KnowledgePanel({
       )
       const record = owner?.records.find((r) => r.id === nav.recordId)
       if (owner && record && isKnownKind(record.kind)) {
-        if (owner.base.id !== state.selectedKbId) {
+        // As in openRecord: only a single-base view follows the record to its
+        // owning base; the all-bases view already shows it.
+        if (state.selectedKbId && owner.base.id !== state.selectedKbId) {
           state.setSelectedKbId(owner.base.id)
         }
         setUsagesRef(null)
@@ -189,6 +191,18 @@ export function KnowledgePanel({
     () => (intro ? buildRefKeySet(intro) : null),
     [intro]
   )
+  /** Introspected schema names, for the link dialogs' schema pickers. */
+  const schemaOptions = useMemo(
+    () => intro?.schemas.map((s) => s.name) ?? [],
+    [intro]
+  )
+  /** " · schema: a, b" suffix for a group's dropdown/list labels. */
+  const schemasLabel = (links: Array<{ schema?: string }>): string => {
+    const scopes = links.map((l) => l.schema).filter((s): s is string => !!s)
+    return scopes.length > 0
+      ? ` · schema${scopes.length === 1 ? '' : 's'}: ${scopes.join(', ')}`
+      : ''
+  }
   // Usage lookups span every linked base (state.index is the union), so the
   // record map must too — a hit can point at a base other than the selected one.
   const allRecords = useMemo(
@@ -204,17 +218,29 @@ export function KnowledgePanel({
     [state.groups, state.selectedKbId]
   )
 
-  const filtered = useMemo(() => {
+  // The list keeps records grouped by base: one group when a base is selected,
+  // one per linked base (empty ones hidden) in the all-bases view. Filters and
+  // search apply within every group alike.
+  const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return state.records
-      .filter((record) => isKnownKind(record.kind))
-      .filter((record) => kindFilter === 'all' || record.kind === kindFilter)
-      .filter(
-        (record) => sourceFilter === 'all' || record.source === sourceFilter
-      )
-      .filter((record) => !q || recordSearchText(record).includes(q))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-  }, [state.records, search, kindFilter, sourceFilter])
+    const matches = (record: KnowledgeRecord): boolean =>
+      isKnownKind(record.kind) &&
+      (kindFilter === 'all' || record.kind === kindFilter) &&
+      (sourceFilter === 'all' || record.source === sourceFilter) &&
+      (!q || recordSearchText(record).includes(q))
+    return (selectedGroup ? [selectedGroup] : state.groups)
+      .map((group) => ({
+        group,
+        records: group.records
+          .filter(matches)
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+      }))
+      .filter((entry) => entry.records.length > 0)
+  }, [state.groups, selectedGroup, search, kindFilter, sourceFilter])
+  const visibleCount = filteredGroups.reduce(
+    (n, entry) => n + entry.records.length,
+    0
+  )
 
   const usageGroups = useMemo(() => {
     if (!usagesRef) return []
@@ -229,12 +255,17 @@ export function KnowledgePanel({
 
   const openRecord = (record: KnowledgeRecord): void => {
     if (!isKnownKind(record.kind)) return
-    // Editing routes save/delete through the record's own base, so select it.
-    const owner = state.groups.find((g) =>
-      g.records.some((r) => r.id === record.id)
-    )
-    if (owner && owner.base.id !== state.selectedKbId) {
-      state.setSelectedKbId(owner.base.id)
+    // Saves/deletes route through the record's owning base regardless of the
+    // selection, so only the single-base view follows the record to its owner —
+    // keeping the list behind the editor consistent with what is being edited.
+    // The all-bases view already shows every record and stays put.
+    if (state.selectedKbId) {
+      const owner = state.groups.find((g) =>
+        g.records.some((r) => r.id === record.id)
+      )
+      if (owner && owner.base.id !== state.selectedKbId) {
+        state.setSelectedKbId(owner.base.id)
+      }
     }
     openEditor({ record, kind: record.kind, prefillTarget: null })
   }
@@ -247,13 +278,17 @@ export function KnowledgePanel({
 
   // --- Knowledge-base management. Structural changes reload the groups via
   // the hook's onStructureChanged subscription, so these only fire the API. ---
-  const createAndLinkBase = async (name: string): Promise<void> => {
-    if (!state.connId || !state.database) return
+  const createAndLinkBase = async (
+    name: string,
+    schema?: string
+  ): Promise<void> => {
+    if (!state.connId || !state.database || !schema) return
     const base = await window.dbDesk.knowledge.createBase(name)
     await window.dbDesk.knowledge.addLink({
       kbId: base.id,
       connId: state.connId,
-      database: state.database
+      database: state.database,
+      schema
     })
     // Select the new base immediately instead of waiting for the reload.
     state.setSelectedKbId(base.id)
@@ -267,7 +302,7 @@ export function KnowledgePanel({
 
   const linkExistingBase = async (
     kbId: string,
-    schema: string | undefined
+    schema: string
   ): Promise<void> => {
     if (!state.connId || !state.database) return
     await window.dbDesk.knowledge.addLink({
@@ -281,22 +316,32 @@ export function KnowledgePanel({
 
   const openLinkDialog = async (): Promise<void> => {
     setManageOpen(false)
-    const all = await window.dbDesk.knowledge.listBases()
-    const linked = new Set(state.groups.map((g) => g.base.id))
-    setLinkCandidates(all.filter((b) => !linked.has(b.id)))
+    // Every base is a candidate: links are schema-scoped, so a base already
+    // linked to one schema can still be linked to another (relinking an
+    // existing scope is a harmless no-op in the store).
+    setLinkCandidates(await window.dbDesk.knowledge.listBases())
   }
 
   const unlinkSelectedBase = (): void => {
     setManageOpen(false)
     if (!selectedGroup) return
+    const scopes = selectedGroup.links
+      .map((l) => l.schema)
+      .filter((s): s is string => !!s)
+    const scopeText =
+      scopes.length > 0
+        ? ` (schema${scopes.length === 1 ? '' : 's'} ${scopes.join(', ')})`
+        : ''
     if (
       !window.confirm(
-        `Unlink "${selectedGroup.base.name}" from this database? The base and its records are kept — only the link to this database is removed.`
+        `Unlink "${selectedGroup.base.name}" from this database${scopeText}? The base and its records are kept — only the links to this database are removed.`
       )
     ) {
       return
     }
-    void window.dbDesk.knowledge.removeLink(selectedGroup.link.id)
+    for (const link of selectedGroup.links) {
+      void window.dbDesk.knowledge.removeLink(link.id)
+    }
   }
 
   const deleteSelectedBase = (): void => {
@@ -312,9 +357,11 @@ export function KnowledgePanel({
     void window.dbDesk.knowledge.deleteBase(selectedGroup.base.id)
   }
 
-  /** Empty-state shortcut: a base named after the database, linked here. */
+  /** Empty-state shortcut: the new-base dialog prefilled with the database
+   * name. A dialog rather than a one-click create because links are
+   * schema-scoped — the schema choice has to be explicit. */
   const createDefaultBase = (): void => {
-    if (state.database) void createAndLinkBase(state.database)
+    if (state.database) setBaseDialog('new')
   }
 
   const saveDraft = async (
@@ -360,11 +407,11 @@ export function KnowledgePanel({
           ref={newBtnRef}
           type="button"
           className="kn-new"
-          disabled={noTarget || !state.selectedKbId}
+          disabled={noTarget || state.groups.length === 0}
           title={
             noTarget
               ? 'Connect to a database first'
-              : !state.selectedKbId
+              : state.groups.length === 0
                 ? 'Create a knowledge base first'
                 : 'New knowledge record'
           }
@@ -397,10 +444,13 @@ export function KnowledgePanel({
               value={state.selectedKbId ?? ''}
               onChange={(e) => state.setSelectedKbId(e.target.value || null)}
             >
+              {state.groups.length > 1 && (
+                <option value="">All linked bases · {allRecords.length}</option>
+              )}
               {state.groups.map((g) => (
                 <option key={g.base.id} value={g.base.id}>
                   {g.base.name} · {g.records.length}
-                  {g.link.schema ? ` · schema: ${g.link.schema}` : ''}
+                  {schemasLabel(g.links)}
                 </option>
               ))}
             </select>
@@ -445,6 +495,7 @@ export function KnowledgePanel({
                     type="button"
                     className="model-pop__row"
                     disabled={!selectedGroup}
+                    title={selectedGroup ? undefined : 'Select a single base first'}
                     onClick={() => {
                       setManageOpen(false)
                       setBaseDialog('rename')
@@ -457,6 +508,7 @@ export function KnowledgePanel({
                     type="button"
                     className="model-pop__row"
                     disabled={!selectedGroup}
+                    title={selectedGroup ? undefined : 'Select a single base first'}
                     onClick={unlinkSelectedBase}
                   >
                     Unlink from this database
@@ -465,6 +517,7 @@ export function KnowledgePanel({
                     type="button"
                     className="model-pop__row"
                     disabled={!selectedGroup}
+                    title={selectedGroup ? undefined : 'Select a single base first'}
                     onClick={deleteSelectedBase}
                   >
                     Delete base…
@@ -607,7 +660,7 @@ export function KnowledgePanel({
           </div>
           <div className="kn-scroll">
             {state.loading && <div className="kn-loading">Loading…</div>}
-            {!state.loading && filtered.length === 0 && (
+            {!state.loading && visibleCount === 0 && (
               <div className="kn-empty">
                 <div className="kn-empty__text">
                   {state.records.length === 0
@@ -622,45 +675,57 @@ export function KnowledgePanel({
                 )}
               </div>
             )}
-            {filtered.map((record) => {
-              const dangling = validKeys ? danglingRefs(record, validKeys) : []
-              return (
-                <button
-                  key={record.id}
-                  type="button"
-                  className="kn-item"
-                  onClick={() => openRecord(record)}
-                >
-                  <span className="kn-item__kind">
-                    {KIND_LABELS[record.kind]}
-                  </span>
-                  <span className="kn-item__title">
-                    <InlineMarkdown text={recordTitle(record)} />
-                  </span>
-                  {dangling.length > 0 && (
-                    <span
-                      className="kn-badge kn-badge--warn"
-                      title={`Missing from the current schema: ${dangling
-                        .map(formatRef)
-                        .join(', ')}`}
+            {filteredGroups.map(({ group, records }) => (
+              <div key={group.base.id} className="kn-group">
+                {!selectedGroup && state.groups.length > 1 && (
+                  <div className="kn-group__header">
+                    {group.base.name} · {records.length}
+                    {schemasLabel(group.links)}
+                  </div>
+                )}
+                {records.map((record) => {
+                  const dangling = validKeys
+                    ? danglingRefs(record, validKeys)
+                    : []
+                  return (
+                    <button
+                      key={record.id}
+                      type="button"
+                      className="kn-item"
+                      onClick={() => openRecord(record)}
                     >
-                      !
-                    </span>
-                  )}
-                  <span className={`kn-badge kn-badge--${record.source}`}>
-                    {record.source}
-                  </span>
-                  {record.confidence && (
-                    <span
-                      className="kn-badge kn-badge--conf"
-                      title="Agent confidence"
-                    >
-                      {record.confidence}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
+                      <span className="kn-item__kind">
+                        {KIND_LABELS[record.kind]}
+                      </span>
+                      <span className="kn-item__title">
+                        <InlineMarkdown text={recordTitle(record)} />
+                      </span>
+                      {dangling.length > 0 && (
+                        <span
+                          className="kn-badge kn-badge--warn"
+                          title={`Missing from the current schema: ${dangling
+                            .map(formatRef)
+                            .join(', ')}`}
+                        >
+                          !
+                        </span>
+                      )}
+                      <span className={`kn-badge kn-badge--${record.source}`}>
+                        {record.source}
+                      </span>
+                      {record.confidence && (
+                        <span
+                          className="kn-badge kn-badge--conf"
+                          title="Agent confidence"
+                        >
+                          {record.confidence}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
           </div>
         </>
       )}
@@ -700,7 +765,9 @@ export function KnowledgePanel({
           subtitle={
             capTarget ? `${capTarget.connName} / ${capTarget.database}` : ''
           }
+          initialName={state.groups.length === 0 ? state.database ?? '' : ''}
           submitLabel="Create Base"
+          schemaOptions={schemaOptions}
           onSubmit={createAndLinkBase}
           onClose={() => setBaseDialog(null)}
         />
@@ -721,6 +788,7 @@ export function KnowledgePanel({
             capTarget ? `${capTarget.connName} / ${capTarget.database}` : ''
           }
           bases={linkCandidates}
+          schemaOptions={schemaOptions}
           onLink={linkExistingBase}
           onClose={() => setLinkCandidates(null)}
         />

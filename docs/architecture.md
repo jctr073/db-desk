@@ -82,7 +82,8 @@ represented as lazy top-level database nodes and loaded on expansion.
 
 1. The renderer sends the target, model, reasoning effort, access mode,
    toggles, active editor snapshot, selection, and attached context.
-2. `src/main/agent.ts` reloads `CLAUDE_API_KEY`, assembles dialect guidance,
+2. `src/main/agent.ts` re-resolves the API key via `src/main/settings.ts`
+   (stored key, then the configured shell variable), assembles dialect guidance,
    schema and knowledge context, and the available tool definitions.
 3. The Anthropic response streams back through `agent:event` messages.
 4. Tool calls are executed only in the main process. SQL tools pass through

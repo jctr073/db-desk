@@ -48,6 +48,12 @@ export interface DialectInfo {
    * process rejects queries or introspection against any other database.
    */
   multiDatabase: boolean
+  /**
+   * The schema the engine puts unqualified objects in ("public" / "default"):
+   * the fallback scope when a knowledge link must be created and no record
+   * reference names a schema.
+   */
+  defaultSchema: string
   /** Subtitle shown in the connection dialog header. */
   dialogSubtitle: string
   /** True when a single connection URL is a supported input format. */
@@ -73,6 +79,7 @@ const POSTGRES: DialectInfo = {
   engine: 'PostgreSQL',
   databaseTerm: 'database',
   multiDatabase: false,
+  defaultSchema: 'public',
   dialogSubtitle: 'Connect to a PostgreSQL database',
   supportsUrl: true,
   urlExample: 'postgresql://user:password@host:port/database',
@@ -113,6 +120,7 @@ const DATABRICKS: DialectInfo = {
   engine: 'Databricks SQL',
   databaseTerm: 'catalog',
   multiDatabase: true,
+  defaultSchema: 'default',
   dialogSubtitle: 'Connect to a Databricks SQL warehouse',
   supportsUrl: false,
   urlExample: '',

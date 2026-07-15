@@ -288,7 +288,14 @@ export function TreeRow({
         {showSub && <span style={subStyle}>{node.subtitle}</span>}
       </span>
       {hasKnowledge && (
-        <span title="Has local knowledge" style={knowledgeDotStyle} />
+        <span
+          title={
+            node.kind === 'schema'
+              ? 'Has linked knowledge bases'
+              : 'Has local knowledge'
+          }
+          style={knowledgeDotStyle}
+        />
       )}
       {node.kind === 'column' && node.badge === 'pk' && (
         <span style={pkStyle} title="Primary key">

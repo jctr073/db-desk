@@ -11,26 +11,38 @@ interface BaseNameDialogProps {
   /** Prefill for the name field; empty when creating. */
   initialName?: string
   submitLabel: string
-  /** Called with the trimmed name; the caller performs the create/rename. */
-  onSubmit: (name: string) => Promise<void>
+  /**
+   * When provided, the dialog also collects the schema the new base links to
+   * (links are schema-scoped, so creating requires one): a picker over these
+   * introspected names, or free text while introspection hasn't loaded. Omit
+   * for rename, where no link is made.
+   */
+  schemaOptions?: string[]
+  /** Called with the trimmed name (and schema when collected); the caller
+   * performs the create/rename. */
+  onSubmit: (name: string, schema?: string) => Promise<void>
   onClose: () => void
 }
 
 /**
  * Names a knowledge base — shared by the "New base…" and "Rename base…"
- * actions in the knowledge panel. Follows the house dialog pattern.
+ * actions in the knowledge panel and the schema tree's "New knowledge
+ * base…". Follows the house dialog pattern.
  */
 export function BaseNameDialog({
   title,
   subtitle,
   initialName,
   submitLabel,
+  schemaOptions,
   onSubmit,
   onClose
 }: BaseNameDialogProps): ReactElement {
   const [name, setName] = useState(initialName ?? '')
+  const [schema, setSchema] = useState(schemaOptions?.[0] ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const withSchema = schemaOptions !== undefined
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -47,16 +59,21 @@ export function BaseNameDialog({
       setError('A name is required.')
       return
     }
+    const trimmedSchema = schema.trim()
+    if (withSchema && !trimmedSchema) {
+      setError('A schema is required — knowledge bases link at the schema level.')
+      return
+    }
     setError(null)
     setSaving(true)
     try {
-      await onSubmit(trimmed)
+      await onSubmit(trimmed, withSchema ? trimmedSchema : undefined)
       onClose()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
       setSaving(false)
     }
-  }, [saving, name, onSubmit, onClose])
+  }, [saving, name, schema, withSchema, onSubmit, onClose])
 
   return (
     // No click-to-close on the overlay: a stray click must not discard a
@@ -105,6 +122,39 @@ export function BaseNameDialog({
               }
             }}
           />
+          {withSchema && (
+            <div style={{ marginTop: 11 }}>
+              <label className="field-label" htmlFor="base-schema">
+                SCHEMA
+              </label>
+              {schemaOptions.length > 0 ? (
+                <select
+                  id="base-schema"
+                  className="text-input"
+                  value={schema}
+                  onChange={(event) => setSchema(event.target.value)}
+                >
+                  {schemaOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  id="base-schema"
+                  className="text-input"
+                  placeholder="e.g. public"
+                  value={schema}
+                  onChange={(event) => setSchema(event.target.value)}
+                />
+              )}
+              <div className="url-hint">
+                Knowledge bases link at the schema level; the new base is
+                linked to this schema.
+              </div>
+            </div>
+          )}
           {error && <div className="mcp-form-error">{error}</div>}
         </div>
 
