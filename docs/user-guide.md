@@ -243,6 +243,14 @@ diff rather than a prose-only answer. Tool activity—such as SQL runs, schema
 descriptions, knowledge searches, codebase reads, web searches, and MCP
 calls—is shown inline with status indicators.
 
+Every turn ends with a gray **recap line**—Done, Stopped, or Failed—showing the
+elapsed time, tool-call and query counts, and where the final query landed.
+When a reply ends with SQL that was not written to the editor, DB Desk loads it
+into an empty editor automatically or offers a **Load final query** action in
+the recap, which opens the same Accept/Reject diff review. In the results
+area's **Runs** strip, the last query of the turn is tagged **final** to
+distinguish the answer from exploratory runs.
+
 ### Sessions, web search, and context size
 
 Use **New chat** to archive the current chat in the running application
