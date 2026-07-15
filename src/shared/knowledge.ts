@@ -205,6 +205,28 @@ export function normalizeColumnKey(ref: ColumnRef): string {
 }
 
 /**
+ * Best-effort alternate names a relation should also answer to when a
+ * knowledge base spans engines with different naming conventions. Databricks
+ * workspaces migrated from Postgres commonly repeat the schema name as a
+ * table-name prefix (`billing.subscriptions` → `billing.billing_subscriptions`),
+ * so a ref written against one engine dangles on the other. Ref-key builders
+ * register these aliases alongside the real name — in both directions, since
+ * the checker can't know which engine the ref was authored against:
+ * the schema-prefixed form always, and the stripped form when the name
+ * already carries the prefix. Aliases only widen resolution (fewer false
+ * "missing from schema" warnings); suggestions and stored refs always use the
+ * relation's real name.
+ */
+export function tableNameAliases(schema: string, table: string): string[] {
+  const aliases = [`${schema}_${table}`]
+  const prefix = `${schema.toLowerCase()}_`
+  if (table.toLowerCase().startsWith(prefix) && table.length > prefix.length) {
+    aliases.push(table.slice(prefix.length))
+  }
+  return aliases
+}
+
+/**
  * Deterministic, filesystem-safe slug for a database name, used as the JSON
  * filename under `knowledge/<connId>/`. Every character outside a
  * conservative safe set (`[a-z0-9_-]`) is percent-encoded from its UTF-8

@@ -34,10 +34,17 @@ export interface KnowledgeState {
   database: string | null
   /** Every base linked to the target, with its link and records. */
   groups: KnowledgeTargetGroup[]
-  /** Which base the record list/editor act on; defaults via pickDefaultLink. */
+  /**
+   * Which base the record list acts on; null (the default) means "all linked
+   * bases". New records then go to the pickDefaultLink base — the same default
+   * the agent's write path uses — while edits always save to the owning base.
+   */
   selectedKbId: string | null
   setSelectedKbId: (kbId: string | null) => void
-  /** The selected base's records (empty when no base is linked). */
+  /**
+   * The selected base's records, or the union of every linked base's when no
+   * single base is selected (empty when no base is linked).
+   */
   records: KnowledgeRecord[]
   /**
    * Reverse usage index over the UNION of every linked base's records, so tree
@@ -129,13 +136,14 @@ export function useKnowledgeState(
     }
   }, [connId, database])
 
-  // Keep the selection valid as groups load and change: hold the current base
-  // when it survives, otherwise fall back to the shared default-link rule so
-  // the panel and the agent's write path never disagree on the default.
+  // Keep an explicit selection only while its base stays linked; otherwise
+  // fall back to the all-bases view (null), which is also the initial state.
+  // With a single linked base the all-bases view shows the same records, so
+  // select that base outright and keep the dropdown label concrete.
   useEffect(() => {
     setSelectedKbId((current) => {
       if (current && groups.some((g) => g.base.id === current)) return current
-      return pickDefaultLink(groups.map((g) => g.link))?.kbId ?? null
+      return groups.length === 1 ? groups[0].base.id : null
     })
   }, [groups])
 
@@ -143,17 +151,32 @@ export function useKnowledgeState(
     () => groups.find((g) => g.base.id === selectedKbId) ?? null,
     [groups, selectedKbId]
   )
-  const records = selectedGroup?.records ?? []
+  const records = useMemo(
+    () => (selectedGroup ? selectedGroup.records : groups.flatMap((g) => g.records)),
+    [groups, selectedGroup]
+  )
 
   const save = useCallback(
     async (record: KnowledgeRecordInput): Promise<KnowledgeRecord | null> => {
-      if (!selectedKbId) return null
+      // Updates go to the base that holds the record (in the all-bases view an
+      // edited record can belong to any of them); new records go to the
+      // selected base, or to the shared default-link base — the same rule the
+      // agent's write path applies — when viewing all bases.
+      const owner = record.id
+        ? groups.find((g) => g.records.some((r) => r.id === record.id))?.base.id
+        : undefined
+      const kbId =
+        owner ??
+        selectedKbId ??
+        pickDefaultLink(groups.map((g) => g.link))?.kbId ??
+        null
+      if (!kbId) return null
       try {
-        const saved = await window.dbDesk.knowledge.save(selectedKbId, record)
+        const saved = await window.dbDesk.knowledge.save(kbId, record)
         // The change push reloads too; upsert now so the UI doesn't wait.
         setGroups((prev) =>
           prev.map((g) =>
-            g.base.id === selectedKbId
+            g.base.id === kbId
               ? {
                   ...g,
                   records: g.records.some((r) => r.id === saved.id)
@@ -171,7 +194,7 @@ export function useKnowledgeState(
         return null
       }
     },
-    [selectedKbId]
+    [groups, selectedKbId]
   )
 
   const remove = useCallback(

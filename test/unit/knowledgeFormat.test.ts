@@ -16,6 +16,7 @@ import type {
   NoteRecord,
   RelationshipRecord
 } from '../../src/shared/knowledge'
+import { tableNameAliases } from '../../src/shared/knowledge'
 import {
   buildRefKeySet,
   danglingRefs,
@@ -195,6 +196,69 @@ describe('recordRefs / danglingRefs / buildRefKeySet', () => {
       references: [col('PUBLIC', 'Users', 'Email'), col('public', 'ghosts', 'id')]
     }
     expect(danglingRefs(record, keys)).toEqual([col('public', 'ghosts', 'id')])
+  })
+
+  it('resolves schema-prefixed refs against unprefixed tables (Databricks-form ref, Postgres schema)', () => {
+    const keys = buildRefKeySet(intro)
+    const record: NoteRecord = {
+      ...note,
+      references: [
+        col('public', 'public_users'),
+        col('public', 'public_users', 'email'),
+        col('public', 'public_users', 'missing')
+      ]
+    }
+    expect(danglingRefs(record, keys)).toEqual([
+      col('public', 'public_users', 'missing')
+    ])
+  })
+
+  it('resolves unprefixed refs against schema-prefixed tables (Postgres-form ref, Databricks schema)', () => {
+    const databricks: DatabaseIntrospection = {
+      name: 'warehouse',
+      schemas: [
+        {
+          ...intro.schemas[0],
+          name: 'billing',
+          tables: [
+            {
+              name: 'billing_subscriptions',
+              columns: [{ name: 'contract_id', dataType: 'string', badge: null }]
+            }
+          ]
+        }
+      ]
+    }
+    const keys = buildRefKeySet(databricks)
+    const record: NoteRecord = {
+      ...note,
+      references: [
+        col('billing', 'subscriptions', 'contract_id'),
+        col('billing', 'billing_subscriptions', 'contract_id'),
+        col('billing', 'invoices', 'id')
+      ]
+    }
+    expect(danglingRefs(record, keys)).toEqual([col('billing', 'invoices', 'id')])
+  })
+})
+
+describe('tableNameAliases', () => {
+  it('always offers the schema-prefixed form', () => {
+    expect(tableNameAliases('billing', 'subscriptions')).toEqual([
+      'billing_subscriptions'
+    ])
+  })
+
+  it('offers the stripped form when the table already carries the prefix', () => {
+    expect(tableNameAliases('billing', 'billing_subscriptions')).toEqual([
+      'billing_billing_subscriptions',
+      'subscriptions'
+    ])
+  })
+
+  it('matches the prefix case-insensitively but never strips to an empty name', () => {
+    expect(tableNameAliases('Billing', 'BILLING_invoices')).toContain('invoices')
+    expect(tableNameAliases('billing', 'billing_')).toEqual(['billing_billing_'])
   })
 })
 

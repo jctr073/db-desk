@@ -58,7 +58,7 @@ import {
   targetsForBase,
   validateKnowledgeRecord
 } from './knowledge'
-import { normalizeColumnKey } from '../shared/knowledge'
+import { normalizeColumnKey, tableNameAliases } from '../shared/knowledge'
 import type {
   AnnotationRecord,
   ColumnRef,
@@ -278,7 +278,10 @@ async function schemaSummaryFor(target: AgentTargetRef): Promise<string> {
  * Every normalized ref key the live schema can satisfy — `schema.table` for
  * each relation plus `schema.table.column` for each column — or null when no
  * introspection has been cached for the target this session. Used to flag
- * (never block) save_knowledge records whose refs match nothing real.
+ * (never block) save_knowledge records whose refs match nothing real. Each
+ * relation also registers its `tableNameAliases`, matching the renderer's
+ * buildRefKeySet, so refs authored against the other engine's naming
+ * convention (schema-prefixed Databricks tables) aren't reported unresolved.
  */
 function liveRefKeys(target: AgentTargetRef): Set<string> | null {
   const db = introspectionCache.get(schemaCacheKey(target))
@@ -286,15 +289,17 @@ function liveRefKeys(target: AgentTargetRef): Set<string> | null {
   const keys = new Set<string>()
   for (const schema of db.schemas) {
     for (const rel of [...schema.tables, ...schema.views, ...schema.matviews]) {
-      keys.add(normalizeColumnKey({ schema: schema.name, table: rel.name }))
-      for (const col of rel.columns) {
-        keys.add(
-          normalizeColumnKey({
-            schema: schema.name,
-            table: rel.name,
-            column: col.name
-          })
-        )
+      for (const table of [rel.name, ...tableNameAliases(schema.name, rel.name)]) {
+        keys.add(normalizeColumnKey({ schema: schema.name, table }))
+        for (const col of rel.columns) {
+          keys.add(
+            normalizeColumnKey({
+              schema: schema.name,
+              table,
+              column: col.name
+            })
+          )
+        }
       }
     }
   }

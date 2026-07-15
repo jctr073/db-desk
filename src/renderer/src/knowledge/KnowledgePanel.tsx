@@ -141,7 +141,9 @@ export function KnowledgePanel({
       )
       const record = owner?.records.find((r) => r.id === nav.recordId)
       if (owner && record && isKnownKind(record.kind)) {
-        if (owner.base.id !== state.selectedKbId) {
+        // As in openRecord: only a single-base view follows the record to its
+        // owning base; the all-bases view already shows it.
+        if (state.selectedKbId && owner.base.id !== state.selectedKbId) {
           state.setSelectedKbId(owner.base.id)
         }
         setUsagesRef(null)
@@ -204,17 +206,29 @@ export function KnowledgePanel({
     [state.groups, state.selectedKbId]
   )
 
-  const filtered = useMemo(() => {
+  // The list keeps records grouped by base: one group when a base is selected,
+  // one per linked base (empty ones hidden) in the all-bases view. Filters and
+  // search apply within every group alike.
+  const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return state.records
-      .filter((record) => isKnownKind(record.kind))
-      .filter((record) => kindFilter === 'all' || record.kind === kindFilter)
-      .filter(
-        (record) => sourceFilter === 'all' || record.source === sourceFilter
-      )
-      .filter((record) => !q || recordSearchText(record).includes(q))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-  }, [state.records, search, kindFilter, sourceFilter])
+    const matches = (record: KnowledgeRecord): boolean =>
+      isKnownKind(record.kind) &&
+      (kindFilter === 'all' || record.kind === kindFilter) &&
+      (sourceFilter === 'all' || record.source === sourceFilter) &&
+      (!q || recordSearchText(record).includes(q))
+    return (selectedGroup ? [selectedGroup] : state.groups)
+      .map((group) => ({
+        group,
+        records: group.records
+          .filter(matches)
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+      }))
+      .filter((entry) => entry.records.length > 0)
+  }, [state.groups, selectedGroup, search, kindFilter, sourceFilter])
+  const visibleCount = filteredGroups.reduce(
+    (n, entry) => n + entry.records.length,
+    0
+  )
 
   const usageGroups = useMemo(() => {
     if (!usagesRef) return []
@@ -229,12 +243,17 @@ export function KnowledgePanel({
 
   const openRecord = (record: KnowledgeRecord): void => {
     if (!isKnownKind(record.kind)) return
-    // Editing routes save/delete through the record's own base, so select it.
-    const owner = state.groups.find((g) =>
-      g.records.some((r) => r.id === record.id)
-    )
-    if (owner && owner.base.id !== state.selectedKbId) {
-      state.setSelectedKbId(owner.base.id)
+    // Saves/deletes route through the record's owning base regardless of the
+    // selection, so only the single-base view follows the record to its owner —
+    // keeping the list behind the editor consistent with what is being edited.
+    // The all-bases view already shows every record and stays put.
+    if (state.selectedKbId) {
+      const owner = state.groups.find((g) =>
+        g.records.some((r) => r.id === record.id)
+      )
+      if (owner && owner.base.id !== state.selectedKbId) {
+        state.setSelectedKbId(owner.base.id)
+      }
     }
     openEditor({ record, kind: record.kind, prefillTarget: null })
   }
@@ -360,11 +379,11 @@ export function KnowledgePanel({
           ref={newBtnRef}
           type="button"
           className="kn-new"
-          disabled={noTarget || !state.selectedKbId}
+          disabled={noTarget || state.groups.length === 0}
           title={
             noTarget
               ? 'Connect to a database first'
-              : !state.selectedKbId
+              : state.groups.length === 0
                 ? 'Create a knowledge base first'
                 : 'New knowledge record'
           }
@@ -397,6 +416,9 @@ export function KnowledgePanel({
               value={state.selectedKbId ?? ''}
               onChange={(e) => state.setSelectedKbId(e.target.value || null)}
             >
+              {state.groups.length > 1 && (
+                <option value="">All linked bases · {allRecords.length}</option>
+              )}
               {state.groups.map((g) => (
                 <option key={g.base.id} value={g.base.id}>
                   {g.base.name} · {g.records.length}
@@ -445,6 +467,7 @@ export function KnowledgePanel({
                     type="button"
                     className="model-pop__row"
                     disabled={!selectedGroup}
+                    title={selectedGroup ? undefined : 'Select a single base first'}
                     onClick={() => {
                       setManageOpen(false)
                       setBaseDialog('rename')
@@ -457,6 +480,7 @@ export function KnowledgePanel({
                     type="button"
                     className="model-pop__row"
                     disabled={!selectedGroup}
+                    title={selectedGroup ? undefined : 'Select a single base first'}
                     onClick={unlinkSelectedBase}
                   >
                     Unlink from this database
@@ -465,6 +489,7 @@ export function KnowledgePanel({
                     type="button"
                     className="model-pop__row"
                     disabled={!selectedGroup}
+                    title={selectedGroup ? undefined : 'Select a single base first'}
                     onClick={deleteSelectedBase}
                   >
                     Delete base…
@@ -607,7 +632,7 @@ export function KnowledgePanel({
           </div>
           <div className="kn-scroll">
             {state.loading && <div className="kn-loading">Loading…</div>}
-            {!state.loading && filtered.length === 0 && (
+            {!state.loading && visibleCount === 0 && (
               <div className="kn-empty">
                 <div className="kn-empty__text">
                   {state.records.length === 0
@@ -622,45 +647,57 @@ export function KnowledgePanel({
                 )}
               </div>
             )}
-            {filtered.map((record) => {
-              const dangling = validKeys ? danglingRefs(record, validKeys) : []
-              return (
-                <button
-                  key={record.id}
-                  type="button"
-                  className="kn-item"
-                  onClick={() => openRecord(record)}
-                >
-                  <span className="kn-item__kind">
-                    {KIND_LABELS[record.kind]}
-                  </span>
-                  <span className="kn-item__title">
-                    <InlineMarkdown text={recordTitle(record)} />
-                  </span>
-                  {dangling.length > 0 && (
-                    <span
-                      className="kn-badge kn-badge--warn"
-                      title={`Missing from the current schema: ${dangling
-                        .map(formatRef)
-                        .join(', ')}`}
+            {filteredGroups.map(({ group, records }) => (
+              <div key={group.base.id} className="kn-group">
+                {!selectedGroup && state.groups.length > 1 && (
+                  <div className="kn-group__header">
+                    {group.base.name} · {records.length}
+                    {group.link.schema ? ` · schema: ${group.link.schema}` : ''}
+                  </div>
+                )}
+                {records.map((record) => {
+                  const dangling = validKeys
+                    ? danglingRefs(record, validKeys)
+                    : []
+                  return (
+                    <button
+                      key={record.id}
+                      type="button"
+                      className="kn-item"
+                      onClick={() => openRecord(record)}
                     >
-                      !
-                    </span>
-                  )}
-                  <span className={`kn-badge kn-badge--${record.source}`}>
-                    {record.source}
-                  </span>
-                  {record.confidence && (
-                    <span
-                      className="kn-badge kn-badge--conf"
-                      title="Agent confidence"
-                    >
-                      {record.confidence}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
+                      <span className="kn-item__kind">
+                        {KIND_LABELS[record.kind]}
+                      </span>
+                      <span className="kn-item__title">
+                        <InlineMarkdown text={recordTitle(record)} />
+                      </span>
+                      {dangling.length > 0 && (
+                        <span
+                          className="kn-badge kn-badge--warn"
+                          title={`Missing from the current schema: ${dangling
+                            .map(formatRef)
+                            .join(', ')}`}
+                        >
+                          !
+                        </span>
+                      )}
+                      <span className={`kn-badge kn-badge--${record.source}`}>
+                        {record.source}
+                      </span>
+                      {record.confidence && (
+                        <span
+                          className="kn-badge kn-badge--conf"
+                          title="Agent confidence"
+                        >
+                          {record.confidence}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
           </div>
         </>
       )}

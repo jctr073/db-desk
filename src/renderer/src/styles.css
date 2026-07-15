@@ -3641,6 +3641,20 @@ body.is-grid-col-resizing {
   line-height: 1.5;
   max-width: 230px;
 }
+.kn-group {
+  padding-bottom: 4px;
+}
+.kn-group + .kn-group {
+  border-top: 1px solid var(--border-soft);
+}
+.kn-group__header {
+  padding: 8px 10px 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
 .kn-item {
   display: flex;
   align-items: center;

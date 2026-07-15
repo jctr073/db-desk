@@ -297,8 +297,10 @@ database), one database can be linked to several bases (two services writing
 to one schema), and on multi-schema catalogs a link can be scoped to a single
 schema so each schema draws on the repository that owns it.
 
-Choose a connection/database target and a linked knowledge base, search or
-filter its records, and create:
+Choose a connection/database target — the list shows every linked base's
+records grouped under a header per base, or pick a single base in the dropdown
+to focus (and to rename, unlink, or delete it). Search or filter the records,
+and create:
 
 - **annotations** for a table or column;
 - **relationships**, including polymorphic joins;
@@ -307,10 +309,14 @@ filter its records, and create:
 - Markdown **notes** with structured table/column references.
 
 Knowledge is local JSON, not a database table, and contains no connection
-secrets. Records can be edited or deleted. A warning badge identifies a record
-whose structured reference no longer exists in the current schema. Schema-tree
-dots identify objects with attached knowledge, and **Show knowledge entries**
-opens the reverse-usage view for an object.
+secrets. Records can be edited or deleted; new records land in the selected
+base, or in the target's default base when viewing all bases. A warning badge
+identifies a record whose structured reference no longer exists in the current
+schema. When a base is linked across engines whose table names differ only by
+a repeated schema prefix (Postgres `billing.subscriptions` vs Databricks
+`billing.billing_subscriptions`), references resolve across both forms instead
+of warning. Schema-tree dots identify objects with attached knowledge, and
+**Show knowledge entries** opens the reverse-usage view for an object.
 
 The agent receives every base linked to the active target in its prompt —
 grouped by base, with schema-scoped links called out — and can search across
