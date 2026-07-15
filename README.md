@@ -37,14 +37,20 @@ postinstall step also gives the development Electron bundle the DB Desk name
 and icon on macOS.
 
 The database features work without an AI provider key. To use the AI Agent,
-add an Anthropic API key to `~/.zshrc`:
+provide an Anthropic API key either way:
 
-```bash
-export CLAUDE_API_KEY="your-key"
-```
+- **In the app** — open Settings (gear in the status bar) → API Keys and
+  paste a key; it is stored encrypted via the OS keychain.
+- **Shell variable** — add the following to `~/.zshrc`:
 
-DB Desk re-reads that file for each request, so the application does not need
-to be restarted after the key is added.
+  ```bash
+  export CLAUDE_API_KEY="your-key"
+  ```
+
+  The variable name is configurable in Settings → API Keys.
+
+DB Desk resolves the key per request, so the application does not need to be
+restarted after the key is added.
 
 ## Build and preview
 
