@@ -66,6 +66,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CloseIcon,
+  CogIcon,
   FolderIcon,
   GlobeIcon,
   HistoryIcon,
@@ -480,7 +481,7 @@ export function AgentPanel({
   })
   const [modeOpen, setModeOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
-  const [mcpMenuOpen, setMcpMenuOpen] = useState(false)
+  const [agentToolsOpen, setAgentToolsOpen] = useState(false)
   /** SQL captured from a chat code block for the "Save as exemplar" dialog. */
   const [exemplarSql, setExemplarSql] = useState<string | null>(null)
   const [mcpStatuses, setMcpStatuses] = useState<McpServerStatus[]>([])
@@ -527,7 +528,7 @@ export function AgentPanel({
    * A (connection, database) target's default knowledge base — the shared
    * pickDefaultLink rule over its links, so the composer, scans, and the agent
    * write path all agree on which base is "active" when none is named.
-   */
+  */
   const defaultBaseFor = useCallback(
     (connId: string | undefined, database: string | undefined): string | null => {
       if (!connId || !database) return null
@@ -1989,51 +1990,51 @@ export function AgentPanel({
                   tokens={contextTokens}
                   windowSize={model.contextWindow}
                 />
-                <button
-                  type="button"
-                  className={`composer__web${webSearch ? ' is-on' : ''}`}
-                  aria-pressed={webSearch}
-                  title={
-                    webSearch
-                      ? 'Web browsing on — the agent may search the web when the task calls for it'
-                      : 'Web browsing off — click to let the agent search the web'
-                  }
-                  onClick={() => setWebSearch((on) => !on)}
-                >
-                  <GlobeIcon size={14} />
-                </button>
-                <div className="mcp-ctl">
+                <div className="agent-tools-ctl">
                   <button
                     type="button"
-                    className={`composer__web mcp-ctl__plug${
-                      mcpStatuses.some((s) => s.state === 'running')
-                        ? ' is-on'
-                        : ''
-                    }`}
-                    title="MCP servers — configure external tools for the agent"
+                    className="composer__web"
+                    title="Agent tools"
+                    aria-label="Agent tools"
+                    aria-haspopup="menu"
+                    aria-expanded={agentToolsOpen}
                     onClick={() => {
-                      setMcpMenuOpen(false)
-                      setMcpOpen(true)
+                      setModelOpen(false)
+                      setAgentToolsOpen((open) => !open)
                     }}
                   >
-                    <PlugIcon size={14} />
+                    <CogIcon size={14} />
                   </button>
-                  <button
-                    type="button"
-                    className="mcp-ctl__chev"
-                    title="Connected MCP servers"
-                    aria-label="Connected MCP servers"
-                    onClick={() => setMcpMenuOpen((open) => !open)}
-                  >
-                    <ChevronDownIcon size={10} />
-                  </button>
-                  {mcpMenuOpen && (
+                  {agentToolsOpen && (
                     <>
                       <div
                         className="ctx-overlay"
-                        onMouseDown={() => setMcpMenuOpen(false)}
+                        onMouseDown={() => setAgentToolsOpen(false)}
                       />
-                      <div className="model-pop mcp-pop">
+                      <div
+                        className="model-pop mcp-pop agent-tools-pop"
+                        role="menu"
+                        aria-label="Agent tools"
+                      >
+                        <div className="model-pop__heading">Agent tools</div>
+                        <button
+                          type="button"
+                          role="menuitemcheckbox"
+                          aria-checked={webSearch}
+                          className={`model-pop__row agent-tools-pop__row${
+                            webSearch ? ' is-active' : ''
+                          }`}
+                          onClick={() => setWebSearch((on) => !on)}
+                        >
+                          <span className="agent-tools-pop__label">
+                            <GlobeIcon size={14} />
+                            Web browsing
+                          </span>
+                          <span className="agent-tools-pop__state">
+                            {webSearch ? 'On' : 'Off'}
+                          </span>
+                        </button>
+                        <div className="model-pop__sep" />
                         <div className="model-pop__heading">MCP servers</div>
                         {mcpStatuses.length === 0 && (
                           <div className="mcp-pop__empty">
@@ -2044,6 +2045,7 @@ export function AgentPanel({
                           <button
                             key={status.config.id}
                             type="button"
+                            role="menuitem"
                             className="model-pop__row mcp-pop__row"
                             title={
                               status.state === 'error'
@@ -2051,7 +2053,7 @@ export function AgentPanel({
                                 : status.tools.map((t) => t.name).join(', ')
                             }
                             onClick={() => {
-                              setMcpMenuOpen(false)
+                              setAgentToolsOpen(false)
                               setMcpOpen(true)
                             }}
                           >
@@ -2077,9 +2079,10 @@ export function AgentPanel({
                         <div className="model-pop__sep" />
                         <button
                           type="button"
+                          role="menuitem"
                           className="model-pop__row"
                           onClick={() => {
-                            setMcpMenuOpen(false)
+                            setAgentToolsOpen(false)
                             setMcpOpen(true)
                           }}
                         >

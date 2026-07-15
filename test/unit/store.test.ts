@@ -166,6 +166,91 @@ describe('version-2 file round-trip', () => {
   })
 })
 
+describe('schema/catalog selections (Databricks pinning)', () => {
+  const dbxParams: ConnectParams = {
+    ...params,
+    type: 'databricks',
+    host: 'wh.cloud.databricks.com',
+    port: '443',
+    database: 'main',
+    httpPath: '/sql/1.0/warehouses/abc'
+  }
+
+  it('round-trips selections across a simulated restart, staying version 2', async () => {
+    store.saveConnection('c-1', 'warehouse', dbxParams, true)
+    store.setSchemaSelection('c-1', 'main', ['sales', 'ops'])
+    store.setCatalogSelection('c-1', ['main', 'dev'])
+
+    const onDisk = JSON.parse(readFileSync(storePath(), 'utf8'))
+    expect(onDisk.version).toBe(2)
+
+    vi.resetModules()
+    const reloaded = await import('../../src/main/store')
+    expect(reloaded.getSchemaConfig('c-1')).toEqual({
+      catalogs: ['main', 'dev'],
+      schemas: { main: ['sales', 'ops'] }
+    })
+    expect(reloaded.schemaSelectionFor('c-1', 'main')).toEqual(['sales', 'ops'])
+    expect(reloaded.schemaSelectionFor('c-1', 'other')).toBeNull()
+    expect(reloaded.catalogSelectionFor('c-1')).toEqual(['main', 'dev'])
+  })
+
+  it('re-saving the connection preserves selections', () => {
+    store.saveConnection('c-1', 'warehouse', dbxParams, true)
+    store.setSchemaSelection('c-1', 'main', ['sales'])
+    store.setCatalogSelection('c-1', ['main'])
+    store.saveConnection('c-1', 'renamed', dbxParams, true)
+    expect(store.getSchemaConfig('c-1')).toEqual({
+      catalogs: ['main'],
+      schemas: { main: ['sales'] }
+    })
+  })
+
+  it('null clears a selection back to "all"', () => {
+    store.saveConnection('c-1', 'warehouse', dbxParams, true)
+    store.setSchemaSelection('c-1', 'main', ['sales'])
+    store.setSchemaSelection('c-1', 'dev', ['x'])
+    store.setCatalogSelection('c-1', ['main'])
+
+    store.setSchemaSelection('c-1', 'main', null)
+    store.setCatalogSelection('c-1', null)
+    expect(store.getSchemaConfig('c-1')).toEqual({
+      catalogs: null,
+      schemas: { dev: ['x'] }
+    })
+
+    // Clearing the last per-catalog entry removes the field entirely.
+    store.setSchemaSelection('c-1', 'dev', null)
+    const onDisk = JSON.parse(readFileSync(storePath(), 'utf8'))
+    expect(onDisk.connections[0]).not.toHaveProperty('schemaSelections')
+    expect(onDisk.connections[0]).not.toHaveProperty('catalogSelection')
+  })
+
+  it('defaults to no selection for unknown connections', () => {
+    expect(store.getSchemaConfig('missing')).toEqual({
+      catalogs: null,
+      schemas: {}
+    })
+    expect(store.schemaSelectionFor('missing', 'main')).toBeNull()
+    expect(store.catalogSelectionFor('missing')).toBeNull()
+  })
+
+  it('setters are a no-op for unknown connection ids', () => {
+    store.saveConnection('c-1', 'warehouse', dbxParams, true)
+    store.setSchemaSelection('nope', 'main', ['sales'])
+    store.setCatalogSelection('nope', ['main'])
+    expect(store.getSchemaConfig('nope')).toEqual({ catalogs: null, schemas: {} })
+    expect(store.listSaved()).toHaveLength(1)
+  })
+
+  it('deleteSaved removes selections along with the record', () => {
+    store.saveConnection('c-1', 'warehouse', dbxParams, true)
+    store.setSchemaSelection('c-1', 'main', ['sales'])
+    store.deleteSaved('c-1')
+    expect(store.getSchemaConfig('c-1')).toEqual({ catalogs: null, schemas: {} })
+  })
+})
+
 describe('missing or corrupt file', () => {
   it('starts empty when connections.json does not exist', () => {
     expect(existsSync(storePath())).toBe(false)

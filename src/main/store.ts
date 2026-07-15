@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { normalizeConnectionUrl } from '../shared/connectionUrl'
 import type { ConnectionType } from '../shared/dialect'
 import type { ConnectParams, SavedConnection } from '../shared/db'
+import type { SchemaSelectionConfig } from '../shared/schemaSelection'
 import { wipeAll as wipeKnowledge } from './knowledge'
 
 /**
@@ -27,6 +28,14 @@ interface StoredRecord {
   url: string
   useUrl: boolean
   secret?: string
+  /**
+   * Multi-database engines (Databricks): catalogs to show in the tree;
+   * absent = all. Optional additions like this stay within store version 2 —
+   * older builds still read the file (they just ignore the fields).
+   */
+  catalogSelection?: string[]
+  /** Catalog name → pinned schema names; absent key = all schemas. */
+  schemaSelections?: Record<string, string[]>
 }
 
 /**
@@ -195,14 +204,72 @@ export function saveConnection(
   }
   const records = [...load()]
   const index = records.findIndex((existing) => existing.id === id)
-  if (index >= 0) records[index] = record
-  else records.push(record)
+  if (index >= 0) {
+    // Re-saving rebuilds the record from the form's fields; carry over the
+    // schema/catalog selections, which the form doesn't know about.
+    record.catalogSelection = records[index].catalogSelection
+    record.schemaSelections = records[index].schemaSelections
+    records[index] = record
+  } else {
+    records.push(record)
+  }
   persist(records)
   return toPublic(record)
 }
 
 export function deleteSaved(id: string): void {
   persist(load().filter((record) => record.id !== id))
+}
+
+/** Catalogs pinned for a connection; null = all (no selection saved). */
+export function catalogSelectionFor(id: string): string[] | null {
+  return load().find((record) => record.id === id)?.catalogSelection ?? null
+}
+
+/** Schemas pinned for one catalog; null = all (no selection saved). */
+export function schemaSelectionFor(id: string, catalog: string): string[] | null {
+  const record = load().find((candidate) => candidate.id === id)
+  return record?.schemaSelections?.[catalog] ?? null
+}
+
+/** Full selection config for a connection, for the renderer. */
+export function getSchemaConfig(id: string): SchemaSelectionConfig {
+  const record = load().find((candidate) => candidate.id === id)
+  return {
+    catalogs: record?.catalogSelection ?? null,
+    schemas: record?.schemaSelections ?? {}
+  }
+}
+
+/** Pin the catalogs shown for a connection; null clears (back to all). */
+export function setCatalogSelection(id: string, catalogs: string[] | null): void {
+  const records = [...load()]
+  const index = records.findIndex((record) => record.id === id)
+  if (index < 0) return
+  const record = { ...records[index] }
+  if (catalogs) record.catalogSelection = catalogs
+  else delete record.catalogSelection
+  records[index] = record
+  persist(records)
+}
+
+/** Pin the schemas of one catalog; null clears (back to all). */
+export function setSchemaSelection(
+  id: string,
+  catalog: string,
+  schemas: string[] | null
+): void {
+  const records = [...load()]
+  const index = records.findIndex((record) => record.id === id)
+  if (index < 0) return
+  const record = { ...records[index] }
+  const selections = { ...record.schemaSelections }
+  if (schemas) selections[catalog] = schemas
+  else delete selections[catalog]
+  if (Object.keys(selections).length > 0) record.schemaSelections = selections
+  else delete record.schemaSelections
+  records[index] = record
+  persist(records)
 }
 
 /** Full ConnectParams (password decrypted, re-injected into the URL) for a saved connection. */

@@ -36,12 +36,18 @@ export interface TreeNode {
   subtitle?: string
   status?: ConnectionStatus
   connectionType?: ConnectionType
+  /** Database/catalog the connection was opened against (locked in pickers). */
+  connectedDatabase?: string
 
   // database / connection
   /** True when the database's schema has not been introspected yet. */
   lazy?: boolean
   /** True while an introspection or connect request is in flight. */
   loading?: boolean
+
+  // database, when schema pinning filtered the loaded set
+  pinnedSchemaCount?: number
+  totalSchemaCount?: number
 
   // category
   icon?: IconKey

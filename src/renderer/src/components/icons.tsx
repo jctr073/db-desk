@@ -476,6 +476,21 @@ export function PlugIcon({ size = 13 }: IconProps): ReactElement {
   )
 }
 
+export function CogIcon({ size = 14 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.3}
+    >
+      <circle cx="8" cy="8" r="2.2" />
+      <path d="M6.8 1.8h2.4l.4 1.6c.4.2.8.4 1.1.7l1.6-.5 1.2 2.1-1.2 1.1a5 5 0 0 1 0 1.4l1.2 1.1-1.2 2.1-1.6-.5c-.3.3-.7.5-1.1.7l-.4 1.6H6.8l-.4-1.6c-.4-.2-.8-.4-1.1-.7l-1.6.5-1.2-2.1 1.2-1.1a5 5 0 0 1 0-1.4L2.5 5.7l1.2-2.1 1.6.5c.3-.3.7-.5 1.1-.7z" />
+    </svg>
+  )
+}
+
 export function FolderIcon({ size = 14 }: IconProps): ReactElement {
   return (
     <svg

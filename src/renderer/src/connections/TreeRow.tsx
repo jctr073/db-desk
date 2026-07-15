@@ -166,6 +166,10 @@ export function TreeRow({
   } else if (node.kind === 'database' && node.loading) {
     rightText = 'Loading…'
     rightStyle = { fontSize: 10.5, color: 'var(--text-faint)', marginLeft: 8, flex: '0 0 auto' }
+  } else if (node.kind === 'database' && node.totalSchemaCount != null) {
+    // Schema pinning is in effect: show how much of the catalog is loaded.
+    rightText = `${node.pinnedSchemaCount ?? 0} of ${node.totalSchemaCount}`
+    rightStyle = { fontSize: 10.5, color: 'var(--text-faint)', marginLeft: 8, flex: '0 0 auto' }
   } else if (node.kind === 'column') {
     rightText = node.dtype ?? ''
     rightStyle = monoRight

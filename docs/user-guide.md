@@ -44,6 +44,22 @@ path, catalog, and personal access token. A Databricks connection can expose
 multiple catalogs. The initial catalog is loaded at connection time and other
 catalogs are introspected when first expanded.
 
+Warehouses can hold far more catalogs and schemas than one session needs, so
+Databricks connections support pinning:
+
+- **Manage Schemas…** (right-click a catalog) picks which of its schemas are
+  loaded. Unpinned schemas are not introspected: they stay out of the schema
+  tree, the AI Agent's schema summary, and the agent's schema search and
+  describe tools. Raw SQL can still query them.
+- **Manage Catalogs…** (right-click the connection) picks which catalogs
+  appear in the tree. The connected catalog is always shown.
+
+A catalog with no saved schema selection loads everything, except that a large
+catalog (more than 25 schemas) opens the schema picker instead of loading; a
+pinned catalog shows a faint "12 of 240" count on its row. Checking every item
+clears the selection, so schemas created later appear again automatically.
+Selections are stored with the saved connection profile.
+
 ### Saved connections
 
 Connection profiles remain available when DB Desk is restarted. If **Save
@@ -56,6 +72,7 @@ Right-click a connection to:
 
 - create a query file;
 - refresh every catalog/database already loaded in its schema tree;
+- choose which catalogs are shown (Databricks, **Manage Catalogs…**);
 - disconnect while keeping the saved profile;
 - reconnect an offline profile; or
 - remove the connection.
@@ -234,17 +251,16 @@ model, effort, mode, toggles, and draft. Use **Stop** to cancel a response; when
 supported, DB Desk also cancels an in-flight database statement.
 
 The context gauge shows approximate token usage. Type `/compact` to replace a
-long history with an agent-written summary, or `/clear` to start fresh. The
-globe toggle permits Anthropic's server-side web search for that chat and is
-off by default.
+long history with an agent-written summary, or `/clear` to start fresh. In the
+cog menu, the **Web browsing** toggle permits Anthropic's server-side web
+search for that chat and is off by default.
 
 ### MCP servers
 
-The split plug control opens MCP configuration and shows connected servers.
-Add a server with a display name, a stdio command line, optional `KEY=VALUE`
-environment variables, and an enabled state. The dialog reports startup
-status and advertised tools and provides edit, restart, disable, and remove
-actions.
+The cog menu shows connected MCP servers and opens MCP configuration. Add a
+server with a display name, a stdio command line, optional `KEY=VALUE`
+environment variables, and an enabled state. The dialog reports startup status
+and advertised tools and provides edit, restart, disable, and remove actions.
 
 Environment values are encrypted with OS-backed `safeStorage` when available.
 An MCP server runs locally with the command and credentials you configure, and

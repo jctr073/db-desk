@@ -7,14 +7,24 @@ import {
   disconnect,
   disconnectAll,
   introspectDatabase,
+  listCatalogs,
+  listSchemas,
   runQuery,
   testConnection
 } from './db'
-import { registerAgentHandlers } from './agent'
+import { invalidateAgentSchemaCache, registerAgentHandlers } from './agent'
 import { registerMcpHandlers, stopAllMcpServers } from './mcp'
 import { registerRepoHandlers } from './repo'
 import { deleteSkillsForConnection, registerSkillHandlers } from './skills'
-import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
+import {
+  deleteSaved,
+  getSchemaConfig,
+  listSaved,
+  saveConnection,
+  savedParams,
+  setCatalogSelection,
+  setSchemaSelection
+} from './store'
 import {
   listQueries,
   createQuery,
@@ -152,6 +162,12 @@ function registerDbHandlers(): void {
       return { ok: false as const, error: 'Saved connection not found' }
     return connect(connId, params)
   })
+  ipcMain.handle('db:listSchemas', (_event, connId: string, database: string) =>
+    listSchemas(connId, database)
+  )
+  ipcMain.handle('db:listCatalogs', (_event, connId: string) =>
+    listCatalogs(connId)
+  )
 
   ipcMain.handle('store:list', () => listSaved())
   ipcMain.handle(
@@ -163,6 +179,23 @@ function registerDbHandlers(): void {
       params: ConnectParams,
       savePassword: boolean
     ) => saveConnection(id, name, params, savePassword)
+  )
+  ipcMain.handle('store:getSchemaConfig', (_event, id: string) =>
+    getSchemaConfig(id)
+  )
+  ipcMain.handle(
+    'store:setCatalogSelection',
+    (_event, id: string, catalogs: string[] | null) => {
+      setCatalogSelection(id, catalogs)
+      invalidateAgentSchemaCache(id)
+    }
+  )
+  ipcMain.handle(
+    'store:setSchemaSelection',
+    (_event, id: string, catalog: string, schemas: string[] | null) => {
+      setSchemaSelection(id, catalog, schemas)
+      invalidateAgentSchemaCache(id, catalog)
+    }
   )
   ipcMain.handle('store:delete', (_event, id: string) => {
     // Deleting a connection drops its knowledge *links*, never the bases

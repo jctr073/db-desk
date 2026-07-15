@@ -68,6 +68,19 @@ export interface SchemaIntrospection {
 export interface DatabaseIntrospection {
   name: string
   schemas: SchemaIntrospection[]
+  /**
+   * Total schemas in the database before schema pinning was applied
+   * (multi-database engines only). Absent when nothing was filtered out.
+   */
+  availableSchemaCount?: number
+  /**
+   * True when introspection was skipped because the database has no saved
+   * schema selection and more schemas than the large-catalog threshold.
+   * `schemas` is empty and `availableSchemas` carries the names so the
+   * renderer can open the schema picker without another round trip.
+   */
+  needsSchemaSelection?: boolean
+  availableSchemas?: string[]
 }
 
 export interface TestResult {

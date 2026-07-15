@@ -14,11 +14,13 @@ import type {
   QueryResult,
   TestResult
 } from '../shared/db'
+import { LARGE_CATALOG_SCHEMA_THRESHOLD } from '../shared/schemaSelection'
 import { guardAgentStatement } from '../shared/sql'
 import { databricksDriver } from './drivers/databricks'
 import { postgresDriver, PG_READ_ONLY_VIOLATION_CODES } from './drivers/postgres'
 import type { Driver, RunQueryOptions } from './drivers/types'
 import { WRITE_REQUIRED_CODE } from './drivers/types'
+import { catalogSelectionFor, schemaSelectionFor } from './store'
 
 export type { RunQueryOptions } from './drivers/types'
 
@@ -71,6 +73,18 @@ export function getConnectionType(connId: string): ConnectionType | null {
 }
 
 /**
+ * The saved schema pinning for a call's target database, or null when none
+ * applies (non-Databricks engines, unsaved connections, no selection). The
+ * live connId doubles as the saved-connection id (db:connectSaved connects
+ * under the profile's own id), which is what makes the store lookup work.
+ */
+function allowedSchemasFor(connId: string, database: string): string[] | null {
+  if (connTypes.get(connId) !== 'databricks') return null
+  const target = database.trim() || connDatabases.get(connId) || ''
+  return target ? schemaSelectionFor(connId, target) : null
+}
+
+/**
  * True when a failed runQuery means "this statement needs write/DDL
  * privileges": Postgres read-only SQLSTATEs or the client-side
  * classification code shared by drivers without a server-side mode.
@@ -96,10 +110,31 @@ export async function connect(
     return { ok: false, error: `Connection "${connId}" already exists` }
   }
   const type: ConnectionType = params.type ?? 'postgres'
-  const res = await DRIVERS[type].connect(connId, params)
+  const res = await DRIVERS[type].connect(
+    connId,
+    params,
+    type === 'databricks'
+      ? {
+          schemaSelectionFor: (catalog) => schemaSelectionFor(connId, catalog),
+          maxUnpinnedSchemas: LARGE_CATALOG_SCHEMA_THRESHOLD
+        }
+      : undefined
+  )
   if (res.ok) {
     connTypes.set(connId, type)
     connDatabases.set(connId, res.data.connectedDatabase.name)
+    if (type === 'databricks') {
+      const pinnedCatalogs = catalogSelectionFor(connId)
+      if (pinnedCatalogs) {
+        const keep = new Set([
+          ...pinnedCatalogs,
+          res.data.connectedDatabase.name
+        ])
+        res.data.databases = res.data.databases.filter((name) =>
+          keep.has(name)
+        )
+      }
+    }
   }
   return res
 }
@@ -129,7 +164,45 @@ export function introspectDatabase(
 ): Promise<DbResult<DatabaseIntrospection>> {
   const blocked = guardDatabase(connId, database)
   if (blocked) return Promise.resolve(blocked)
+  if (connTypes.get(connId) === 'databricks') {
+    return driverFor(connId).introspectDatabase(connId, database, {
+      allowedSchemas: allowedSchemasFor(connId, database),
+      maxUnpinnedSchemas: LARGE_CATALOG_SCHEMA_THRESHOLD
+    })
+  }
   return driverFor(connId).introspectDatabase(connId, database)
+}
+
+/**
+ * Schema names of one database, cheaply (no tables/columns), unfiltered by
+ * any pinning — this is what populates the schema picker.
+ */
+export function listSchemas(
+  connId: string,
+  database: string
+): Promise<DbResult<string[]>> {
+  const blocked = guardDatabase(connId, database)
+  if (blocked) return Promise.resolve(blocked)
+  const list = driverFor(connId).listSchemas
+  if (!list) {
+    return Promise.resolve({
+      ok: false,
+      error: 'Not supported for this connection type'
+    })
+  }
+  return list(connId, database)
+}
+
+/** All catalogs reachable from a connection, unfiltered by any pinning. */
+export function listCatalogs(connId: string): Promise<DbResult<string[]>> {
+  const list = driverFor(connId).listCatalogs
+  if (!list) {
+    return Promise.resolve({
+      ok: false,
+      error: 'Not supported for this connection type'
+    })
+  }
+  return list(connId)
 }
 
 export function runQuery(
@@ -183,7 +256,12 @@ export function describeTable(
 ): Promise<DbResult<string>> {
   const blocked = guardDatabase(connId, database)
   if (blocked) return Promise.resolve(blocked)
-  return driverFor(connId).describeTable(connId, database, relationName)
+  return driverFor(connId).describeTable(
+    connId,
+    database,
+    relationName,
+    allowedSchemasFor(connId, database)
+  )
 }
 
 export function searchSchema(
@@ -193,5 +271,10 @@ export function searchSchema(
 ): Promise<DbResult<string>> {
   const blocked = guardDatabase(connId, database)
   if (blocked) return Promise.resolve(blocked)
-  return driverFor(connId).searchSchema(connId, database, pattern)
+  return driverFor(connId).searchSchema(
+    connId,
+    database,
+    pattern,
+    allowedSchemasFor(connId, database)
+  )
 }

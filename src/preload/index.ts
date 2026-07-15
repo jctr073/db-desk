@@ -18,6 +18,7 @@ import type {
   TestResult
 } from '../shared/db'
 import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
+import type { SchemaSelectionConfig } from '../shared/schemaSelection'
 import type {
   KnowledgeBase,
   KnowledgeBaseSummary,
@@ -67,7 +68,16 @@ const api = Object.freeze({
       database: string,
       sql: string
     ): Promise<DbResult<QueryResult>> =>
-      ipcRenderer.invoke('db:queryForExport', connId, database, sql)
+      ipcRenderer.invoke('db:queryForExport', connId, database, sql),
+    /** Schema names of one database, unfiltered (feeds the schema picker). */
+    listSchemas: (
+      connId: string,
+      database: string
+    ): Promise<DbResult<string[]>> =>
+      ipcRenderer.invoke('db:listSchemas', connId, database),
+    /** All catalogs reachable from a connection, unfiltered. */
+    listCatalogs: (connId: string): Promise<DbResult<string[]>> =>
+      ipcRenderer.invoke('db:listCatalogs', connId)
   }),
   exportFile: Object.freeze({
     choose: (
@@ -90,7 +100,21 @@ const api = Object.freeze({
     ): Promise<SavedConnection> =>
       ipcRenderer.invoke('store:save', id, name, params, savePassword),
     delete: (id: string): Promise<void> =>
-      ipcRenderer.invoke('store:delete', id)
+      ipcRenderer.invoke('store:delete', id),
+    // --- Schema/catalog pinning (Databricks) ---
+    getSchemaConfig: (id: string): Promise<SchemaSelectionConfig> =>
+      ipcRenderer.invoke('store:getSchemaConfig', id),
+    setCatalogSelection: (
+      id: string,
+      catalogs: string[] | null
+    ): Promise<void> =>
+      ipcRenderer.invoke('store:setCatalogSelection', id, catalogs),
+    setSchemaSelection: (
+      id: string,
+      catalog: string,
+      schemas: string[] | null
+    ): Promise<void> =>
+      ipcRenderer.invoke('store:setSchemaSelection', id, catalog, schemas)
   }),
   files: Object.freeze({
     list: (): Promise<
