@@ -958,13 +958,18 @@ export function ResultsPanel({
           {aiTabs.map((tab, i) => (
             <button
               key={tab.id}
-              className={`ai-run${tab.id === activeTabId ? ' is-active' : ''}`}
-              title={tab.sql}
+              className={`ai-run${tab.id === activeTabId ? ' is-active' : ''}${tab.final ? ' is-final' : ''}`}
+              title={
+                tab.final
+                  ? `Final result of the agent turn\n${tab.sql}`
+                  : tab.sql
+              }
               type="button"
               onClick={() => onSelect(tab.id)}
             >
               <span className="ai-run__num">{i + 1}</span>
               <span className="ai-run__hint">{tab.hint || 'query'}</span>
+              {tab.final && <span className="ai-run__final">final</span>}
             </button>
           ))}
           <div className="editor-tabbar__spacer" />

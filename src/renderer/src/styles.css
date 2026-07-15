@@ -1203,6 +1203,20 @@ body.is-col-resizing {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
 }
+/* Badge on the run the agent settled on as its final answer. */
+.ai-run__final {
+  padding: 0 5px 1px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ai-run.is-final {
+  border-color: var(--accent);
+}
 .ai-strip__clear {
   flex: 0 0 auto;
   border: none;
@@ -2697,6 +2711,66 @@ body.is-grid-col-resizing {
   50% {
     opacity: 1;
   }
+}
+
+/* End-of-turn recap: quiet gray line marking that the agent loop finished. */
+.chat-recap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-faint);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.chat-recap__label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+}
+.chat-recap--done .chat-recap__label::before,
+.chat-recap--stopped .chat-recap__label::before,
+.chat-recap--error .chat-recap__label::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: 1px;
+}
+.chat-recap--done .chat-recap__label::before {
+  background: var(--green);
+}
+.chat-recap--stopped .chat-recap__label::before {
+  background: var(--text-faint);
+}
+.chat-recap--error .chat-recap__label::before {
+  background: var(--red);
+}
+.chat-recap__meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-recap__load {
+  flex: 0 0 auto;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--accent-strong);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: 5px;
+}
+.chat-recap__load:hover {
+  background: var(--accent-soft);
 }
 .chat__composer {
   flex: 0 0 auto;

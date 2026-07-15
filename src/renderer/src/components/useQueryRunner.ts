@@ -20,6 +20,8 @@ export interface ResultTab {
   running: boolean
   /** Who initiated the run; 'ai' tabs are grouped under one AI Agent tab. */
   source: 'user' | 'ai' | 'preview'
+  /** True on the last AI run of an agent turn — the "final" result. */
+  final: boolean
   /** Best-effort main table name, for compact run chips. */
   hint: string
   /** Statement text as sent (before any auto-LIMIT). */
@@ -46,6 +48,8 @@ export interface QueryRunner {
     result: QueryResult | null,
     error: string | null
   ) => void
+  /** Mark the most recent AI run as the turn's final result. */
+  finalizeAiRun: () => void
   pin: (id: string) => void
   closeTab: (id: string) => void
   /** Close several tabs at once (e.g. "Clear all" on the AI Agent group). */
@@ -118,6 +122,7 @@ export function useQueryRunner(): QueryRunner {
         pinned: false,
         running: true,
         source: 'user',
+        final: false,
         hint: tableHint(sql),
         sql,
         target,
@@ -164,6 +169,7 @@ export function useQueryRunner(): QueryRunner {
         pinned: true,
         running: true,
         source: 'preview',
+        final: false,
         hint: tableHint(sql),
         sql,
         target,
@@ -195,6 +201,7 @@ export function useQueryRunner(): QueryRunner {
         pinned: true,
         running: false,
         source: 'ai',
+        final: false,
         hint: tableHint(sql),
         sql,
         target,
@@ -206,6 +213,16 @@ export function useQueryRunner(): QueryRunner {
     },
     []
   )
+
+  const finalizeAiRun = useCallback(() => {
+    setTabs((prev) => {
+      const last = [...prev].reverse().find((tab) => tab.source === 'ai')
+      if (!last || last.final) return prev
+      return prev.map((tab) =>
+        tab.id === last.id ? { ...tab, final: true } : tab
+      )
+    })
+  }, [])
 
   const pin = useCallback(
     (id: string) => {
@@ -264,6 +281,7 @@ export function useQueryRunner(): QueryRunner {
     preview,
     rerun,
     showResult,
+    finalizeAiRun,
     pin,
     closeTab,
     closeTabs,

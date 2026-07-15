@@ -56,6 +56,12 @@ import type {
 } from '../knowledge/useKnowledgeState'
 import { stripSqlComments } from '../sql/highlight'
 import type { FileState } from '../files/useFileState'
+import {
+  formatElapsed,
+  lastSqlFence,
+  splitFences
+} from './agentTurn'
+import type { TurnRecap } from './agentTurn'
 import { DetachCodebaseDialog } from './DetachCodebaseDialog'
 import type { EditorBridge } from './editorBridge'
 import { SqlCode } from './SqlCode'
@@ -99,6 +105,11 @@ interface AgentPanelProps {
     result: QueryResult | null,
     error: string | null
   ) => void
+  /**
+   * Called when a turn that ran at least one query finishes, so the results
+   * grid can mark the turn's last run as the final one.
+   */
+  onAgentTurnEnd?: () => void
   /** Objects attached to the thread as context chips. */
   context: AgentContextItem[]
   onAddContext: (item: AgentContextItem) => void
@@ -168,6 +179,7 @@ type ChatPart =
     }
   | { kind: 'error'; text: string }
   | { kind: 'notice'; text: string }
+  | TurnRecap
 
 interface ChatMessage {
   id: string
@@ -317,21 +329,6 @@ function updateTool(
   })
 }
 
-/** Splits assistant text on ``` fences; odd segments are code blocks. */
-function splitFences(text: string): { code: boolean; body: string }[] {
-  return text.split('```').map((segment, i) => {
-    if (i % 2 === 0) return { code: false, body: segment }
-    // Strip an optional language tag on the fence line ("sql\n...").
-    const newline = segment.indexOf('\n')
-    const firstLine = newline === -1 ? segment : segment.slice(0, newline)
-    const body =
-      /^[a-zA-Z]*$/.test(firstLine.trim()) && newline !== -1
-        ? segment.slice(newline + 1)
-        : segment
-    return { code: true, body }
-  })
-}
-
 function AssistantText({
   text,
   onInsert,
@@ -427,6 +424,7 @@ export function AgentPanel({
   targets,
   editorBridge,
   onAgentQuery,
+  onAgentTurnEnd,
   context,
   onAddContext,
   onRemoveContext,
@@ -511,6 +509,21 @@ export function AgentPanel({
   chatIdRef.current = chatId
   const onAgentQueryRef = useRef(onAgentQuery)
   onAgentQueryRef.current = onAgentQuery
+  const onAgentTurnEndRef = useRef(onAgentTurnEnd)
+  onAgentTurnEndRef.current = onAgentTurnEnd
+  /**
+   * Running tally of the in-flight turn, kept in refs so the event handler
+   * (mounted once) can build the end-of-turn recap without touching state.
+   * Reset by sendPrompt; the assistant's streamed text is accumulated so the
+   * final SQL fence can be recovered when write_to_editor was never called.
+   */
+  const turnStats = useRef({
+    startedAt: 0,
+    toolCount: 0,
+    queryCount: 0,
+    text: '',
+    editorProposal: null as 'applied' | 'pending' | null
+  })
 
   const model =
     AGENT_MODELS.find((m) => m.id === modelId) ?? DEFAULT_AGENT_MODEL
@@ -707,6 +720,7 @@ export function AgentPanel({
           break
         case 'text_delta':
           setThinking(false)
+          turnStats.current.text += evt.text
           setMessages((prev) => appendText(prev, evt.text))
           break
         case 'thinking':
@@ -714,6 +728,7 @@ export function AgentPanel({
           break
         case 'tool_start':
           setThinking(false)
+          turnStats.current.toolCount += 1
           setMessages((prev) =>
             appendPart(prev, {
               kind: 'tool',
@@ -734,6 +749,7 @@ export function AgentPanel({
           )
           break
         case 'ran_query': {
+          turnStats.current.queryCount += 1
           const t = evt.target
           onAgentQueryRef.current(
             evt.sql,
@@ -751,6 +767,9 @@ export function AgentPanel({
         case 'editor_proposal': {
           const outcome =
             editorBridge.current?.proposeSql(evt.sql) ?? 'unavailable'
+          if (outcome === 'applied' || outcome === 'pending') {
+            turnStats.current.editorProposal = outcome
+          }
           setMessages((prev) =>
             appendPart(
               prev,
@@ -769,7 +788,7 @@ export function AgentPanel({
           )
           break
         }
-        case 'done':
+        case 'done': {
           setBusy(false)
           setThinking(false)
           if (evt.contextTokens !== null) setContextTokens(evt.contextTokens)
@@ -781,14 +800,68 @@ export function AgentPanel({
               })
             )
           }
+          const stats = turnStats.current
+          let editor: TurnRecap['editor'] = stats.editorProposal
+          let finalSql: string | null = null
+          // The model ended with SQL in prose instead of write_to_editor:
+          // load it into a blank editor directly (same review path as the
+          // tool), or surface a one-click load button in the recap.
+          if (!editor && evt.stopReason === 'end_turn') {
+            const fence = lastSqlFence(stats.text)
+            if (fence) {
+              const live = editorBridge.current?.getActiveSql() ?? null
+              if (live && live.sql.trim() === fence.trim()) {
+                editor = 'already'
+              } else if (live && live.sql.trim() === '') {
+                const outcome = editorBridge.current?.proposeSql(fence)
+                if (outcome === 'applied' || outcome === 'pending') {
+                  editor = outcome
+                } else {
+                  finalSql = fence
+                }
+              } else {
+                finalSql = fence
+              }
+            }
+          }
+          setMessages((prev) =>
+            appendPart(prev, {
+              kind: 'recap',
+              status: evt.stopReason === 'aborted' ? 'stopped' : 'done',
+              elapsedMs: stats.startedAt ? Date.now() - stats.startedAt : 0,
+              toolCount: stats.toolCount,
+              queryCount: stats.queryCount,
+              editor,
+              finalSql
+            })
+          )
+          if (stats.queryCount > 0) onAgentTurnEndRef.current?.()
           break
-        case 'error':
+        }
+        case 'error': {
           setBusy(false)
           setThinking(false)
           setMessages((prev) =>
             appendPart(prev, { kind: 'error', text: evt.message })
           )
+          // Only recap turns that got somewhere; an immediate failure (e.g.
+          // missing API key) is fully told by the error box alone.
+          const stats = turnStats.current
+          if (stats.toolCount > 0 || stats.text) {
+            setMessages((prev) =>
+              appendPart(prev, {
+                kind: 'recap',
+                status: 'error',
+                elapsedMs: stats.startedAt ? Date.now() - stats.startedAt : 0,
+                toolCount: stats.toolCount,
+                queryCount: stats.queryCount,
+                editor: stats.editorProposal,
+                finalSql: null
+              })
+            )
+          }
           break
+        }
       }
     })
     return unsubscribe
@@ -915,6 +988,25 @@ export function AgentPanel({
     setExemplarSql(sql)
   }, [])
 
+  /** "Load final query" on a recap: same review path as write_to_editor. */
+  const loadFinalSql = useCallback(
+    (recap: TurnRecap) => {
+      if (!recap.finalSql) return
+      const outcome =
+        editorBridge.current?.proposeSql(recap.finalSql) ?? 'unavailable'
+      if (outcome === 'unavailable') return
+      setMessages((prev) =>
+        prev.map((msg) => ({
+          ...msg,
+          parts: msg.parts.map((p) =>
+            p === recap ? { ...recap, editor: outcome, finalSql: null } : p
+          )
+        }))
+      )
+    },
+    [editorBridge]
+  )
+
   /** The user's most recent prompt, prefilled as the exemplar's question. */
   const lastUserPrompt = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -940,6 +1032,13 @@ export function AgentPanel({
     ) => {
       if (!prompt || busy || compacting) return
       setBusy(true)
+      turnStats.current = {
+        startedAt: Date.now(),
+        toolCount: 0,
+        queryCount: 0,
+        text: '',
+        editorProposal: null
+      }
       setChatUpdatedAt(Date.now())
       setMessages((prev) => [
         ...prev,
@@ -1776,6 +1875,51 @@ export function AgentPanel({
                       return (
                         <div key={i} className="chat-notice">
                           {part.text}
+                        </div>
+                      )
+                    }
+                    if (part.kind === 'recap') {
+                      const label =
+                        part.status === 'done'
+                          ? 'Done'
+                          : part.status === 'stopped'
+                            ? 'Stopped'
+                            : 'Failed'
+                      const editorNote =
+                        part.editor === 'applied'
+                          ? 'final query in editor'
+                          : part.editor === 'pending'
+                            ? 'editor diff awaiting review'
+                            : part.editor === 'already'
+                              ? 'query already in editor'
+                              : null
+                      const segments = [
+                        formatElapsed(part.elapsedMs),
+                        part.toolCount > 0 &&
+                          `${part.toolCount} tool call${part.toolCount === 1 ? '' : 's'}`,
+                        part.queryCount > 0 &&
+                          `${part.queryCount} quer${part.queryCount === 1 ? 'y' : 'ies'} run`,
+                        editorNote
+                      ].filter((s): s is string => Boolean(s))
+                      return (
+                        <div
+                          key={i}
+                          className={`chat-recap chat-recap--${part.status}`}
+                        >
+                          <span className="chat-recap__label">{label}</span>
+                          <span className="chat-recap__meta">
+                            {segments.join(' · ')}
+                          </span>
+                          {part.finalSql && (
+                            <button
+                              type="button"
+                              className="chat-recap__load"
+                              title="Load the final query into the active SQL editor (review as a diff when the editor has content)"
+                              onClick={() => loadFinalSql(part)}
+                            >
+                              Load final query
+                            </button>
+                          )}
                         </div>
                       )
                     }
