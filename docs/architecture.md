@@ -131,7 +131,7 @@ src/
     dataExport.ts         Native export destinations and tokenized writes
     agent.ts              Anthropic streaming loop, prompts, and built-in tools
     mcp.ts                MCP server persistence, processes, and tool calls
-    knowledge.ts          Versioned local knowledge CRUD and validation
+    knowledge.ts          Knowledge bases, links, record CRUD, validation, v1 migration
     exemplar.ts           Exemplar-reference extraction
     repo.ts               Attached-repository persistence and read sandbox
     skills.ts             Custom skills and built-in skill overrides
@@ -186,19 +186,29 @@ All application-managed state is below Electron's `app.getPath('userData')`.
 The main process owns these paths; the renderer works only with IDs and public
 metadata.
 
-| Data           | Location below `userData`                | Notes                                                                                 |
-| -------------- | ---------------------------------------- | ------------------------------------------------------------------------------------- |
-| Connections    | `connections.json`                       | Versioned; mode `0600`; secrets encrypted with `safeStorage`; URL passwords redacted. |
-| Files          | `queries/` and `queries/metadata.json`   | File contents plus connection/database ownership and names.                           |
-| Knowledge      | `knowledge/<connId>/<databaseSlug>.json` | Pretty-printed, versioned, human-readable records; no secrets.                        |
-| Skills         | `skills.json`                            | Custom skills and edits to installed built-ins.                                       |
-| MCP servers    | `mcp-servers.json`                       | Mode `0600`; environment map encrypted when possible.                                 |
-| Codebase roots | `repo-roots.json`                        | Main-process-only paths keyed by connection ID.                                       |
+| Data            | Location below `userData`              | Notes                                                                                 |
+| --------------- | --------------------------------------- | ------------------------------------------------------------------------------------- |
+| Connections     | `connections.json`                      | Versioned; mode `0600`; secrets encrypted with `safeStorage`; URL passwords redacted. |
+| Files           | `queries/` and `queries/metadata.json`  | File contents plus connection/database ownership and names.                           |
+| Knowledge bases | `knowledge/bases/<kbId>.json`           | Pretty-printed, versioned base metadata (name, codebase root) plus records; no secrets. |
+| Knowledge links | `knowledge/links.json`                  | Attaches bases to (connection, database) targets, optionally scoped to one schema.    |
+| Skills          | `skills.json`                           | Custom skills and edits to installed built-ins.                                       |
+| MCP servers     | `mcp-servers.json`                      | Mode `0600`; environment map encrypted when possible.                                 |
 
-Connection removal cascades through files, knowledge, codebase roots, and
-connection-scoped skills. Built-in skill bodies live in source; only edited
-overrides are persisted, so an application update can change unedited
-built-ins.
+Knowledge bases are free-standing: one base (typically per code repository,
+with the attached codebase root stored on the base itself) can be linked to
+several connections — prod, staging, and dev copies of one database — and one
+database can be linked to several bases. Schema-scoped links attach a base to
+a single schema of a multi-schema catalog. A pre-existing v1 layout
+(`knowledge/<connId>/<databaseSlug>.json` plus `repo-roots.json`) is migrated
+to bases and links once at startup, with originals preserved under
+`knowledge/legacy-v1/`.
+
+Connection removal cascades through files, knowledge *links*, and
+connection-scoped skills; knowledge bases themselves survive so shared and
+orphaned bases can be relinked or deleted explicitly. Built-in skill bodies
+live in source; only edited overrides are persisted, so an application update
+can change unedited built-ins.
 
 Knowledge and skill stores use temporary-file-plus-rename writes to reduce the
 risk of truncating user-authored content. Unreadable skill or knowledge files

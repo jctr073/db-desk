@@ -1,17 +1,18 @@
 /**
- * Wire types for the per-connection codebase attachment: shared by the
+ * Wire types for the per-knowledge-base codebase attachment: shared by the
  * main-process repo module, the preload bridge, and the renderer composer
  * control. Structured-clone friendly.
  *
  * The repo root itself is chosen through a main-process directory dialog and
- * persisted main-side, keyed by connection id. The renderer never sends a
- * filesystem path over IPC — it can only ask main to open the picker, read
- * the current status, or clear the attachment. The agent request carries a
- * plain boolean; main resolves it against its own store.
+ * persisted main-side on the knowledge base it belongs to. The renderer never
+ * sends a filesystem path over IPC — it can only ask main to open the picker,
+ * read the current status, or clear the attachment. The agent request carries
+ * a plain boolean; main resolves the actual root from the turn's active
+ * knowledge base.
  */
 
 export interface RepoStatus {
-  connId: string
+  kbId: string
   /** Absolute repo root, or null when no codebase is attached. */
   root: string | null
   /** Short commit SHA of HEAD, or null when the root is not a git repo. */

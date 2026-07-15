@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 
+import { pickDefaultLink } from '../../../shared/knowledge'
 import type { KnowledgeRecord } from '../../../shared/knowledge'
 import { CloseIcon, SparkleIcon } from './icons'
 
@@ -60,7 +61,20 @@ export function SaveExemplarDialog({
     setError(null)
     setSaving(true)
     try {
+      // The exemplar lands in the target's default base; create and link one
+      // (named after the database) if the target has none yet. Done on save so
+      // an unused, cancelled dialog never mints an empty base.
+      const linked = (await window.dbDesk.knowledge.listLinks()).filter(
+        (l) => l.connId === connId && l.database === database
+      )
+      let kbId = pickDefaultLink(linked)?.kbId ?? null
+      if (!kbId) {
+        const base = await window.dbDesk.knowledge.createBase(database)
+        await window.dbDesk.knowledge.addLink({ kbId: base.id, connId, database })
+        kbId = base.id
+      }
       const saved = await window.dbDesk.knowledge.saveExemplar(
+        kbId,
         connId,
         database,
         q,

@@ -12,7 +12,7 @@ import {
 } from './db'
 import { registerAgentHandlers } from './agent'
 import { registerMcpHandlers, stopAllMcpServers } from './mcp'
-import { clearRepoRoot, registerRepoHandlers } from './repo'
+import { registerRepoHandlers } from './repo'
 import { deleteSkillsForConnection, registerSkillHandlers } from './skills'
 import { deleteSaved, listSaved, saveConnection, savedParams } from './store'
 import {
@@ -29,11 +29,20 @@ import {
   isFileKind
 } from './files'
 import {
-  listRecords,
-  saveRecord,
+  addLink,
+  createBase,
+  deleteBase,
+  deleteLinksForConnection,
   deleteRecord,
-  deleteForDatabase,
-  deleteForConnection as deleteKnowledgeForConnection
+  groupsForTarget,
+  listBases,
+  listLinks,
+  listRecords,
+  migrateLegacyKnowledge,
+  removeLink,
+  renameBase,
+  saveRecord,
+  targetsForBase
 } from './knowledge'
 import { extractExemplarReferences } from './exemplar'
 import {
@@ -43,7 +52,10 @@ import {
 } from './dataExport'
 import type { ConnectParams } from '../shared/db'
 import type { DataExportFormat } from '../shared/export'
-import type { KnowledgeRecordInput } from '../shared/knowledge'
+import type {
+  KnowledgeLinkInput,
+  KnowledgeRecordInput
+} from '../shared/knowledge'
 
 // In development Electron otherwise uses the executable name ("Electron") for
 // the macOS application menu. Set this before the app becomes ready so dev and
@@ -153,9 +165,10 @@ function registerDbHandlers(): void {
     ) => saveConnection(id, name, params, savePassword)
   )
   ipcMain.handle('store:delete', (_event, id: string) => {
-    // A deleted connection's repo attachment has nothing to hang off; drop it
-    // with the profile (mirrors how the renderer clears queries/knowledge).
-    clearRepoRoot(id)
+    // Deleting a connection drops its knowledge *links*, never the bases
+    // themselves — a base may be shared with other connections (prod/staging/
+    // dev), and an orphaned one can be relinked or deleted from the UI.
+    deleteLinksForConnection(id)
     deleteSkillsForConnection(id)
     return deleteSaved(id)
   })
@@ -217,26 +230,72 @@ function registerFileHandlers(): void {
 function registerKnowledgeHandlers(
   getWindow: () => BrowserWindow | null
 ): void {
-  const broadcast = (connId: string, database: string): void => {
+  // Record content changed inside one base: names the base plus every
+  // (connection, database) target linked to it, so target-keyed views can
+  // match without knowing the link table.
+  const broadcastRecords = (kbId: string): void => {
     const win = getWindow()
     if (win && !win.isDestroyed()) {
-      win.webContents.send('knowledge:changed', { connId, database })
+      win.webContents.send('knowledge:changed', {
+        kbId,
+        targets: targetsForBase(kbId)
+      })
+    }
+  }
+  // Bases or links changed shape (create/rename/delete/link/unlink): coarse
+  // on purpose — these are rare, user-initiated operations, and the renderer
+  // reloads its base/link state wholesale.
+  const broadcastStructure = (): void => {
+    const win = getWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('knowledge:structureChanged')
     }
   }
 
-  ipcMain.handle('knowledge:list', (_event, connId: string, database: string) =>
-    listRecords(connId, database)
+  // --- Bases ---
+  ipcMain.handle('knowledge:listBases', () => listBases())
+  ipcMain.handle('knowledge:createBase', (_event, name: string) => {
+    const base = createBase(name)
+    broadcastStructure()
+    return base
+  })
+  ipcMain.handle(
+    'knowledge:renameBase',
+    (_event, kbId: string, name: string) => {
+      const base = renameBase(kbId, name)
+      broadcastStructure()
+      return base
+    }
+  )
+  ipcMain.handle('knowledge:deleteBase', (_event, kbId: string) => {
+    deleteBase(kbId)
+    broadcastStructure()
+  })
+
+  // --- Links ---
+  ipcMain.handle('knowledge:listLinks', () => listLinks())
+  ipcMain.handle('knowledge:addLink', (_event, input: KnowledgeLinkInput) => {
+    const link = addLink(input)
+    broadcastStructure()
+    return link
+  })
+  ipcMain.handle('knowledge:removeLink', (_event, linkId: string) => {
+    removeLink(linkId)
+    broadcastStructure()
+  })
+
+  // --- Records ---
+  ipcMain.handle('knowledge:list', (_event, kbId: string) => listRecords(kbId))
+  ipcMain.handle(
+    'knowledge:listForTarget',
+    (_event, connId: string, database: string) =>
+      groupsForTarget(connId, database)
   )
   ipcMain.handle(
     'knowledge:save',
-    (
-      _event,
-      connId: string,
-      database: string,
-      record: KnowledgeRecordInput
-    ) => {
-      const saved = saveRecord(connId, database, record)
-      broadcast(connId, database)
+    (_event, kbId: string, record: KnowledgeRecordInput) => {
+      const saved = saveRecord(kbId, record)
+      broadcastRecords(kbId)
       return saved
     }
   )
@@ -244,42 +303,32 @@ function registerKnowledgeHandlers(
     'knowledge:saveExemplar',
     async (
       _event,
+      kbId: string,
       connId: string,
       database: string,
       question: string,
       sql: string
     ) => {
       // Reference extraction happens once, here at save time (never at click
-      // time): the LLM path when a key is available, else text matching.
+      // time): the LLM path when a key is available, else text matching. The
+      // (connId, database) pair is the live connection to extract against;
+      // the record itself lands in the named base.
       const references = await extractExemplarReferences(connId, database, sql)
-      const saved = saveRecord(connId, database, {
+      const saved = saveRecord(kbId, {
         kind: 'exemplar',
         source: 'human',
         question,
         sql,
         references
       })
-      broadcast(connId, database)
+      broadcastRecords(kbId)
       return saved
     }
   )
-  ipcMain.handle(
-    'knowledge:delete',
-    (_event, connId: string, database: string, id: string) => {
-      deleteRecord(connId, database, id)
-      broadcast(connId, database)
-    }
-  )
-  ipcMain.handle(
-    'knowledge:deleteForDatabase',
-    (_event, connId: string, database: string) => {
-      deleteForDatabase(connId, database)
-      broadcast(connId, database)
-    }
-  )
-  ipcMain.handle('knowledge:deleteForConnection', (_event, connId: string) =>
-    deleteKnowledgeForConnection(connId)
-  )
+  ipcMain.handle('knowledge:delete', (_event, kbId: string, id: string) => {
+    deleteRecord(kbId, id)
+    broadcastRecords(kbId)
+  })
 }
 
 app.whenReady().then(() => {
@@ -290,6 +339,15 @@ app.whenReady().then(() => {
     const devIcon = join(app.getAppPath(), 'resources', 'icon.png')
     if (existsSync(devIcon)) app.dock?.setIcon(devIcon)
   }
+
+  // Convert any v1 per-(connection, database) knowledge layout to bases +
+  // links before anything reads the store. The resolver names migrated bases
+  // after the saved connection; store.ts imports knowledge.ts, so the lookup
+  // is injected rather than imported (cycle).
+  migrateLegacyKnowledge((connId) => {
+    const conn = listSaved().find((c) => c.id === connId)
+    return conn ? { name: conn.name, database: conn.database } : null
+  })
 
   registerDbHandlers()
   registerExportHandlers()

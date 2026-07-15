@@ -60,9 +60,10 @@ Right-click a connection to:
 - reconnect an offline profile; or
 - remove the connection.
 
-> **Important:** removing a connection also deletes its saved files, local
-> knowledge, codebase attachment, and connection-scoped skills. Disconnect it
-> instead when you only want to close the live database session.
+> **Important:** removing a connection also deletes its saved files, its links
+> to knowledge bases (the bases themselves survive), and connection-scoped
+> skills. Disconnect it instead when you only want to close the live database
+> session.
 
 ## Browse the schema
 
@@ -252,7 +253,15 @@ its tools are offered to the model under namespaced names.
 ## Build local database knowledge
 
 The **Knowledge** tab stores facts that schema introspection cannot express.
-Choose a connection/database target, search or filter its records, and create:
+Facts live in named **knowledge bases** — free-standing collections, typically
+one per code repository — that you link to connections. One base can be linked
+to several connections (say, the prod, staging, and dev copies of the same
+database), one database can be linked to several bases (two services writing
+to one schema), and on multi-schema catalogs a link can be scoped to a single
+schema so each schema draws on the repository that owns it.
+
+Choose a connection/database target and a linked knowledge base, search or
+filter its records, and create:
 
 - **annotations** for a table or column;
 - **relationships**, including polymorphic joins;
@@ -266,16 +275,22 @@ whose structured reference no longer exists in the current schema. Schema-tree
 dots identify objects with attached knowledge, and **Show knowledge entries**
 opens the reverse-usage view for an object.
 
-The agent receives relevant knowledge in its prompt and can search it on
-demand. It can also save a fact learned in conversation. Agent-authored records
-show their source and confidence and remain fully editable. When knowledge
-influences a response, `[kb:…]` citations render as clickable chips that open
-the source record.
+The agent receives every base linked to the active target in its prompt —
+grouped by base, with schema-scoped links called out — and can search across
+them on demand. It can also save a fact learned in conversation, which lands
+in the target's default base (created automatically on first save if none is
+linked). Agent-authored records show their source and confidence and remain
+fully editable. When knowledge influences a response, `[kb:…]` citations
+render as clickable chips that open the source record.
+
+Deleting a connection removes its links but never a knowledge base itself, so
+a base shared with other environments survives. Bases can be renamed, linked,
+unlinked, and deleted from the Knowledge tab.
 
 ## Attach and scan a codebase
 
 In Knowledge, use the folder control to attach a local source directory to a
-connection. If it is a Git checkout, DB Desk also records the current short
+knowledge base. If it is a Git checkout, DB Desk also records the current short
 commit SHA. The agent then gains read-only tools to list, search, and read files
 inside that root.
 
@@ -289,9 +304,10 @@ Use **Scan codebase** to have the agent inspect migrations, models, query code,
 and documentation and save verified findings to Knowledge. Use **Targeted
 scan…** to focus a later pass and reconcile it with existing records.
 
-> **Important:** detaching a codebase from the Knowledge menu also deletes the
-> selected database's local knowledge. The confirmation dialog describes the
-> affected target before continuing.
+> **Important:** the detach dialog offers two actions — detaching only the
+> codebase (knowledge kept) or also deleting the knowledge base, which removes
+> it from every connection it is linked to. The confirmation dialog describes
+> the affected base before continuing.
 
 ## Create and run skills
 

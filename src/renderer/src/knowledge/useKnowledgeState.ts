@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { buildUsageIndex } from '../../../shared/knowledge'
+import { buildUsageIndex, pickDefaultLink } from '../../../shared/knowledge'
 import type {
   ColumnRef,
   KnowledgeRecord,
   KnowledgeRecordInput,
+  KnowledgeTargetGroup,
   UsageIndex
 } from '../../../shared/knowledge'
 
@@ -31,16 +32,26 @@ export type KnowledgeNav = {
 export interface KnowledgeState {
   connId: string | null
   database: string | null
+  /** Every base linked to the target, with its link and records. */
+  groups: KnowledgeTargetGroup[]
+  /** Which base the record list/editor act on; defaults via pickDefaultLink. */
+  selectedKbId: string | null
+  setSelectedKbId: (kbId: string | null) => void
+  /** The selected base's records (empty when no base is linked). */
   records: KnowledgeRecord[]
-  /** Reverse usage index over `records`; rebuilt whenever they change. */
+  /**
+   * Reverse usage index over the UNION of every linked base's records, so tree
+   * badges and the usages view span all bases a target draws on — not just the
+   * one currently selected in the dropdown. Rebuilt whenever the groups change.
+   */
   index: UsageIndex
   loading: boolean
   loadError: string | null
   /**
-   * Target key (`knowledgeTargetKeyOf`) the current `records` were loaded
-   * for, or null while they are stale or still loading. Lets nav requests
-   * that switch the target wait for the right records instead of resolving
-   * against the previous database's.
+   * Target key (`knowledgeTargetKeyOf`) the current `groups` were loaded for,
+   * or null while they are stale or still loading. Lets nav requests that
+   * switch the target wait for the right records instead of resolving against
+   * the previous database's.
    */
   loadedKey: string | null
 
@@ -50,23 +61,25 @@ export interface KnowledgeState {
 }
 
 /**
- * Knowledge records for the active (connection, database), kept live: loaded
- * over the preload bridge, then reloaded on every knowledge:changed push that
- * matches the target — so agent writes refresh the panel and tree badges
- * without any UI action.
+ * Knowledge for the active (connection, database), kept live: the target's
+ * linked bases and their records are loaded over the preload bridge, then
+ * reloaded on every knowledge:changed push that names this target (so agent
+ * writes refresh the panel and tree badges without any UI action) and on every
+ * structural push (a base or link created/removed shifts what is linked here).
  */
 export function useKnowledgeState(
   connId: string | null,
   database: string | null
 ): KnowledgeState {
-  const [records, setRecords] = useState<KnowledgeRecord[]>([])
+  const [groups, setGroups] = useState<KnowledgeTargetGroup[]>([])
+  const [selectedKbId, setSelectedKbId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loadedKey, setLoadedKey] = useState<string | null>(null)
 
   useEffect(() => {
     // Never show one database's records against another while loading.
-    setRecords([])
+    setGroups([])
     setLoadError(null)
     setLoadedKey(null)
     // Reset unconditionally: a target that clears (or changes mid-flight) must
@@ -76,9 +89,12 @@ export function useKnowledgeState(
     let cancelled = false
     const load = async (): Promise<void> => {
       try {
-        const loaded = await window.dbDesk.knowledge.list(connId, database)
+        const loaded = await window.dbDesk.knowledge.listForTarget(
+          connId,
+          database
+        )
         if (!cancelled) {
-          setRecords(loaded)
+          setGroups(loaded)
           setLoadedKey(knowledgeTargetKeyOf(connId, database))
         }
       } catch (error) {
@@ -93,25 +109,59 @@ export function useKnowledgeState(
     }
     setLoading(true)
     void load()
-    const unsubscribe = window.dbDesk.knowledge.onChanged((change) => {
-      if (change.connId === connId && change.database === database) void load()
+    const offChanged = window.dbDesk.knowledge.onChanged((change) => {
+      if (
+        change.targets.some(
+          (t) => t.connId === connId && t.database === database
+        )
+      ) {
+        void load()
+      }
     })
+    // Any structural change can add or drop a link for this target.
+    const offStructure = window.dbDesk.knowledge.onStructureChanged(() =>
+      void load()
+    )
     return () => {
       cancelled = true
-      unsubscribe()
+      offChanged()
+      offStructure()
     }
   }, [connId, database])
 
+  // Keep the selection valid as groups load and change: hold the current base
+  // when it survives, otherwise fall back to the shared default-link rule so
+  // the panel and the agent's write path never disagree on the default.
+  useEffect(() => {
+    setSelectedKbId((current) => {
+      if (current && groups.some((g) => g.base.id === current)) return current
+      return pickDefaultLink(groups.map((g) => g.link))?.kbId ?? null
+    })
+  }, [groups])
+
+  const selectedGroup = useMemo(
+    () => groups.find((g) => g.base.id === selectedKbId) ?? null,
+    [groups, selectedKbId]
+  )
+  const records = selectedGroup?.records ?? []
+
   const save = useCallback(
     async (record: KnowledgeRecordInput): Promise<KnowledgeRecord | null> => {
-      if (!connId || !database) return null
+      if (!selectedKbId) return null
       try {
-        const saved = await window.dbDesk.knowledge.save(connId, database, record)
+        const saved = await window.dbDesk.knowledge.save(selectedKbId, record)
         // The change push reloads too; upsert now so the UI doesn't wait.
-        setRecords((prev) =>
-          prev.some((r) => r.id === saved.id)
-            ? prev.map((r) => (r.id === saved.id ? saved : r))
-            : [...prev, saved]
+        setGroups((prev) =>
+          prev.map((g) =>
+            g.base.id === selectedKbId
+              ? {
+                  ...g,
+                  records: g.records.some((r) => r.id === saved.id)
+                    ? g.records.map((r) => (r.id === saved.id ? saved : r))
+                    : [...g.records, saved]
+                }
+              : g
+          )
         )
         return saved
       } catch (error) {
@@ -121,15 +171,24 @@ export function useKnowledgeState(
         return null
       }
     },
-    [connId, database]
+    [selectedKbId]
   )
 
   const remove = useCallback(
     async (id: string): Promise<boolean> => {
-      if (!connId || !database) return false
+      // A record can belong to any linked base (the usages view spans them),
+      // so route the delete to whichever base actually holds it.
+      const owner = groups.find((g) => g.records.some((r) => r.id === id))
+      if (!owner) return false
       try {
-        await window.dbDesk.knowledge.remove(connId, database, id)
-        setRecords((prev) => prev.filter((r) => r.id !== id))
+        await window.dbDesk.knowledge.remove(owner.base.id, id)
+        setGroups((prev) =>
+          prev.map((g) =>
+            g.base.id === owner.base.id
+              ? { ...g, records: g.records.filter((r) => r.id !== id) }
+              : g
+          )
+        )
         return true
       } catch (error) {
         setLoadError(
@@ -138,16 +197,22 @@ export function useKnowledgeState(
         return false
       }
     },
-    [connId, database]
+    [groups]
   )
 
   const clearLoadError = useCallback(() => setLoadError(null), [])
 
-  const index = useMemo(() => buildUsageIndex(records), [records])
+  const index = useMemo(
+    () => buildUsageIndex(groups.flatMap((g) => g.records)),
+    [groups]
+  )
 
   return {
     connId,
     database,
+    groups,
+    selectedKbId,
+    setSelectedKbId,
     records,
     index,
     loading,
@@ -169,8 +234,10 @@ export interface KnowledgeTarget {
  * Usage indexes for every connected (connection, database) target, keyed by
  * `knowledgeTargetKeyOf`, kept live so the schema tree can badge knowledge
  * across all connected databases — not only the one the Knowledge tab views.
- * A knowledge:changed push reloads just the target it names; connect/disconnect
- * loads the newly connected targets and drops the departed ones.
+ * Each index unions every base linked to that target. A knowledge:changed push
+ * reloads only the targets it names; a structural push reloads them all (a link
+ * added/removed changes which bases feed a target); connect/disconnect loads
+ * the newly connected targets and drops the departed ones.
  */
 export function useKnowledgeIndexes(
   targets: KnowledgeTarget[]
@@ -192,10 +259,13 @@ export function useKnowledgeIndexes(
     const load = (connId: string, database: string): void => {
       const key = knowledgeTargetKeyOf(connId, database)
       window.dbDesk.knowledge
-        .list(connId, database)
-        .then((records) => {
+        .listForTarget(connId, database)
+        .then((groups) => {
           if (!cancelled) {
-            setIndexes((prev) => new Map(prev).set(key, buildUsageIndex(records)))
+            const records = groups.flatMap((g) => g.records)
+            setIndexes((prev) =>
+              new Map(prev).set(key, buildUsageIndex(records))
+            )
           }
         })
         .catch(() => {
@@ -216,15 +286,22 @@ export function useKnowledgeIndexes(
 
     for (const t of active.values()) load(t.connId, t.database)
 
-    // Reload only the target an event names — never the whole set.
-    const unsubscribe = window.dbDesk.knowledge.onChanged((change) => {
-      if (active.has(knowledgeTargetKeyOf(change.connId, change.database))) {
-        load(change.connId, change.database)
+    // Reload only the targets an event names — never the whole set.
+    const offChanged = window.dbDesk.knowledge.onChanged((change) => {
+      for (const t of change.targets) {
+        if (active.has(knowledgeTargetKeyOf(t.connId, t.database))) {
+          load(t.connId, t.database)
+        }
       }
+    })
+    // Structural changes can re-link any target, so refresh them all.
+    const offStructure = window.dbDesk.knowledge.onStructureChanged(() => {
+      for (const t of active.values()) load(t.connId, t.database)
     })
     return () => {
       cancelled = true
-      unsubscribe()
+      offChanged()
+      offStructure()
     }
   }, [signature])
 

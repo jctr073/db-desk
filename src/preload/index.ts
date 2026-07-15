@@ -18,7 +18,15 @@ import type {
   TestResult
 } from '../shared/db'
 import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
-import type { KnowledgeRecord, KnowledgeRecordInput } from '../shared/knowledge'
+import type {
+  KnowledgeBase,
+  KnowledgeBaseSummary,
+  KnowledgeLink,
+  KnowledgeLinkInput,
+  KnowledgeRecord,
+  KnowledgeRecordInput,
+  KnowledgeTargetGroup
+} from '../shared/knowledge'
 import type { Skill, SkillSaveInput } from '../shared/skills'
 import type { FileKind } from '../shared/files'
 import type { RepoStatus } from '../shared/repo'
@@ -166,19 +174,44 @@ const api = Object.freeze({
     }
   }),
   knowledge: Object.freeze({
-    list: (connId: string, database: string): Promise<KnowledgeRecord[]> =>
-      ipcRenderer.invoke('knowledge:list', connId, database),
-    save: (
+    // --- Bases: free-standing named record collections ---
+    listBases: (): Promise<KnowledgeBaseSummary[]> =>
+      ipcRenderer.invoke('knowledge:listBases'),
+    createBase: (name: string): Promise<KnowledgeBase> =>
+      ipcRenderer.invoke('knowledge:createBase', name),
+    renameBase: (kbId: string, name: string): Promise<KnowledgeBase> =>
+      ipcRenderer.invoke('knowledge:renameBase', kbId, name),
+    /** Deletes the base's records and every link pointing at it. */
+    deleteBase: (kbId: string): Promise<void> =>
+      ipcRenderer.invoke('knowledge:deleteBase', kbId),
+    // --- Links: base ↔ (connection, database[, schema]) attachments ---
+    listLinks: (): Promise<KnowledgeLink[]> =>
+      ipcRenderer.invoke('knowledge:listLinks'),
+    addLink: (input: KnowledgeLinkInput): Promise<KnowledgeLink> =>
+      ipcRenderer.invoke('knowledge:addLink', input),
+    removeLink: (linkId: string): Promise<void> =>
+      ipcRenderer.invoke('knowledge:removeLink', linkId),
+    // --- Records ---
+    list: (kbId: string): Promise<KnowledgeRecord[]> =>
+      ipcRenderer.invoke('knowledge:list', kbId),
+    /** Every base linked to the target, with its link and records. */
+    listForTarget: (
       connId: string,
-      database: string,
+      database: string
+    ): Promise<KnowledgeTargetGroup[]> =>
+      ipcRenderer.invoke('knowledge:listForTarget', connId, database),
+    save: (
+      kbId: string,
       record: KnowledgeRecordInput
     ): Promise<KnowledgeRecord> =>
-      ipcRenderer.invoke('knowledge:save', connId, database, record),
+      ipcRenderer.invoke('knowledge:save', kbId, record),
     /**
-     * Save a question→SQL exemplar; the main process extracts the SQL's
-     * structured references at save time so it participates in usage lookups.
+     * Save a question→SQL exemplar into a base; the main process extracts the
+     * SQL's structured references at save time (against the live connection)
+     * so it participates in usage lookups.
      */
     saveExemplar: (
+      kbId: string,
       connId: string,
       database: string,
       question: string,
@@ -186,28 +219,46 @@ const api = Object.freeze({
     ): Promise<KnowledgeRecord> =>
       ipcRenderer.invoke(
         'knowledge:saveExemplar',
+        kbId,
         connId,
         database,
         question,
         sql
       ),
-    remove: (connId: string, database: string, id: string): Promise<void> =>
-      ipcRenderer.invoke('knowledge:delete', connId, database, id),
-    deleteForDatabase: (connId: string, database: string): Promise<void> =>
-      ipcRenderer.invoke('knowledge:deleteForDatabase', connId, database),
-    deleteForConnection: (connId: string): Promise<void> =>
-      ipcRenderer.invoke('knowledge:deleteForConnection', connId),
-    /** Subscribe to knowledge-change pushes; returns an unsubscribe function. */
+    remove: (kbId: string, id: string): Promise<void> =>
+      ipcRenderer.invoke('knowledge:delete', kbId, id),
+    /**
+     * Subscribe to record-change pushes; the change names the base and every
+     * target linked to it. Returns an unsubscribe function.
+     */
     onChanged: (
-      callback: (change: { connId: string; database: string }) => void
+      callback: (change: {
+        kbId: string
+        targets: Array<{ connId: string; database: string }>
+      }) => void
     ): (() => void) => {
       const listener = (
         _event: IpcRendererEvent,
-        change: { connId: string; database: string }
+        change: {
+          kbId: string
+          targets: Array<{ connId: string; database: string }>
+        }
       ): void => callback(change)
       ipcRenderer.on('knowledge:changed', listener)
       return () => {
         ipcRenderer.removeListener('knowledge:changed', listener)
+      }
+    },
+    /**
+     * Subscribe to structural pushes (base created/renamed/deleted, link
+     * added/removed); reload base/link state on each. Returns an unsubscribe
+     * function.
+     */
+    onStructureChanged: (callback: () => void): (() => void) => {
+      const listener = (_event: IpcRendererEvent): void => callback()
+      ipcRenderer.on('knowledge:structureChanged', listener)
+      return () => {
+        ipcRenderer.removeListener('knowledge:structureChanged', listener)
       }
     }
   }),
@@ -228,12 +279,12 @@ const api = Object.freeze({
     }
   }),
   repo: Object.freeze({
-    get: (connId: string): Promise<RepoStatus> =>
-      ipcRenderer.invoke('repo:get', connId),
-    choose: (connId: string): Promise<RepoStatus> =>
-      ipcRenderer.invoke('repo:choose', connId),
-    clear: (connId: string): Promise<RepoStatus> =>
-      ipcRenderer.invoke('repo:clear', connId)
+    get: (kbId: string): Promise<RepoStatus> =>
+      ipcRenderer.invoke('repo:get', kbId),
+    choose: (kbId: string): Promise<RepoStatus> =>
+      ipcRenderer.invoke('repo:choose', kbId),
+    clear: (kbId: string): Promise<RepoStatus> =>
+      ipcRenderer.invoke('repo:clear', kbId)
   }),
   agent: Object.freeze({
     keyStatus: (): Promise<AgentKeyStatus> =>

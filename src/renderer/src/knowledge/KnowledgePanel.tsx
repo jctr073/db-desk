@@ -5,12 +5,21 @@ import type { DatabaseIntrospection } from '../../../shared/db'
 import { lookupUsages } from '../../../shared/knowledge'
 import type {
   ColumnRef,
+  KnowledgeBaseSummary,
   KnowledgeKind,
   KnowledgeRecord,
   KnowledgeSource,
   UsageHit
 } from '../../../shared/knowledge'
-import { CloseIcon, PlusThinIcon, SearchIcon } from '../components/icons'
+import { BaseNameDialog } from '../components/BaseNameDialog'
+import {
+  BookIcon,
+  ChevronDownIcon,
+  CloseIcon,
+  PlusThinIcon,
+  SearchIcon
+} from '../components/icons'
+import { LinkBaseDialog } from '../components/LinkBaseDialog'
 import { InlineMarkdown } from '../components/MarkdownText'
 import type { QueryTarget } from '../components/useQueryRunner'
 import {
@@ -82,16 +91,27 @@ export function KnowledgePanel({
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [newMenu, setNewMenu] = useState<{ x: number; y: number } | null>(null)
   const newBtnRef = useRef<HTMLButtonElement | null>(null)
+  const [manageOpen, setManageOpen] = useState(false)
+  /** Which base-name dialog is open (create vs rename), if any. */
+  const [baseDialog, setBaseDialog] = useState<'new' | 'rename' | null>(null)
+  /** Candidate bases for the link dialog; null while the dialog is closed. */
+  const [linkCandidates, setLinkCandidates] = useState<
+    KnowledgeBaseSummary[] | null
+  >(null)
   // Fresh id per opened editor: guarantees a remount when swapping between two
   // different "new" drafts (e.g. a tree-prefilled one and a toolbar one).
   const editorSeq = useRef(0)
   const openEditor = (next: Omit<EditorState, 'seq'>): void =>
     setEditor({ ...next, seq: ++editorSeq.current })
 
-  // Leaving the database resets the view — records and refs don't carry over.
+  // Leaving the database resets the view — records and refs don't carry over,
+  // and any half-open base menu/dialog belongs to the previous target.
   useEffect(() => {
     setUsagesRef(null)
     setEditor(null)
+    setManageOpen(false)
+    setBaseDialog(null)
+    setLinkCandidates(null)
   }, [state.connId, state.database])
 
   // Introspection backs the ref pickers and dangling-ref warnings.
@@ -114,8 +134,16 @@ export function KnowledgePanel({
         if (state.loadError) onNavConsumed()
         return
       }
-      const record = state.records.find((r) => r.id === nav.recordId)
-      if (record && isKnownKind(record.kind)) {
+      // A [kb:id] citation can point at any of the target's linked bases, so
+      // find the base that holds the record, select it, then open it.
+      const owner = state.groups.find((g) =>
+        g.records.some((r) => r.id === nav.recordId)
+      )
+      const record = owner?.records.find((r) => r.id === nav.recordId)
+      if (owner && record && isKnownKind(record.kind)) {
+        if (owner.base.id !== state.selectedKbId) {
+          state.setSelectedKbId(owner.base.id)
+        }
         setUsagesRef(null)
         openEditor({ record, kind: record.kind, prefillTarget: null })
       }
@@ -130,7 +158,7 @@ export function KnowledgePanel({
       openEditor({ record: null, kind: 'annotation', prefillTarget: nav.ref })
     }
     onNavConsumed()
-  }, [nav, onNavConsumed, state.loadedKey, state.loadError, state.records])
+  }, [nav, onNavConsumed, state.loadedKey, state.loadError, state.groups])
 
   // Tab bar "+" while this tab is active: open the new-record kind chooser.
   // Also a one-shot; the parent resets `newSeq` once we've opened the menu.
@@ -142,13 +170,16 @@ export function KnowledgePanel({
   }, [newSeq, onNewConsumed])
 
   useEffect(() => {
-    if (!newMenu) return
+    if (!newMenu && !manageOpen) return
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setNewMenu(null)
+      if (event.key === 'Escape') {
+        setNewMenu(null)
+        setManageOpen(false)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [newMenu])
+  }, [newMenu, manageOpen])
 
   const intro =
     state.connId && state.database
@@ -158,9 +189,19 @@ export function KnowledgePanel({
     () => (intro ? buildRefKeySet(intro) : null),
     [intro]
   )
+  // Usage lookups span every linked base (state.index is the union), so the
+  // record map must too — a hit can point at a base other than the selected one.
+  const allRecords = useMemo(
+    () => state.groups.flatMap((g) => g.records),
+    [state.groups]
+  )
   const recordById = useMemo(
-    () => new Map(state.records.map((r) => [r.id, r])),
-    [state.records]
+    () => new Map(allRecords.map((r) => [r.id, r])),
+    [allRecords]
+  )
+  const selectedGroup = useMemo(
+    () => state.groups.find((g) => g.base.id === state.selectedKbId) ?? null,
+    [state.groups, state.selectedKbId]
   )
 
   const filtered = useMemo(() => {
@@ -188,6 +229,13 @@ export function KnowledgePanel({
 
   const openRecord = (record: KnowledgeRecord): void => {
     if (!isKnownKind(record.kind)) return
+    // Editing routes save/delete through the record's own base, so select it.
+    const owner = state.groups.find((g) =>
+      g.records.some((r) => r.id === record.id)
+    )
+    if (owner && owner.base.id !== state.selectedKbId) {
+      state.setSelectedKbId(owner.base.id)
+    }
     openEditor({ record, kind: record.kind, prefillTarget: null })
   }
 
@@ -195,6 +243,78 @@ export function KnowledgePanel({
     setNewMenu(null)
     setUsagesRef(null)
     openEditor({ record: null, kind, prefillTarget: null })
+  }
+
+  // --- Knowledge-base management. Structural changes reload the groups via
+  // the hook's onStructureChanged subscription, so these only fire the API. ---
+  const createAndLinkBase = async (name: string): Promise<void> => {
+    if (!state.connId || !state.database) return
+    const base = await window.dbDesk.knowledge.createBase(name)
+    await window.dbDesk.knowledge.addLink({
+      kbId: base.id,
+      connId: state.connId,
+      database: state.database
+    })
+    // Select the new base immediately instead of waiting for the reload.
+    state.setSelectedKbId(base.id)
+  }
+
+  const renameSelectedBase = async (name: string): Promise<void> => {
+    if (state.selectedKbId) {
+      await window.dbDesk.knowledge.renameBase(state.selectedKbId, name)
+    }
+  }
+
+  const linkExistingBase = async (
+    kbId: string,
+    schema: string | undefined
+  ): Promise<void> => {
+    if (!state.connId || !state.database) return
+    await window.dbDesk.knowledge.addLink({
+      kbId,
+      connId: state.connId,
+      database: state.database,
+      schema
+    })
+    state.setSelectedKbId(kbId)
+  }
+
+  const openLinkDialog = async (): Promise<void> => {
+    setManageOpen(false)
+    const all = await window.dbDesk.knowledge.listBases()
+    const linked = new Set(state.groups.map((g) => g.base.id))
+    setLinkCandidates(all.filter((b) => !linked.has(b.id)))
+  }
+
+  const unlinkSelectedBase = (): void => {
+    setManageOpen(false)
+    if (!selectedGroup) return
+    if (
+      !window.confirm(
+        `Unlink "${selectedGroup.base.name}" from this database? The base and its records are kept — only the link to this database is removed.`
+      )
+    ) {
+      return
+    }
+    void window.dbDesk.knowledge.removeLink(selectedGroup.link.id)
+  }
+
+  const deleteSelectedBase = (): void => {
+    setManageOpen(false)
+    if (!selectedGroup) return
+    if (
+      !window.confirm(
+        `Delete knowledge base "${selectedGroup.base.name}"? This permanently deletes all of its records and removes it from every database it is linked to, not only this one. This cannot be undone.`
+      )
+    ) {
+      return
+    }
+    void window.dbDesk.knowledge.deleteBase(selectedGroup.base.id)
+  }
+
+  /** Empty-state shortcut: a base named after the database, linked here. */
+  const createDefaultBase = (): void => {
+    if (state.database) void createAndLinkBase(state.database)
   }
 
   const saveDraft = async (
@@ -240,8 +360,14 @@ export function KnowledgePanel({
           ref={newBtnRef}
           type="button"
           className="kn-new"
-          disabled={noTarget}
-          title="New knowledge record"
+          disabled={noTarget || !state.selectedKbId}
+          title={
+            noTarget
+              ? 'Connect to a database first'
+              : !state.selectedKbId
+                ? 'Create a knowledge base first'
+                : 'New knowledge record'
+          }
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect()
             setNewMenu({ x: rect.left, y: rect.bottom + 4 })
@@ -251,6 +377,104 @@ export function KnowledgePanel({
           New
         </button>
       </div>
+
+      {!noTarget && (
+        <div className="kn-base-bar">
+          {state.groups.length === 0 ? (
+            <button
+              type="button"
+              className="kn-base-create"
+              title="Create a knowledge base for this database"
+              onClick={createDefaultBase}
+            >
+              <PlusThinIcon size={12} />
+              Create knowledge base
+            </button>
+          ) : (
+            <select
+              className="toolbar-select kn-base-select"
+              title="Knowledge base whose records are shown and edited"
+              value={state.selectedKbId ?? ''}
+              onChange={(e) => state.setSelectedKbId(e.target.value || null)}
+            >
+              {state.groups.map((g) => (
+                <option key={g.base.id} value={g.base.id}>
+                  {g.base.name} · {g.records.length}
+                  {g.link.schema ? ` · schema: ${g.link.schema}` : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="kn-base-manage">
+            <button
+              type="button"
+              className="kn-base-manage__btn"
+              title="Manage knowledge bases"
+              aria-expanded={manageOpen}
+              onClick={() => setManageOpen((open) => !open)}
+            >
+              <BookIcon size={13} />
+              Manage
+              <ChevronDownIcon size={10} />
+            </button>
+            {manageOpen && (
+              <>
+                <div
+                  className="ctx-overlay"
+                  onMouseDown={() => setManageOpen(false)}
+                />
+                <div className="model-pop kn-base-pop">
+                  <button
+                    type="button"
+                    className="model-pop__row"
+                    onClick={() => {
+                      setManageOpen(false)
+                      setBaseDialog('new')
+                    }}
+                  >
+                    New base…
+                  </button>
+                  <button
+                    type="button"
+                    className="model-pop__row"
+                    onClick={() => void openLinkDialog()}
+                  >
+                    Link existing base…
+                  </button>
+                  <button
+                    type="button"
+                    className="model-pop__row"
+                    disabled={!selectedGroup}
+                    onClick={() => {
+                      setManageOpen(false)
+                      setBaseDialog('rename')
+                    }}
+                  >
+                    Rename base…
+                  </button>
+                  <div className="model-pop__sep" />
+                  <button
+                    type="button"
+                    className="model-pop__row"
+                    disabled={!selectedGroup}
+                    onClick={unlinkSelectedBase}
+                  >
+                    Unlink from this database
+                  </button>
+                  <button
+                    type="button"
+                    className="model-pop__row"
+                    disabled={!selectedGroup}
+                    onClick={deleteSelectedBase}
+                  >
+                    Delete base…
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {capTarget && (
         <div className="panel-cap">
@@ -468,6 +692,38 @@ export function KnowledgePanel({
             ))}
           </div>
         </div>
+      )}
+
+      {baseDialog === 'new' && (
+        <BaseNameDialog
+          title="New Knowledge Base"
+          subtitle={
+            capTarget ? `${capTarget.connName} / ${capTarget.database}` : ''
+          }
+          submitLabel="Create Base"
+          onSubmit={createAndLinkBase}
+          onClose={() => setBaseDialog(null)}
+        />
+      )}
+      {baseDialog === 'rename' && selectedGroup && (
+        <BaseNameDialog
+          title="Rename Knowledge Base"
+          subtitle={selectedGroup.base.name}
+          initialName={selectedGroup.base.name}
+          submitLabel="Rename"
+          onSubmit={renameSelectedBase}
+          onClose={() => setBaseDialog(null)}
+        />
+      )}
+      {linkCandidates && (
+        <LinkBaseDialog
+          targetLabel={
+            capTarget ? `${capTarget.connName} / ${capTarget.database}` : ''
+          }
+          bases={linkCandidates}
+          onLink={linkExistingBase}
+          onClose={() => setLinkCandidates(null)}
+        />
       )}
     </div>
   )
