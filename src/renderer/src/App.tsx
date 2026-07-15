@@ -352,6 +352,7 @@ export function App(): ReactElement {
           targets={targets}
           editorBridge={editorBridge}
           onAgentQuery={runner.showResult}
+          onAgentTurnEnd={runner.finalizeAiRun}
           context={agentContext}
           onAddContext={addAgentContext}
           onRemoveContext={removeAgentContext}
