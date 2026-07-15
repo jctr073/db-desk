@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -36,8 +36,17 @@ import {
   deleteQueriesForConnection,
   renameQuery,
   reassignQuery,
-  isFileKind
+  isFileKind,
+  moveQueryStorage
 } from './files'
+import {
+  appSettingsInfo,
+  clearStoredApiKey,
+  loadApiKey,
+  setApiKeyVarName,
+  setStoredApiKey,
+  sqlFilesDir
+} from './settings'
 import {
   addLink,
   createBase,
@@ -54,7 +63,7 @@ import {
   saveRecord,
   targetsForBase
 } from './knowledge'
-import { extractExemplarReferences } from './exemplar'
+import { extractExemplarReferences, setExemplarApiKeyLoader } from './exemplar'
 import {
   chooseExportDestination,
   discardExportDestination,
@@ -204,6 +213,61 @@ function registerDbHandlers(): void {
     deleteLinksForConnection(id)
     deleteSkillsForConnection(id)
     return deleteSaved(id)
+  })
+}
+
+function registerSettingsHandlers(): void {
+  // Any mutation pushes settings:changed so open views (the settings dialog,
+  // the agent panel's missing-key notice) refresh without polling.
+  const broadcast = (): void => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('settings:changed')
+    }
+  }
+
+  ipcMain.handle('settings:get', () => appSettingsInfo())
+
+  ipcMain.handle('settings:chooseSqlDir', async () => {
+    if (!mainWindow) return { status: 'canceled' as const }
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose SQL Files Directory',
+      defaultPath: sqlFilesDir(),
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (picked.canceled || picked.filePaths.length === 0) {
+      return { status: 'canceled' as const }
+    }
+    try {
+      const movedFiles = moveQueryStorage(picked.filePaths[0])
+      broadcast()
+      return { status: 'moved' as const, sqlDir: sqlFilesDir(), movedFiles }
+    } catch (error) {
+      return {
+        status: 'error' as const,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  ipcMain.handle('settings:setApiKeyVar', (_event, name: string) => {
+    setApiKeyVarName(name)
+    broadcast()
+    return appSettingsInfo()
+  })
+
+  ipcMain.handle(
+    'settings:setStoredApiKey',
+    (_event, key: string, label: string) => {
+      setStoredApiKey(key, label)
+      broadcast()
+      return appSettingsInfo()
+    }
+  )
+
+  ipcMain.handle('settings:clearStoredApiKey', () => {
+    clearStoredApiKey()
+    broadcast()
+    return appSettingsInfo()
   })
 }
 
@@ -382,7 +446,12 @@ app.whenReady().then(() => {
     return conn ? { name: conn.name, database: conn.database } : null
   })
 
+  // The exemplar extractor keeps no Electron imports (unit-testability), so
+  // hand it the settings-backed key resolver instead of letting it import one.
+  setExemplarApiKeyLoader(() => loadApiKey().key)
+
   registerDbHandlers()
+  registerSettingsHandlers()
   registerExportHandlers()
   registerFileHandlers()
   registerKnowledgeHandlers(() => mainWindow)

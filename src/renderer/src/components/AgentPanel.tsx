@@ -654,6 +654,10 @@ export function AgentPanel({
 
   useEffect(() => {
     void window.dbDesk.agent.keyStatus().then(setKeyStatus)
+    // Re-check when the user edits key settings, so the notice clears live.
+    return window.dbDesk.settings.onChanged(() => {
+      void window.dbDesk.agent.keyStatus().then(setKeyStatus)
+    })
   }, [])
 
   useEffect(() => {
@@ -1796,8 +1800,9 @@ export function AgentPanel({
           {mcpOpen && <McpSettingsDialog onClose={() => setMcpOpen(false)} />}
           {keyMissing && (
             <div className="chat__notice">
-              No API key found — add <code>export {API_KEY_VAR}=…</code> to{' '}
-              <code>~/.zshrc</code>.
+              No API key found — add one in Settings (the gear in the status
+              bar), or add <code>export {keyStatus?.varName ?? API_KEY_VAR}=…</code>{' '}
+              to <code>~/.zshrc</code>.
             </div>
           )}
           <KbRefContext.Provider value={renderKbRef}>

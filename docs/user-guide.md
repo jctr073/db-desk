@@ -19,8 +19,13 @@ The window has three resizable areas:
    **Skills** tabs.
 
 Drag either vertical divider to resize its panel. DB Desk remembers both panel
-widths. Use the control in the bottom status bar to switch between light and
-dark themes.
+widths. The gear in the bottom status bar opens **Settings**, with three tabs:
+
+- **Appearance** — light, dark, or follow the OS theme.
+- **Files** — the directory SQL files are stored in. Changing it moves the
+  existing files to the new location.
+- **API Keys** — the Anthropic API key for the AI agent: store one encrypted
+  with the OS keychain, or configure which shell variable to read it from.
 
 ## Connect to a database
 
@@ -191,14 +196,22 @@ selections constrain what is exported.
 ## Use the AI Agent
 
 Database browsing, editing, and queries do not require AI. To enable the agent,
-add the following to `~/.zshrc` and replace the placeholder with an Anthropic
-API key:
+provide an Anthropic API key either way:
 
-```bash
-export CLAUDE_API_KEY="your-key"
-```
+- **Settings → API Keys** — paste a key (with an optional label such as
+  "personal"); it is stored encrypted with your OS keychain and takes priority
+  over the shell variable.
+- **Shell variable** — add the following to `~/.zshrc` and replace the
+  placeholder with your key:
 
-The file is read for every request, so a restart is unnecessary. Select the
+  ```bash
+  export CLAUDE_API_KEY="your-key"
+  ```
+
+  The variable name is configurable in **Settings → API Keys** (for example
+  `ANTHROPIC_API_KEY`).
+
+The key resolves on every request, so a restart is unnecessary. Select the
 agent's connection/database target, model, reasoning effort, and access mode
 before sending a prompt.
 

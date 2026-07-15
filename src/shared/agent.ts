@@ -5,7 +5,7 @@
 
 import type { QueryResult } from './db'
 
-/** Name of the shell variable holding the Claude API key. */
+/** Default name of the shell variable holding the Claude API key. */
 export const API_KEY_VAR = 'CLAUDE_API_KEY'
 
 export type AgentEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -245,7 +245,10 @@ export interface AgentSendRequest {
 
 export interface AgentKeyStatus {
   found: boolean
-  source: 'zshrc' | 'env' | null
+  /** 'keychain' = a key stored in-app via Settings (safeStorage-encrypted). */
+  source: 'keychain' | 'zshrc' | 'env' | null
+  /** Shell variable name consulted for the zshrc/env sources. */
+  varName: string
 }
 
 /** A composer slash command; typing "/" lists these. */

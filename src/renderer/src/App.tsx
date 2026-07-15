@@ -11,6 +11,7 @@ import type {
 import type { ColumnRef } from '../../shared/knowledge'
 import { AgentPanel } from './components/AgentPanel'
 import { EditorPanel } from './components/EditorPanel'
+import { SettingsDialog } from './components/SettingsDialog'
 import { StatusBar } from './components/StatusBar'
 import type { EditorBridge } from './components/editorBridge'
 import { useQueryRunner } from './components/useQueryRunner'
@@ -42,7 +43,10 @@ function storedWidth(key: string, fallback: number, min: number, max: number): n
 }
 
 export function App(): ReactElement {
-  const { theme, toggle } = useTheme()
+  const { theme, preference, setPreference } = useTheme()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const openSettings = useCallback(() => setSettingsOpen(true), [])
+  const closeSettings = useCallback(() => setSettingsOpen(false), [])
   const connections = useConnectionState()
   const files = useFileState()
   const runner = useQueryRunner()
@@ -368,12 +372,18 @@ export function App(): ReactElement {
         />
       </div>
       <StatusBar
-        theme={theme}
-        onToggleTheme={toggle}
+        onOpenSettings={openSettings}
         connText={activeTarget ? `Connection · ${activeTarget.connName}` : ''}
         queryText={queryStatus.text}
         queryTarget={queryStatus.target}
       />
+      {settingsOpen && (
+        <SettingsDialog
+          themePreference={preference}
+          onThemePreference={setPreference}
+          onClose={closeSettings}
+        />
+      )}
       <NewConnectionDialog state={connections} />
       {connections.manageDialog &&
         (() => {

@@ -11,10 +11,6 @@
  * or schema are blocked outright, in every mode.
  */
 
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-
 import Anthropic from '@anthropic-ai/sdk'
 import { ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
@@ -41,7 +37,8 @@ import type {
   AgentSendRequest,
   AgentTargetRef
 } from '../shared/agent'
-import { AGENT_MODELS, API_KEY_VAR, resolveAgentMode } from '../shared/agent'
+import { AGENT_MODELS, resolveAgentMode } from '../shared/agent'
+import { apiKeyVarName, loadApiKey } from './settings'
 import { callMcpTool, mcpToolsForTurn } from './mcp'
 import type { McpAgentTool } from './mcp'
 import {
@@ -98,33 +95,6 @@ const KNOWLEDGE_SEARCH_MAX_HITS = 20
 const KNOWLEDGE_HIT_MAX_CHARS = 1_000
 /** Cap on web searches the model may run in a single turn. */
 const WEB_SEARCH_MAX_USES = 5
-
-interface KeyInfo {
-  key: string | null
-  source: 'zshrc' | 'env' | null
-}
-
-function readKeyFromZshrc(): string | null {
-  try {
-    const text = readFileSync(join(homedir(), '.zshrc'), 'utf8')
-    const re = new RegExp(`^\\s*(?:export\\s+)?${API_KEY_VAR}\\s*=\\s*["']?([^"'\\s#]+)`, 'gm')
-    let match: RegExpExecArray | null
-    let last: string | null = null
-    while ((match = re.exec(text)) !== null) last = match[1]
-    return last
-  } catch {
-    return null
-  }
-}
-
-/** Re-read on every call so edits to ~/.zshrc apply without an app restart. */
-function loadKey(): KeyInfo {
-  const fromFile = readKeyFromZshrc()
-  if (fromFile) return { key: fromFile, source: 'zshrc' }
-  const fromEnv = process.env[API_KEY_VAR]
-  if (fromEnv) return { key: fromEnv, source: 'env' }
-  return { key: null, source: null }
-}
 
 interface ChatState {
   messages: Anthropic.MessageParam[]
@@ -2287,12 +2257,12 @@ async function runAgentTurn(
   req: AgentSendRequest,
   send: Sender
 ): Promise<void> {
-  const { key } = loadKey()
+  const { key } = loadApiKey()
   if (!key) {
     send({
       type: 'error',
       chatId: req.chatId,
-      message: `No API key found. Add \`export ${API_KEY_VAR}=...\` to ~/.zshrc and try again.`
+      message: `No API key found. Add one in Settings, or add \`export ${apiKeyVarName()}=...\` to ~/.zshrc and try again.`
     })
     return
   }
@@ -2609,11 +2579,11 @@ async function compactChat(
   chatId: string,
   modelId: string
 ): Promise<AgentCompactResult> {
-  const { key } = loadKey()
+  const { key } = loadApiKey()
   if (!key) {
     return {
       ok: false,
-      error: `No API key found. Add \`export ${API_KEY_VAR}=...\` to ~/.zshrc and try again.`
+      error: `No API key found. Add one in Settings, or add \`export ${apiKeyVarName()}=...\` to ~/.zshrc and try again.`
     }
   }
   const chat = chats.get(chatId)
@@ -2755,8 +2725,8 @@ export function registerAgentHandlers(
   }
 
   ipcMain.handle('agent:keyStatus', (): AgentKeyStatus => {
-    const { key, source } = loadKey()
-    return { found: key !== null, source }
+    const { key, source } = loadApiKey()
+    return { found: key !== null, source, varName: apiKeyVarName() }
   })
 
   ipcMain.handle('agent:send', async (_event, req: AgentSendRequest) => {

@@ -14,17 +14,12 @@
  * no Electron imports so the pure fallback stays trivially unit-testable.
  */
 
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-
 import Anthropic from '@anthropic-ai/sdk'
 
 import { introspectDatabase } from './db'
 import type { ColumnRef } from '../shared/knowledge'
 import { normalizeColumnKey } from '../shared/knowledge'
 import type { DatabaseIntrospection, DbResult } from '../shared/db'
-import { API_KEY_VAR } from '../shared/agent'
 
 /** Cap on refs any single extraction yields, guarding against pathological SQL. */
 const MAX_REFERENCES = 200
@@ -219,22 +214,16 @@ export function matchReferencesInSql(
   return result
 }
 
-/** Re-read on every call so edits to ~/.zshrc apply without an app restart. */
-function loadApiKey(): string | null {
-  try {
-    const text = readFileSync(join(homedir(), '.zshrc'), 'utf8')
-    const re = new RegExp(
-      `^\\s*(?:export\\s+)?${API_KEY_VAR}\\s*=\\s*["']?([^"'\\s#]+)`,
-      'gm'
-    )
-    let match: RegExpExecArray | null
-    let last: string | null = null
-    while ((match = re.exec(text)) !== null) last = match[1]
-    if (last) return last
-  } catch {
-    // No ~/.zshrc, or unreadable — fall through to the environment.
-  }
-  return process.env[API_KEY_VAR] ?? null
+/**
+ * Injected by main/index.ts at startup with the settings-backed resolver
+ * (stored key → ~/.zshrc → environment). A module-level seam rather than an
+ * import so this module keeps no Electron dependency (see header). Until
+ * injection, no key resolves and extraction uses the text-matching fallback.
+ */
+let loadApiKey: () => string | null = () => null
+
+export function setExemplarApiKeyLoader(loader: () => string | null): void {
+  loadApiKey = loader
 }
 
 /** Compact "schema.table: col, col" listing, capped, for the extraction prompt. */
