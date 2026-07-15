@@ -31,7 +31,12 @@ import type {
   TestResult
 } from '../../shared/db'
 import { applyAutoLimit, classifyStatement, splitStatements } from '../../shared/sql'
-import type { Driver, RunQueryOptions } from './types'
+import type {
+  ConnectOptions,
+  Driver,
+  IntrospectOptions,
+  RunQueryOptions
+} from './types'
 import { WRITE_REQUIRED_CODE } from './types'
 
 const CONNECT_TIMEOUT_MS = 15_000
@@ -287,30 +292,89 @@ function firstColumnValues(rows: Record<string, unknown>[]): string[] {
     .map(String)
 }
 
+/**
+ * Applies schema pinning to a catalog's schema-name listing. With a pinned
+ * list, keeps only those names (a pinned catalog never prompts, whatever its
+ * size). Without one, flags needsSelection when the catalog exceeds
+ * maxUnpinned so callers return the names for the picker instead of
+ * introspecting everything. Exported for unit tests.
+ */
+export function resolveSchemaListing(
+  names: string[],
+  allowed: string[] | null,
+  maxUnpinned: number | undefined
+): { schemas: string[]; needsSelection: boolean; availableCount: number } {
+  if (allowed) {
+    const allowedSet = new Set(allowed)
+    return {
+      schemas: names.filter((name) => allowedSet.has(name)),
+      needsSelection: false,
+      availableCount: names.length
+    }
+  }
+  if (maxUnpinned !== undefined && names.length > maxUnpinned) {
+    return { schemas: [], needsSelection: true, availableCount: names.length }
+  }
+  return { schemas: names, needsSelection: false, availableCount: names.length }
+}
+
+/** ` AND <column> IN ('a', 'b')` fragment for a pinned schema list. */
+function schemaInFilter(column: string, schemas: string[]): string {
+  if (schemas.length === 0) return ' AND false' // IN () is invalid SQL
+  return ` AND ${column} IN (${schemas.map(quoteLiteral).join(', ')})`
+}
+
 async function introspectViaInformationSchema(
   session: IDBSQLSession,
-  catalog: string
+  catalog: string,
+  options: IntrospectOptions = {}
 ): Promise<DatabaseIntrospection> {
   const info = `${quoteIdent(catalog)}.information_schema`
 
-  const [schemaRes, tableRes, colRes] = [
-    await exec(
-      session,
-      `SELECT schema_name FROM ${info}.schemata
-        WHERE schema_name <> 'information_schema'
-        ORDER BY schema_name`
-    ),
+  const schemaRes = await exec(
+    session,
+    `SELECT schema_name FROM ${info}.schemata
+      WHERE schema_name <> 'information_schema'
+      ORDER BY schema_name`
+  )
+  const schemaNames = firstColumnValues(schemaRes.rows)
+  const listing = resolveSchemaListing(
+    schemaNames,
+    options.allowedSchemas ?? null,
+    options.maxUnpinnedSchemas
+  )
+  if (listing.needsSelection) {
+    return {
+      name: catalog,
+      schemas: [],
+      availableSchemaCount: listing.availableCount,
+      needsSchemaSelection: true,
+      availableSchemas: schemaNames
+    }
+  }
+  const pinned = options.allowedSchemas != null
+  if (pinned && listing.schemas.length === 0) {
+    // Pinned selection matches nothing (e.g. schemas were dropped since).
+    return {
+      name: catalog,
+      schemas: [],
+      availableSchemaCount: listing.availableCount
+    }
+  }
+  const relFilter = pinned ? schemaInFilter('table_schema', listing.schemas) : ''
+
+  const [tableRes, colRes] = [
     await exec(
       session,
       `SELECT table_schema, table_name, table_type FROM ${info}.tables
-        WHERE table_schema <> 'information_schema'
+        WHERE table_schema <> 'information_schema'${relFilter}
         ORDER BY table_schema, table_name`
     ),
     await exec(
       session,
       `SELECT table_schema, table_name, column_name, full_data_type
          FROM ${info}.columns
-        WHERE table_schema <> 'information_schema'
+        WHERE table_schema <> 'information_schema'${relFilter}
         ORDER BY table_schema, table_name, ordinal_position`
     )
   ]
@@ -354,7 +418,7 @@ async function introspectViaInformationSchema(
   }
 
   const schemas = new Map<string, SchemaIntrospection>()
-  for (const name of firstColumnValues(schemaRes.rows)) {
+  for (const name of listing.schemas) {
     schemas.set(name, emptySchema(name))
   }
 
@@ -378,7 +442,9 @@ async function introspectViaInformationSchema(
     const procRes = await exec(
       session,
       `SELECT routine_schema, routine_name, data_type FROM ${info}.routines
-        WHERE routine_schema <> 'information_schema'
+        WHERE routine_schema <> 'information_schema'${
+          pinned ? schemaInFilter('routine_schema', listing.schemas) : ''
+        }
         ORDER BY routine_schema, routine_name`
     )
     for (const row of procRes.rows) {
@@ -392,7 +458,11 @@ async function introspectViaInformationSchema(
     // routines listing unavailable on this catalog
   }
 
-  return { name: catalog, schemas: [...schemas.values()] }
+  return {
+    name: catalog,
+    schemas: [...schemas.values()],
+    ...(pinned ? { availableSchemaCount: listing.availableCount } : {})
+  }
 }
 
 /**
@@ -402,7 +472,8 @@ async function introspectViaInformationSchema(
  */
 async function introspectViaShow(
   session: IDBSQLSession,
-  catalog: string
+  catalog: string,
+  options: IntrospectOptions = {}
 ): Promise<DatabaseIntrospection> {
   const showSchemas = await exec(
     session,
@@ -411,8 +482,22 @@ async function introspectViaShow(
   const names = firstColumnValues(showSchemas.rows).filter(
     (name) => name !== 'information_schema'
   )
+  const listing = resolveSchemaListing(
+    names,
+    options.allowedSchemas ?? null,
+    options.maxUnpinnedSchemas
+  )
+  if (listing.needsSelection) {
+    return {
+      name: catalog,
+      schemas: [],
+      availableSchemaCount: listing.availableCount,
+      needsSchemaSelection: true,
+      availableSchemas: names
+    }
+  }
   const schemas: SchemaIntrospection[] = []
-  for (const name of names.slice(0, FALLBACK_SCHEMA_LIMIT)) {
+  for (const name of listing.schemas.slice(0, FALLBACK_SCHEMA_LIMIT)) {
     const schema = emptySchema(name)
     try {
       const showTables = await exec(
@@ -435,17 +520,24 @@ async function introspectViaShow(
     }
     schemas.push(schema)
   }
-  return { name: catalog, schemas }
+  return {
+    name: catalog,
+    schemas,
+    ...(options.allowedSchemas != null
+      ? { availableSchemaCount: listing.availableCount }
+      : {})
+  }
 }
 
 async function introspectCatalog(
   session: IDBSQLSession,
-  catalog: string
+  catalog: string,
+  options: IntrospectOptions = {}
 ): Promise<DatabaseIntrospection> {
   try {
-    return await introspectViaInformationSchema(session, catalog)
+    return await introspectViaInformationSchema(session, catalog, options)
   } catch {
-    return introspectViaShow(session, catalog)
+    return introspectViaShow(session, catalog, options)
   }
 }
 
@@ -499,7 +591,8 @@ async function test(params: ConnectParams): Promise<DbResult<TestResult>> {
 
 async function connect(
   connId: string,
-  params: ConnectParams
+  params: ConnectParams,
+  options: ConnectOptions = {}
 ): Promise<DbResult<ConnectResult>> {
   if (connections.has(connId)) {
     return { ok: false, error: `Connection "${connId}" already exists` }
@@ -525,7 +618,10 @@ async function connect(
       catalogs = [catalog]
     }
 
-    const connectedDatabase = await introspectCatalog(session, catalog)
+    const connectedDatabase = await introspectCatalog(session, catalog, {
+      allowedSchemas: options.schemaSelectionFor?.(catalog) ?? null,
+      maxUnpinnedSchemas: options.maxUnpinnedSchemas
+    })
     connections.set(connId, {
       params,
       client,
@@ -564,13 +660,59 @@ function getServerVersion(connId: string): string | null {
 
 async function introspectDatabase(
   connId: string,
-  database: string
+  database: string,
+  options: IntrospectOptions = {}
 ): Promise<DbResult<DatabaseIntrospection>> {
   const managed = connections.get(connId)
   if (!managed) return { ok: false, error: 'Connection no longer exists' }
   try {
     const session = await sessionFor(managed, database)
-    return { ok: true, data: await introspectCatalog(session, database) }
+    return { ok: true, data: await introspectCatalog(session, database, options) }
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) }
+  }
+}
+
+/** Schema names of one catalog, cheaply (no tables/columns). */
+async function listSchemas(
+  connId: string,
+  database: string
+): Promise<DbResult<string[]>> {
+  const managed = connections.get(connId)
+  if (!managed) return { ok: false, error: 'Connection no longer exists' }
+  try {
+    const session = await sessionFor(managed, database)
+    try {
+      const res = await exec(
+        session,
+        `SELECT schema_name FROM ${quoteIdent(database)}.information_schema.schemata
+          WHERE schema_name <> 'information_schema'
+          ORDER BY schema_name`
+      )
+      return { ok: true, data: firstColumnValues(res.rows) }
+    } catch {
+      // Legacy catalogs without information_schema (hive_metastore).
+      const res = await exec(session, `SHOW SCHEMAS IN ${quoteIdent(database)}`)
+      return {
+        ok: true,
+        data: firstColumnValues(res.rows).filter(
+          (name) => name !== 'information_schema'
+        )
+      }
+    }
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) }
+  }
+}
+
+/** All catalogs reachable from this connection. */
+async function listCatalogs(connId: string): Promise<DbResult<string[]>> {
+  const managed = connections.get(connId)
+  if (!managed) return { ok: false, error: 'Connection no longer exists' }
+  try {
+    const session = await sessionFor(managed, managed.catalog)
+    const res = await exec(session, 'SHOW CATALOGS')
+    return { ok: true, data: firstColumnValues(res.rows) }
   } catch (err) {
     return { ok: false, error: errorMessage(err) }
   }
@@ -667,7 +809,8 @@ function splitQualifiedName(input: string): string[] {
 async function describeTable(
   connId: string,
   database: string,
-  relationName: string
+  relationName: string,
+  allowedSchemas?: string[] | null
 ): Promise<DbResult<string>> {
   const managed = connections.get(connId)
   if (!managed) return { ok: false, error: 'Connection no longer exists' }
@@ -693,13 +836,29 @@ async function describeTable(
         const res = await exec(
           session,
           `SELECT table_schema FROM ${quoteIdent(catalog)}.information_schema.tables
-            WHERE lower(table_name) = ${quoteLiteral(table.toLowerCase())}
+            WHERE lower(table_name) = ${quoteLiteral(table.toLowerCase())}${
+              allowedSchemas ? schemaInFilter('table_schema', allowedSchemas) : ''
+            }
             ORDER BY (table_schema = 'default') DESC, table_schema
             LIMIT 1`
         )
         if (res.rows.length > 0) schema = String(res.rows[0].table_schema)
       } catch {
         // fall through: DESCRIBE against the session's current schema
+      }
+    }
+
+    // Schema pinning applies within the connection's own catalog; a
+    // cross-catalog describe is out of the pinned catalog's scope anyway.
+    if (
+      allowedSchemas &&
+      catalog === database &&
+      schema !== null &&
+      !allowedSchemas.includes(schema)
+    ) {
+      return {
+        ok: true,
+        data: `Schema "${schema}" is not in this connection's pinned schemas.`
       }
     }
 
@@ -741,7 +900,8 @@ async function describeTable(
 async function searchSchema(
   connId: string,
   database: string,
-  pattern: string
+  pattern: string,
+  allowedSchemas?: string[] | null
 ): Promise<DbResult<string>> {
   const managed = connections.get(connId)
   if (!managed) return { ok: false, error: 'Connection no longer exists' }
@@ -749,13 +909,16 @@ async function searchSchema(
     `%${pattern.toLowerCase().replace(/([%_\\])/g, '\\$1')}%`
   )
   const info = `${quoteIdent(database)}.information_schema`
+  const relFilter = allowedSchemas
+    ? schemaInFilter('table_schema', allowedSchemas)
+    : ''
   try {
     const session = await sessionFor(managed, database)
     const relRes = await exec(
       session,
       `SELECT table_schema, table_name, table_type FROM ${info}.tables
         WHERE lower(table_name) LIKE ${like}
-          AND table_schema <> 'information_schema'
+          AND table_schema <> 'information_schema'${relFilter}
         ORDER BY table_schema, table_name
         LIMIT ${SEARCH_RESULT_LIMIT + 1}`
     )
@@ -764,7 +927,7 @@ async function searchSchema(
       `SELECT table_schema, table_name, column_name, full_data_type
          FROM ${info}.columns
         WHERE lower(column_name) LIKE ${like}
-          AND table_schema <> 'information_schema'
+          AND table_schema <> 'information_schema'${relFilter}
         ORDER BY table_schema, table_name, ordinal_position
         LIMIT ${SEARCH_RESULT_LIMIT + 1}`
     )
@@ -773,7 +936,11 @@ async function searchSchema(
       const procRes = await exec(
         session,
         `SELECT routine_schema, routine_name FROM ${info}.routines
-          WHERE lower(routine_name) LIKE ${like}
+          WHERE lower(routine_name) LIKE ${like}${
+            allowedSchemas
+              ? schemaInFilter('routine_schema', allowedSchemas)
+              : ''
+          }
           ORDER BY routine_schema, routine_name
           LIMIT ${SEARCH_RESULT_LIMIT + 1}`
       )
@@ -836,5 +1003,7 @@ export const databricksDriver: Driver = {
   introspectDatabase,
   runQuery,
   describeTable,
-  searchSchema
+  searchSchema,
+  listSchemas,
+  listCatalogs
 }

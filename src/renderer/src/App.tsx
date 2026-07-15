@@ -16,6 +16,7 @@ import type { EditorBridge } from './components/editorBridge'
 import { useQueryRunner } from './components/useQueryRunner'
 import type { QueryTarget } from './components/useQueryRunner'
 import { ConnectionPanel } from './connections/ConnectionPanel'
+import { ManageObjectsDialog } from './connections/ManageObjectsDialog'
 import { NewConnectionDialog } from './connections/NewConnectionDialog'
 import { useConnectionState } from './connections/useConnectionState'
 import { useTheme } from './theme'
@@ -373,6 +374,31 @@ export function App(): ReactElement {
         queryTarget={queryStatus.target}
       />
       <NewConnectionDialog state={connections} />
+      {connections.manageDialog &&
+        (() => {
+          const dialog = connections.manageDialog
+          const conn = connections.tree.find((node) => node.id === dialog.connId)
+          const connName = conn?.label ?? dialog.connId
+          return (
+            <ManageObjectsDialog
+              title={dialog.kind === 'schemas' ? 'Manage Schemas' : 'Manage Catalogs'}
+              subtitle={
+                dialog.kind === 'schemas'
+                  ? `catalog ${dialog.catalog} on ${connName}`
+                  : connName
+              }
+              noun={dialog.kind}
+              items={dialog.available}
+              initialSelected={dialog.selected}
+              lockedItem={
+                dialog.kind === 'catalogs' ? conn?.connectedDatabase : undefined
+              }
+              error={dialog.error}
+              onSubmit={connections.saveManageSelection}
+              onClose={connections.closeManageDialog}
+            />
+          )
+        })()}
     </div>
   )
 }

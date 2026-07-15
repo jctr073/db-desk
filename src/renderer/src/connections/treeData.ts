@@ -284,15 +284,17 @@ export function connectionNodeFromResult(
     label: connectionLabel(saved),
     subtitle: connectionSubtitle(saved, saved.useUrl),
     connectionType: saved.type,
+    connectedDatabase: connected.name,
     status: 'online',
     children: names.map((name) =>
-      name === connected.name
+      name === connected.name && !connected.needsSchemaSelection
         ? {
             id: '',
             kind: 'database' as const,
             key: name,
             label: name,
-            children: databaseChildren(connected, saved.type)
+            children: databaseChildren(connected, saved.type),
+            ...schemaCounts(connected)
           }
         : {
             id: '',
@@ -307,6 +309,19 @@ export function connectionNodeFromResult(
   return conn
 }
 
+/** "N of M" badge fields for a database whose schema set was pinned down. */
+export function schemaCounts(
+  db: DatabaseIntrospection
+): Pick<TreeNode, 'pinnedSchemaCount' | 'totalSchemaCount'> {
+  if (db.availableSchemaCount == null || db.availableSchemaCount <= db.schemas.length) {
+    return {}
+  }
+  return {
+    pinnedSchemaCount: db.schemas.length,
+    totalSchemaCount: db.availableSchemaCount
+  }
+}
+
 /** Expand a new connection down to the connected database's tables. */
 export function defaultExpansion(
   conn: TreeNode,
@@ -314,7 +329,9 @@ export function defaultExpansion(
 ): Record<string, boolean> {
   const out: Record<string, boolean> = { [conn.id]: true }
   const db = conn.children?.find((child) => child.key === connectedDb)
-  if (!db) return out
+  // A connected database can come back unloaded (schema selection pending);
+  // expanding its empty node would just render a bare row.
+  if (!db?.children) return out
   out[db.id] = true
   // Land on the engine's conventional starter schema when present.
   const schema =

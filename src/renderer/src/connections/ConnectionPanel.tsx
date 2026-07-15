@@ -409,6 +409,23 @@ export function ConnectionPanel({
                 >
                   New Query File
                 </button>
+                {state.tree.find(
+                  (node) => node.id === menu.nodeId.split('/')[0]
+                )?.connectionType === 'databricks' && (
+                  <button
+                    className="ctx-menu__item"
+                    role="menuitem"
+                    onClick={() => {
+                      state.openManageSchemas(
+                        menu.nodeId.split('/')[0],
+                        menuNode.label
+                      )
+                      setMenu(null)
+                    }}
+                  >
+                    Manage Schemas…
+                  </button>
+                )}
                 <div className="ctx-menu__sep" />
               </>
             )}
@@ -441,6 +458,18 @@ export function ConnectionPanel({
                     >
                       Refresh
                     </button>
+                    {menuNode.connectionType === 'databricks' && (
+                      <button
+                        className="ctx-menu__item"
+                        role="menuitem"
+                        onClick={() => {
+                          state.openManageCatalogs(menu.nodeId)
+                          setMenu(null)
+                        }}
+                      >
+                        Manage Catalogs…
+                      </button>
+                    )}
                     <button
                       className="ctx-menu__item"
                       role="menuitem"

@@ -30,9 +30,39 @@ export interface RunQueryOptions {
   onCancel?: (cancel: () => void) => void
 }
 
+/**
+ * Schema pinning, honoured by multi-database drivers (Databricks) and
+ * ignored by single-database ones (PostgreSQL never receives it — the
+ * facade only builds options for engines with a saved selection).
+ */
+export interface IntrospectOptions {
+  /** Introspect only these schemas; null/absent = all. */
+  allowedSchemas?: string[] | null
+  /**
+   * With no pinning in effect, skip introspection when the database has
+   * more schemas than this; the result comes back with
+   * needsSchemaSelection set and availableSchemas listing the names.
+   */
+  maxUnpinnedSchemas?: number
+}
+
+export interface ConnectOptions {
+  /**
+   * Saved schema pinning, looked up by database name. A callback because
+   * the driver only learns which catalog it actually connected to after
+   * the session resolves (e.g. current_catalog()).
+   */
+  schemaSelectionFor?: (database: string) => string[] | null
+  maxUnpinnedSchemas?: number
+}
+
 export interface Driver {
   test(params: ConnectParams): Promise<DbResult<TestResult>>
-  connect(connId: string, params: ConnectParams): Promise<DbResult<ConnectResult>>
+  connect(
+    connId: string,
+    params: ConnectParams,
+    options?: ConnectOptions
+  ): Promise<DbResult<ConnectResult>>
   disconnect(connId: string): Promise<DbResult<null>>
   disconnectAll(): Promise<void>
   /** Server version captured at connect time; null when the connection is gone. */
@@ -46,7 +76,8 @@ export interface Driver {
    */
   introspectDatabase(
     connId: string,
-    database: string
+    database: string,
+    options?: IntrospectOptions
   ): Promise<DbResult<DatabaseIntrospection>>
   /** See introspectDatabase for how `database` is interpreted per engine. */
   runQuery(
@@ -63,7 +94,8 @@ export interface Driver {
   describeTable(
     connId: string,
     database: string,
-    relationName: string
+    relationName: string,
+    allowedSchemas?: string[] | null
   ): Promise<DbResult<string>>
   /**
    * Case-insensitive name search over relations/columns/functions, as text.
@@ -72,8 +104,15 @@ export interface Driver {
   searchSchema(
     connId: string,
     database: string,
-    pattern: string
+    pattern: string,
+    allowedSchemas?: string[] | null
   ): Promise<DbResult<string>>
+  /**
+   * Cheap name-only listings for the schema/catalog pickers. Optional —
+   * only multi-database engines implement them.
+   */
+  listSchemas?(connId: string, database: string): Promise<DbResult<string[]>>
+  listCatalogs?(connId: string): Promise<DbResult<string[]>>
 }
 
 /** Error code drivers return when readOnly mode blocked a write statement. */

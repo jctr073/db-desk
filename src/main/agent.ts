@@ -171,6 +171,27 @@ function schemaCacheKey(target: AgentTargetRef): string {
   return `${target.connId}/${target.database}`
 }
 
+/**
+ * Drop cached schema summaries for a connection (one database, or all of
+ * them when omitted). Called when the user changes a schema/catalog
+ * selection so the agent's next turn reflects the new pinning without
+ * waiting for agent:reset.
+ */
+export function invalidateAgentSchemaCache(
+  connId: string,
+  database?: string
+): void {
+  const match = (key: string): boolean =>
+    database !== undefined
+      ? key === `${connId}/${database}`
+      : key.startsWith(`${connId}/`)
+  for (const cache of [schemaCache, introspectionCache]) {
+    for (const key of [...cache.keys()]) {
+      if (match(key)) cache.delete(key)
+    }
+  }
+}
+
 type ColumnLike = {
   name: string
   dataType: string
