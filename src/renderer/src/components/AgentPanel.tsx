@@ -870,6 +870,12 @@ export function AgentPanel({
     }
   }, [knowledgeNav])
 
+  // The target and access mode belong to the agent, not the sibling tools.
+  // Close the mode popover when leaving the chat so it does not reopen later.
+  useEffect(() => {
+    if (activeTab !== 'agent') setModeOpen(false)
+  }, [activeTab])
+
   // Escape dismisses whichever popover is open.
   useEffect(() => {
     if (!modelOpen && !pickerOpen && !modeOpen && !historyOpen) return
@@ -1447,70 +1453,72 @@ export function AgentPanel({
           <PlusThinIcon />
         </button>
       </div>
-      <div className="agent-target-row">
-        {activeTarget ? (
-          <span
-            className="ctx-chip"
-            title="The agent follows the app's active connection"
-          >
-            <span className="ctx-chip__lock">
-              <LockIcon />
+      {activeTab === 'agent' && (
+        <div className="agent-target-row">
+          {activeTarget ? (
+            <span
+              className="ctx-chip"
+              title="The agent follows the app's active connection"
+            >
+              <span className="ctx-chip__lock">
+                <LockIcon />
+              </span>
+              <span className="ctx-chip__dot" />
+              <span className="ctx-chip__name">{activeTarget.connName}</span>
+              <span className="ctx-chip__db">/ {activeTarget.database}</span>
             </span>
-            <span className="ctx-chip__dot" />
-            <span className="ctx-chip__name">{activeTarget.connName}</span>
-            <span className="ctx-chip__db">/ {activeTarget.database}</span>
-          </span>
-        ) : (
-          <span className="ctx-chip ctx-chip--bare">No connection</span>
-        )}
-        <span className="agent-target-row__hint">follows app context</span>
-        <span className="agent-target-row__spacer" />
-        <div className="mode-ctl">
-          <button
-            type="button"
-            className="model-pill"
-            title="Agent access mode"
-            onClick={() => setModeOpen((open) => !open)}
-          >
-            <ShieldIcon size={12} />
-            <span className="model-pill__name">{modeOption.label}</span>
-            <ChevronDownIcon size={10} />
-          </button>
-          {modeOpen && (
-            <>
-              <div
-                className="ctx-overlay"
-                onMouseDown={() => setModeOpen(false)}
-              />
-              <div className="model-pop mode-pop">
-                {AGENT_MODES.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    className={`model-pop__row mode-pop__row${m.id === mode ? ' is-active' : ''}`}
-                    disabled={!m.enabled}
-                    title={
-                      m.id === 'write-admin'
-                        ? 'Structure and data changes by the agent are disabled in this version.'
-                        : undefined
-                    }
-                    onClick={() => pickMode(m)}
-                  >
-                    <span className="mode-pop__text">
-                      <span className="mode-pop__label">{m.label}</span>
-                      <span className="mode-pop__desc">{m.description}</span>
-                    </span>
-                    {m.id === mode && <CheckIcon size={13} />}
-                  </button>
-                ))}
-                <div className="mode-pop__note">
-                  For maximum safety, connect with a read-only database role.
-                </div>
-              </div>
-            </>
+          ) : (
+            <span className="ctx-chip ctx-chip--bare">No connection</span>
           )}
+          <span className="agent-target-row__hint">follows app context</span>
+          <span className="agent-target-row__spacer" />
+          <div className="mode-ctl">
+            <button
+              type="button"
+              className="model-pill"
+              title="Agent access mode"
+              onClick={() => setModeOpen((open) => !open)}
+            >
+              <ShieldIcon size={12} />
+              <span className="model-pill__name">{modeOption.label}</span>
+              <ChevronDownIcon size={10} />
+            </button>
+            {modeOpen && (
+              <>
+                <div
+                  className="ctx-overlay"
+                  onMouseDown={() => setModeOpen(false)}
+                />
+                <div className="model-pop mode-pop">
+                  {AGENT_MODES.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className={`model-pop__row mode-pop__row${m.id === mode ? ' is-active' : ''}`}
+                      disabled={!m.enabled}
+                      title={
+                        m.id === 'write-admin'
+                          ? 'Structure and data changes by the agent are disabled in this version.'
+                          : undefined
+                      }
+                      onClick={() => pickMode(m)}
+                    >
+                      <span className="mode-pop__text">
+                        <span className="mode-pop__label">{m.label}</span>
+                        <span className="mode-pop__desc">{m.description}</span>
+                      </span>
+                      {m.id === mode && <CheckIcon size={13} />}
+                    </button>
+                  ))}
+                  <div className="mode-pop__note">
+                    For maximum safety, connect with a read-only database role.
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
       {activeTab === 'files' ? (
         <FilesPanel
           files={files}
