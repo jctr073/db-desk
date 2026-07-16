@@ -505,6 +505,21 @@ export function FolderIcon({ size = 14 }: IconProps): ReactElement {
   )
 }
 
+export function LockIcon({ size = 11 }: IconProps): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      {...strokeBase}
+      strokeWidth={1.5}
+    >
+      <rect x="3.5" y="7" width="9" height="6" rx="1" />
+      <path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" />
+    </svg>
+  )
+}
+
 export function DatabaseIcon({ size = 18 }: IconProps): ReactElement {
   return (
     <svg

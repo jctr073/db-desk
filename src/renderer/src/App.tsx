@@ -19,6 +19,7 @@ import type { QueryTarget } from './components/useQueryRunner'
 import { ConnectionPanel } from './connections/ConnectionPanel'
 import { ManageObjectsDialog } from './connections/ManageObjectsDialog'
 import { NewConnectionDialog } from './connections/NewConnectionDialog'
+import { connAccents } from './connections/connColors'
 import { useConnectionState } from './connections/useConnectionState'
 import { useTheme } from './theme'
 import { useFileState } from './files/useFileState'
@@ -107,9 +108,8 @@ export function App(): ReactElement {
     }))
   }, [])
 
-  // The editor panel feeds the app-wide status bar: the connection its
-  // active tab runs against, and the active result's summary.
-  const [activeTarget, setActiveTarget] = useState<QueryTarget | null>(null)
+  // The results panel feeds the app-wide status bar with the active result's
+  // summary; the connection half comes from the unified active context.
   const [queryStatus, setQueryStatus] = useState({ text: '', target: '' })
   const onQueryStatus = useCallback((text: string, target: string) => {
     setQueryStatus((prev) =>
@@ -173,13 +173,38 @@ export function App(): ReactElement {
     return out
   }, [connections.tree])
 
+  /** Stable accent color per connection, in tree order (unified context UI). */
+  const accents = useMemo(
+    () => connAccents(connections.tree.map((node) => node.id)),
+    [connections.tree]
+  )
+
+  // The unified active context: one connection drives the whole app. Every
+  // panel is scoped to its targets; its accent color tints the chrome.
+  const activeConnId = connections.activeConnId
+  const activeTargets = useMemo(
+    () => targets.filter((t) => t.connId === activeConnId),
+    [targets, activeConnId]
+  )
+  const activeConnNode = activeConnId
+    ? (connections.tree.find((node) => node.id === activeConnId) ?? null)
+    : null
+  /** The active connection + the database it was opened against. */
+  const activeTarget: QueryTarget | null =
+    activeTargets.find(
+      (t) => t.database === activeConnNode?.connectedDatabase
+    ) ??
+    activeTargets.find((t) => t.primary) ??
+    activeTargets[0] ??
+    null
+  const activeAccent = activeConnId ? accents.get(activeConnId) : undefined
+
   // Query files used to be creatable without a connection, which stranded them
-  // in a group of their own. Re-home any leftovers on the first live target.
+  // in a group of their own. Re-home any leftovers on the active context.
   const adoptOrphans = files.adoptOrphans
   useEffect(() => {
-    const target = targets.find((t) => t.primary) ?? targets[0]
-    if (target) adoptOrphans(target.connId, target.database)
-  }, [targets, files.files, adoptOrphans])
+    if (activeTarget) adoptOrphans(activeTarget.connId, activeTarget.database)
+  }, [activeTarget, files.files, adoptOrphans])
 
   const openDataPreview = useCallback(
     (item: AgentDbObjectItem) => {
@@ -208,23 +233,26 @@ export function App(): ReactElement {
     return out
   }, [connections.tree])
 
-  // Which (connection, database) the knowledge tab looks at. Owned here so
-  // the connections tree can show knowledge badges for the same target.
+  // Which (connection, database) the knowledge tab looks at. Follows the
+  // unified context: always a database on the active connection.
   const [knTargetKey, setKnTargetKey] = useState<string | null>(null)
   useEffect(() => {
     if (
       knTargetKey &&
-      targets.some((t) => knowledgeTargetKeyOf(t.connId, t.database) === knTargetKey)
+      activeTargets.some(
+        (t) => knowledgeTargetKeyOf(t.connId, t.database) === knTargetKey
+      )
     ) {
       return
     }
-    const fallback = targets.find((t) => t.primary) ?? targets[0]
     setKnTargetKey(
-      fallback ? knowledgeTargetKeyOf(fallback.connId, fallback.database) : null
+      activeTarget
+        ? knowledgeTargetKeyOf(activeTarget.connId, activeTarget.database)
+        : null
     )
-  }, [targets, knTargetKey])
+  }, [activeTargets, activeTarget, knTargetKey])
   const knTarget =
-    targets.find(
+    activeTargets.find(
       (t) => knowledgeTargetKeyOf(t.connId, t.database) === knTargetKey
     ) ?? null
 
@@ -310,8 +338,35 @@ export function App(): ReactElement {
   }, [title])
 
   return (
-    <div className="app">
-      <div className="titlebar">DB Desk</div>
+    <div
+      className={`app${activeTarget ? ' has-active-conn' : ''}`}
+      style={
+        {
+          '--conn-accent': activeAccent?.hex ?? 'var(--accent)',
+          '--conn-accent-rgb': activeAccent?.rgb ?? 'var(--accent-rgb)'
+        } as CSSProperties
+      }
+    >
+      <div className="titlebar">
+        <span className="titlebar__app">DB Desk</span>
+        {activeTarget && (
+          <div className="titlebar__center">
+            <div
+              className="titlebar-pill"
+              title={`Active context — every panel targets ${activeTarget.connName} / ${activeTarget.database}`}
+            >
+              <span className="titlebar-pill__dot" />
+              <span className="titlebar-pill__name">
+                {activeTarget.connName}
+              </span>
+              <span className="titlebar-pill__sep">/</span>
+              <span className="titlebar-pill__db">{activeTarget.database}</span>
+              <span className="titlebar-pill__divider" />
+              <span className="titlebar-pill__label">ACTIVE CONTEXT</span>
+            </div>
+          </div>
+        )}
+      </div>
       <div
         className="main-row"
         ref={mainRowRef}
@@ -324,6 +379,7 @@ export function App(): ReactElement {
       >
         <ConnectionPanel
           state={connections}
+          accents={accents}
           onNewQueryFile={(connId, database) => {
             files.createFile(connId, database)
           }}
@@ -342,7 +398,8 @@ export function App(): ReactElement {
         />
         <EditorPanel
           theme={theme}
-          targets={targets}
+          targets={activeTargets}
+          activeConnId={activeConnId}
           connNames={connNames}
           schemas={connections.schemas}
           ensureSchema={connections.ensureSchema}
@@ -350,7 +407,6 @@ export function App(): ReactElement {
           runner={runner}
           bridge={editorBridge}
           onQueryStatus={onQueryStatus}
-          onTargetChange={setActiveTarget}
           onAddAgentContext={addAgentContext}
           onAskAgent={askAgent}
         />
@@ -363,7 +419,8 @@ export function App(): ReactElement {
         <AgentPanel
           files={files}
           connNames={connNames}
-          targets={targets}
+          targets={activeTargets}
+          activeTarget={activeTarget}
           editorBridge={editorBridge}
           onAgentQuery={runner.showResult}
           onAgentTurnEnd={runner.finalizeAiRun}
@@ -385,7 +442,12 @@ export function App(): ReactElement {
         onOpenSettings={openSettings}
         connText={activeTarget ? `Connection · ${activeTarget.connName}` : ''}
         queryText={queryStatus.text}
-        queryTarget={queryStatus.target}
+        queryTarget={
+          queryStatus.target ||
+          (activeTarget
+            ? `${activeTarget.connName} / ${activeTarget.database}`
+            : '')
+        }
       />
       {settingsOpen && (
         <SettingsDialog

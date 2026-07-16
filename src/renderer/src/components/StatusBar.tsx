@@ -29,6 +29,7 @@ export function StatusBar({
       >
         <CogIcon size={15} />
       </button>
+      {connText && <span className="statusbar__dot" aria-hidden="true" />}
       {connText && <span className="statusbar__sel">{connText}</span>}
       {connText && queryText && (
         <span className="statusbar__divider" aria-hidden="true" />
