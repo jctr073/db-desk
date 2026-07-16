@@ -789,6 +789,7 @@ textarea {
   font-size: 12px;
 }
 .new-file-menu {
+  z-index: 61;
   min-width: 190px;
 }
 .new-file-menu__item {
