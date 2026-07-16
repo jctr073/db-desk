@@ -301,7 +301,11 @@ several bases (two services writing to one schema).
 The quickest way to manage links is the connection tree: right-click a schema
 and open the **Knowledge bases** submenu to check or uncheck bases for that
 schema, or create a new one — schemas with linked bases show the accent dot.
-The Knowledge tab's Manage menu offers the same linking through dialogs.
+The Knowledge tab's **Manage** button opens the **Manage Knowledge Bases**
+dialog: every base linked to the current database in a list, with the selected
+base's codebase, schema links (checkboxes per introspected schema), and
+rename/unlink/delete actions in the detail pane. New bases and links to
+existing bases are created from the same dialog.
 
 Choose a connection/database target — the list shows every linked base's
 records grouped under a header per base, or pick a single base in the dropdown
@@ -334,14 +338,15 @@ render as clickable chips that open the source record.
 
 Deleting a connection removes its links but never a knowledge base itself, so
 a base shared with other environments survives. Bases can be renamed, linked,
-unlinked, and deleted from the Knowledge tab.
+unlinked, and deleted from the Knowledge tab's Manage dialog.
 
 ## Attach and scan a codebase
 
-In Knowledge, use the folder control to attach a local source directory to a
-knowledge base. If it is a Git checkout, DB Desk also records the current short
-commit SHA. The agent then gains read-only tools to list, search, and read files
-inside that root.
+In the Manage Knowledge Bases dialog, use **Attach codebase…** to attach a
+local source directory to the selected knowledge base. If it is a Git checkout,
+DB Desk also records the current short commit SHA. The agent then gains
+read-only tools to list, search, and read files inside that root. Bases with an
+attached codebase show a folder icon in the dialog's list.
 
 Codebase access is sandboxed: paths cannot escape the selected directory,
 symlinks are not followed, conventional secret files are hidden, generated and
@@ -351,12 +356,13 @@ present.
 
 Use **Scan codebase** to have the agent inspect migrations, models, query code,
 and documentation and save verified findings to Knowledge. Use **Targeted
-scan…** to focus a later pass and reconcile it with existing records.
+scan…** to focus a later pass and reconcile it with existing records. Both run
+from the dialog's Codebase section, pinned to the selected base.
 
-> **Important:** the detach dialog offers two actions — detaching only the
-> codebase (knowledge kept) or also deleting the knowledge base, which removes
-> it from every connection it is linked to. The confirmation dialog describes
-> the affected base before continuing.
+> **Important:** **Detach…** offers two actions — detaching only the codebase
+> (knowledge kept) or also deleting the knowledge base, which removes it from
+> every connection it is linked to. The confirmation dialog describes the
+> affected base before continuing.
 
 ## Create and run skills
 
