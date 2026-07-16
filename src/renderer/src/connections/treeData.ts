@@ -273,9 +273,12 @@ export function connectionNodeFromResult(
   result: ConnectResult
 ): TreeNode {
   const connected = result.connectedDatabase
-  const names = result.databases.includes(connected.name)
-    ? result.databases
-    : [connected.name, ...result.databases]
+  const names =
+    saved.type === 'databricks'
+      ? result.databases
+      : result.databases.includes(connected.name)
+        ? result.databases
+        : [connected.name, ...result.databases]
 
   const conn: TreeNode = {
     id: '',

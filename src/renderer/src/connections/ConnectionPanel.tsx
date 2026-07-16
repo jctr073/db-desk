@@ -529,14 +529,14 @@ export function ConnectionPanel({
                     className="ctx-menu__item"
                     role="menuitem"
                     onClick={() => {
-                      state.openManageSchemas(
+                      state.openManageCatalogs(
                         menu.nodeId.split('/')[0],
                         menuNode.label
                       )
                       setMenu(null)
                     }}
                   >
-                    Manage Schemas…
+                    Manage Catalogs and Schemas…
                   </button>
                 )}
                 <div className="ctx-menu__sep" />
@@ -580,7 +580,7 @@ export function ConnectionPanel({
                           setMenu(null)
                         }}
                       >
-                        Manage Catalogs…
+                        Manage Catalogs and Schemas…
                       </button>
                     )}
                     <button

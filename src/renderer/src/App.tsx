@@ -402,19 +402,14 @@ export function App(): ReactElement {
           const connName = conn?.label ?? dialog.connId
           return (
             <ManageObjectsDialog
-              title={dialog.kind === 'schemas' ? 'Manage Schemas' : 'Manage Catalogs'}
-              subtitle={
-                dialog.kind === 'schemas'
-                  ? `catalog ${dialog.catalog} on ${connName}`
-                  : connName
-              }
-              noun={dialog.kind}
-              items={dialog.available}
-              initialSelected={dialog.selected}
-              lockedItem={
-                dialog.kind === 'catalogs' ? conn?.connectedDatabase : undefined
-              }
+              subtitle={connName}
+              catalogs={dialog.catalogs}
+              initialConfig={dialog.config}
+              schemaLists={dialog.schemaLists}
+              schemaErrors={dialog.schemaErrors}
+              initialExpanded={dialog.initialExpanded}
               error={dialog.error}
+              onLoadSchemas={connections.loadManageCatalogSchemas}
               onSubmit={connections.saveManageSelection}
               onClose={connections.closeManageDialog}
             />

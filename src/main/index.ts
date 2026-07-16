@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
+import type { SchemaSelectionConfig } from '../shared/schemaSelection'
 import {
   connect,
   disconnect,
@@ -22,6 +23,7 @@ import {
   listSaved,
   saveConnection,
   savedParams,
+  setSchemaConfig,
   setCatalogSelection,
   setSchemaSelection
 } from './store'
@@ -193,6 +195,13 @@ function registerDbHandlers(): void {
   )
   ipcMain.handle('store:getSchemaConfig', (_event, id: string) =>
     getSchemaConfig(id)
+  )
+  ipcMain.handle(
+    'store:setSchemaConfig',
+    (_event, id: string, config: SchemaSelectionConfig) => {
+      setSchemaConfig(id, config)
+      invalidateAgentSchemaCache(id)
+    }
   )
   ipcMain.handle(
     'store:setCatalogSelection',

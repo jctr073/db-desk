@@ -226,6 +226,22 @@ describe('schema/catalog selections (Databricks pinning)', () => {
     expect(onDisk.connections[0]).not.toHaveProperty('catalogSelection')
   })
 
+  it('replaces the full hierarchy atomically, including an empty catalog selection', () => {
+    store.saveConnection('c-1', 'warehouse', dbxParams, true)
+    store.setSchemaSelection('c-1', 'old', ['legacy'])
+
+    store.setSchemaConfig('c-1', {
+      catalogs: [],
+      schemas: { main: ['sales'], dev: ['sandbox'] }
+    })
+
+    expect(store.getSchemaConfig('c-1')).toEqual({
+      catalogs: [],
+      schemas: { main: ['sales'], dev: ['sandbox'] }
+    })
+    expect(store.schemaSelectionFor('c-1', 'old')).toBeNull()
+  })
+
   it('defaults to no selection for unknown connections', () => {
     expect(store.getSchemaConfig('missing')).toEqual({
       catalogs: null,
