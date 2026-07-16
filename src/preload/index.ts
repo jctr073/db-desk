@@ -105,6 +105,10 @@ const api = Object.freeze({
     // --- Schema/catalog pinning (Databricks) ---
     getSchemaConfig: (id: string): Promise<SchemaSelectionConfig> =>
       ipcRenderer.invoke('store:getSchemaConfig', id),
+    setSchemaConfig: (
+      id: string,
+      config: SchemaSelectionConfig
+    ): Promise<void> => ipcRenderer.invoke('store:setSchemaConfig', id, config),
     setCatalogSelection: (
       id: string,
       catalogs: string[] | null

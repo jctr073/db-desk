@@ -110,13 +110,13 @@ describe('connect', () => {
     expect(store.schemaSelectionFor).toHaveBeenCalledWith('dbx', 'main')
   })
 
-  it('filters the catalog list by the saved selection, keeping the connected catalog', async () => {
+  it('allows the saved selection to hide the initially connected catalog', async () => {
     vi.mocked(store.catalogSelectionFor).mockReturnValue(['dev'])
     vi.mocked(databricksDriver.connect).mockResolvedValue(
       okConnect('main', ['main', 'dev', 'legacy'])
     )
     const res = await db.connect('dbx', dbxParams)
-    expect(res.ok && res.data.databases).toEqual(['main', 'dev'])
+    expect(res.ok && res.data.databases).toEqual(['dev'])
   })
 
   it('leaves the catalog list alone when no selection is saved', async () => {

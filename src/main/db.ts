@@ -126,13 +126,8 @@ export async function connect(
     if (type === 'databricks') {
       const pinnedCatalogs = catalogSelectionFor(connId)
       if (pinnedCatalogs) {
-        const keep = new Set([
-          ...pinnedCatalogs,
-          res.data.connectedDatabase.name
-        ])
-        res.data.databases = res.data.databases.filter((name) =>
-          keep.has(name)
-        )
+        const keep = new Set(pinnedCatalogs)
+        res.data.databases = res.data.databases.filter((name) => keep.has(name))
       }
     }
   }

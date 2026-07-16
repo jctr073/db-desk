@@ -50,19 +50,19 @@ multiple catalogs. The initial catalog is loaded at connection time and other
 catalogs are introspected when first expanded.
 
 Warehouses can hold far more catalogs and schemas than one session needs, so
-Databricks connections support pinning:
-
-- **Manage Schemas…** (right-click a catalog) picks which of its schemas are
-  loaded. Unpinned schemas are not introspected: they stay out of the schema
-  tree, the AI Agent's schema summary, and the agent's schema search and
-  describe tools. Raw SQL can still query them.
-- **Manage Catalogs…** (right-click the connection) picks which catalogs
-  appear in the tree. The connected catalog is always shown.
+DB Desk provides one hierarchical **Manage Catalogs and Schemas…** dialog from
+either a Databricks connection or catalog's right-click menu. Uncheck a catalog
+to hide it and everything below it, or leave the catalog enabled and expand it
+to choose individual schemas. Unselected objects are not introspected: they
+stay out of the schema tree, the AI Agent's schema summary, and the agent's
+schema search and describe tools. Raw SQL can still query them.
 
 A catalog with no saved schema selection loads everything, except that a large
-catalog (more than 25 schemas) opens the schema picker instead of loading; a
+catalog (more than 25 schemas) opens the hierarchy instead of loading; a
 pinned catalog shows a faint "12 of 240" count on its row. Checking every item
-clears the selection, so schemas created later appear again automatically.
+clears the selection, so schemas created later appear again automatically. For
+a large catalog, DB Desk keeps the current full list explicit so saving does not
+immediately reopen the hierarchy.
 Selections are stored with the saved connection profile.
 
 ### Saved connections
@@ -77,7 +77,8 @@ Right-click a connection to:
 
 - create a query file;
 - refresh every catalog/database already loaded in its schema tree;
-- choose which catalogs are shown (Databricks, **Manage Catalogs…**);
+- choose which catalogs and schemas are shown (Databricks,
+  **Manage Catalogs and Schemas…**);
 - disconnect while keeping the saved profile;
 - reconnect an offline profile; or
 - remove the connection.

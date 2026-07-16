@@ -8,6 +8,7 @@ import type {
 } from '../../../shared/db'
 import { dialectFor } from '../../../shared/dialect'
 import type { ConnectionType } from '../../../shared/dialect'
+import type { SchemaSelectionConfig } from '../../../shared/schemaSelection'
 import {
   assignIds,
   connectionNodeFromResult,
@@ -24,18 +25,14 @@ import type { ConnectionForm, TreeMode, TreeNode } from './types'
 export type TestState = 'idle' | 'testing' | 'ok' | 'error'
 export type DialogTab = 'params' | 'url'
 
-/**
- * The "Manage Schemas…" / "Manage Catalogs…" picker (Databricks). `available`
- * is null while the item list loads; `selected` null means "no selection
- * saved" (everything loads).
- */
+/** The unified hierarchical catalog/schema picker (Databricks). */
 export interface ManageDialogState {
-  kind: 'schemas' | 'catalogs'
   connId: string
-  /** Catalog whose schemas are being picked (kind === 'schemas'). */
-  catalog?: string
-  available: string[] | null
-  selected: string[] | null
+  catalogs: string[] | null
+  config: SchemaSelectionConfig | null
+  schemaLists: Record<string, string[] | undefined>
+  schemaErrors: Record<string, string | undefined>
+  initialExpanded?: string
   error?: string
 }
 
@@ -54,13 +51,16 @@ export interface ConnectionState {
   /** Introspect and cache a database if it isn't cached already. */
   ensureSchema: (connId: string, database: string) => void
 
-  /** Schema/catalog picker (Databricks); null when closed. */
+  /** Hierarchical catalog/schema picker (Databricks); null when closed. */
   manageDialog: ManageDialogState | null
-  /** Open the schema picker for one catalog; `available` skips the fetch. */
-  openManageSchemas: (connId: string, catalog: string, available?: string[]) => void
-  openManageCatalogs: (connId: string) => void
-  /** Persist the picker's selection (null = all) and reload what it affects. */
-  saveManageSelection: (selected: string[] | null) => Promise<void>
+  openManageCatalogs: (
+    connId: string,
+    initialExpanded?: string,
+    availableSchemas?: string[]
+  ) => void
+  loadManageCatalogSchemas: (catalog: string) => void
+  /** Persist both hierarchy levels and reload what they affect. */
+  saveManageSelection: (config: SchemaSelectionConfig) => Promise<void>
   closeManageDialog: () => void
 
   dialogOpen: boolean
@@ -175,6 +175,10 @@ export function useConnectionState(): ConnectionState {
   schemasRef.current = schemas
   /** connId + database pairs with an introspection request in flight. */
   const introspecting = useRef(new Set<string>())
+  /** Catalog schema-list requests in flight for the manage dialog. */
+  const manageSchemaLoads = useRef(new Set<string>())
+  const manageDialogRef = useRef(manageDialog)
+  manageDialogRef.current = manageDialog
 
   const cacheSchema = useCallback(
     (connId: string, db: DatabaseIntrospection) => {
@@ -214,7 +218,8 @@ export function useConnectionState(): ConnectionState {
         const res = await window.dbDesk.db.introspect(connId, database)
         // A needsSchemaSelection result is a prompt, not an introspection;
         // caching it would make the database look loaded-but-empty.
-        if (res.ok && !res.data.needsSchemaSelection) cacheSchema(connId, res.data)
+        if (res.ok && !res.data.needsSchemaSelection)
+          cacheSchema(connId, res.data)
       } finally {
         introspecting.current.delete(key)
       }
@@ -239,59 +244,28 @@ export function useConnectionState(): ConnectionState {
 
   const closeManageDialog = useCallback(() => setManageDialog(null), [])
 
-  /** Fill an open picker's list/selection, unless it was closed or replaced. */
+  /** Fill the open picker unless it was closed or replaced. */
   const fillManageDialog = useCallback(
     (opened: ManageDialogState, fill: Partial<ManageDialogState>) => {
       setManageDialog((prev) =>
-        prev &&
-        prev.kind === opened.kind &&
-        prev.connId === opened.connId &&
-        prev.catalog === opened.catalog
-          ? { ...prev, ...fill }
-          : prev
+        prev && prev.connId === opened.connId ? { ...prev, ...fill } : prev
       )
     },
     []
   )
 
-  const openManageSchemas = useCallback(
-    (connId: string, catalog: string, available?: string[]) => {
-      const opened: ManageDialogState = {
-        kind: 'schemas',
-        connId,
-        catalog,
-        available: available ?? null,
-        selected: null
-      }
-      setManageDialog(opened)
-      void (async () => {
-        try {
-          const config = await window.dbDesk.store.getSchemaConfig(connId)
-          const selected = config.schemas[catalog] ?? null
-          if (available) {
-            fillManageDialog(opened, { selected })
-            return
-          }
-          const res = await window.dbDesk.db.listSchemas(connId, catalog)
-          if (res.ok) fillManageDialog(opened, { available: res.data, selected })
-          else fillManageDialog(opened, { error: res.error })
-        } catch (err) {
-          fillManageDialog(opened, {
-            error: err instanceof Error ? err.message : String(err)
-          })
-        }
-      })()
-    },
-    [fillManageDialog]
-  )
-
   const openManageCatalogs = useCallback(
-    (connId: string) => {
+    (connId: string, initialExpanded?: string, availableSchemas?: string[]) => {
       const opened: ManageDialogState = {
-        kind: 'catalogs',
         connId,
-        available: null,
-        selected: null
+        catalogs: null,
+        config: null,
+        schemaLists:
+          initialExpanded && availableSchemas
+            ? { [initialExpanded]: availableSchemas }
+            : {},
+        schemaErrors: {},
+        initialExpanded
       }
       setManageDialog(opened)
       void (async () => {
@@ -302,8 +276,11 @@ export function useConnectionState(): ConnectionState {
           ])
           if (res.ok) {
             fillManageDialog(opened, {
-              available: res.data,
-              selected: config.catalogs
+              catalogs:
+                initialExpanded && !res.data.includes(initialExpanded)
+                  ? [initialExpanded, ...res.data]
+                  : res.data,
+              config
             })
           } else {
             fillManageDialog(opened, { error: res.error })
@@ -318,55 +295,98 @@ export function useConnectionState(): ConnectionState {
     [fillManageDialog]
   )
 
-  const loadDatabase = useCallback(async (node: TreeNode) => {
-    const dbNodeId = node.id
-    const connId = dbNodeId.split('/')[0]
-    const dbName = node.label
-    const connType = profiles[connId]?.type
-    setTree((prev) =>
-      updateNode(prev, dbNodeId, (n) => ({ ...n, loading: true }))
-    )
-    const res = await window.dbDesk.db.introspect(connId, dbName)
-    if (res.ok && res.data.needsSchemaSelection) {
-      // Large catalog with no saved schema selection: leave the node lazy
-      // and collapsed, and open the picker instead of loading everything.
+  const loadManageCatalogSchemas = useCallback((catalog: string) => {
+    const dialog = manageDialogRef.current
+    if (!dialog || dialog.schemaLists[catalog] !== undefined) return
+    const key = `${dialog.connId}\u0000${catalog}`
+    if (manageSchemaLoads.current.has(key)) return
+    manageSchemaLoads.current.add(key)
+    void window.dbDesk.db
+      .listSchemas(dialog.connId, catalog)
+      .then((res) => {
+        setManageDialog((previous) => {
+          if (!previous || previous.connId !== dialog.connId) return previous
+          if (res.ok) {
+            return {
+              ...previous,
+              schemaLists: { ...previous.schemaLists, [catalog]: res.data }
+            }
+          }
+          return {
+            ...previous,
+            schemaErrors: { ...previous.schemaErrors, [catalog]: res.error }
+          }
+        })
+      })
+      .catch((cause) => {
+        setManageDialog((previous) =>
+          previous && previous.connId === dialog.connId
+            ? {
+                ...previous,
+                schemaErrors: {
+                  ...previous.schemaErrors,
+                  [catalog]:
+                    cause instanceof Error ? cause.message : String(cause)
+                }
+              }
+            : previous
+        )
+      })
+      .finally(() => manageSchemaLoads.current.delete(key))
+  }, [])
+
+  const loadDatabase = useCallback(
+    async (node: TreeNode) => {
+      const dbNodeId = node.id
+      const connId = dbNodeId.split('/')[0]
+      const dbName = node.label
+      const connType = profiles[connId]?.type
       setTree((prev) =>
-        updateNode(prev, dbNodeId, (n) => ({ ...n, loading: false }))
+        updateNode(prev, dbNodeId, (n) => ({ ...n, loading: true }))
       )
-      setExpanded((prev) => {
-        const next = { ...prev }
-        delete next[dbNodeId]
-        return next
-      })
-      openManageSchemas(connId, dbName, res.data.availableSchemas ?? [])
-      return
-    }
-    if (res.ok) cacheSchema(connId, res.data)
-    setTree((prev) =>
-      updateNode(prev, dbNodeId, (n) => {
-        if (!res.ok) return { ...n, loading: false }
-        const counts = schemaCounts(res.data)
-        const next: TreeNode = {
-          ...n,
-          loading: false,
-          lazy: false,
-          pinnedSchemaCount: counts.pinnedSchemaCount,
-          totalSchemaCount: counts.totalSchemaCount,
-          children: databaseChildren(res.data, connType)
-        }
-        next.children!.forEach((child) => assignIds(child, next.id))
-        return next
-      })
-    )
-    if (!res.ok) {
-      setLoadError(`${dbName}: ${res.error}`)
-      setExpanded((prev) => {
-        const next = { ...prev }
-        delete next[dbNodeId]
-        return next
-      })
-    }
-  }, [cacheSchema, profiles, openManageSchemas])
+      const res = await window.dbDesk.db.introspect(connId, dbName)
+      if (res.ok && res.data.needsSchemaSelection) {
+        // Large catalog with no saved schema selection: leave the node lazy
+        // and collapsed, and open the picker instead of loading everything.
+        setTree((prev) =>
+          updateNode(prev, dbNodeId, (n) => ({ ...n, loading: false }))
+        )
+        setExpanded((prev) => {
+          const next = { ...prev }
+          delete next[dbNodeId]
+          return next
+        })
+        openManageCatalogs(connId, dbName, res.data.availableSchemas ?? [])
+        return
+      }
+      if (res.ok) cacheSchema(connId, res.data)
+      setTree((prev) =>
+        updateNode(prev, dbNodeId, (n) => {
+          if (!res.ok) return { ...n, loading: false }
+          const counts = schemaCounts(res.data)
+          const next: TreeNode = {
+            ...n,
+            loading: false,
+            lazy: false,
+            pinnedSchemaCount: counts.pinnedSchemaCount,
+            totalSchemaCount: counts.totalSchemaCount,
+            children: databaseChildren(res.data, connType)
+          }
+          next.children!.forEach((child) => assignIds(child, next.id))
+          return next
+        })
+      )
+      if (!res.ok) {
+        setLoadError(`${dbName}: ${res.error}`)
+        setExpanded((prev) => {
+          const next = { ...prev }
+          delete next[dbNodeId]
+          return next
+        })
+      }
+    },
+    [cacheSchema, profiles, openManageCatalogs]
+  )
 
   const toggleRow = useCallback(
     (id: string, expandable: boolean) => {
@@ -420,48 +440,29 @@ export function useConnectionState(): ConnectionState {
   const clearLoadError = useCallback(() => setLoadError(null), [])
 
   const saveManageSelection = useCallback(
-    async (selectedItems: string[] | null) => {
+    async (config: SchemaSelectionConfig) => {
       const dialog = manageDialog
       if (!dialog) return
-
-      if (dialog.kind === 'schemas') {
-        const catalog = dialog.catalog!
-        await window.dbDesk.store.setSchemaSelection(
-          dialog.connId,
-          catalog,
-          selectedItems
-        )
-        setManageDialog(null)
-        dropSchema(dialog.connId, catalog)
-        const node = findNode(`${dialog.connId}/${catalog}`, tree)
-        if (node?.kind === 'database') {
-          setExpanded((prev) => ({ ...prev, [node.id]: true }))
-          void loadDatabase(node)
-        }
-        return
-      }
-
-      await window.dbDesk.store.setCatalogSelection(dialog.connId, selectedItems)
+      await window.dbDesk.store.setSchemaConfig(dialog.connId, config)
       setManageDialog(null)
       const conn = tree.find((n) => n.id === dialog.connId)
       if (!conn || conn.status !== 'online') return
-      const locked = conn.connectedDatabase
-      const keep = selectedItems
-        ? new Set(locked ? [...selectedItems, locked] : selectedItems)
-        : null
+      const keep = config.catalogs ? new Set(config.catalogs) : null
       const currentNames = (conn.children ?? []).map((child) => child.label)
-      // The dialog's full catalog list is the richer source (it may include
-      // catalogs a previous selection had hidden); fall back to the tree.
       const allNames =
-        dialog.available && dialog.available.length > 0
-          ? dialog.available
+        dialog.catalogs && dialog.catalogs.length > 0
+          ? dialog.catalogs
           : currentNames
-      const orderedNames =
-        locked && !allNames.includes(locked) ? [locked, ...allNames] : allNames
-      const nextNames = orderedNames.filter((name) => !keep || keep.has(name))
+      const nextNames = allNames.filter((name) => !keep || keep.has(name))
       const removed = currentNames.filter((name) => !nextNames.includes(name))
+      const reload = (conn.children ?? []).filter(
+        (node) =>
+          node.kind === 'database' &&
+          nextNames.includes(node.label) &&
+          (!!node.children || node.label === dialog.initialExpanded)
+      )
 
-      for (const name of removed) dropSchema(dialog.connId, name)
+      for (const name of currentNames) dropSchema(dialog.connId, name)
       if (removed.length > 0) {
         setExpanded((prev) => {
           const next = { ...prev }
@@ -486,7 +487,16 @@ export function useConnectionState(): ConnectionState {
           )
           const children = nextNames.map((name) => {
             const prevChild = existing.get(name)
-            if (prevChild) return prevChild
+            if (prevChild) {
+              return {
+                ...prevChild,
+                children: undefined,
+                lazy: true,
+                loading: false,
+                pinnedSchemaCount: undefined,
+                totalSchemaCount: undefined
+              }
+            }
             const child: TreeNode = {
               id: '',
               kind: 'database',
@@ -500,6 +510,15 @@ export function useConnectionState(): ConnectionState {
           return { ...n, children }
         })
       )
+      for (const node of reload) {
+        setExpanded((previous) => ({ ...previous, [node.id]: true }))
+        void loadDatabase({
+          ...node,
+          children: undefined,
+          lazy: true,
+          loading: false
+        })
+      }
     },
     [manageDialog, tree, dropSchema, loadDatabase]
   )
@@ -516,16 +535,25 @@ export function useConnectionState(): ConnectionState {
       const res = await window.dbDesk.db.connectSaved(id)
       if (res.ok) {
         const connected = res.data.connectedDatabase
-        if (!connected.needsSchemaSelection) cacheSchema(id, connected)
         const conn = connectionNodeFromResult(profile, res.data)
+        const connectedVisible = conn.children?.some(
+          (child) => child.label === connected.name
+        )
+        if (connectedVisible && !connected.needsSchemaSelection) {
+          cacheSchema(id, connected)
+        }
         setTree((prev) => prev.map((n) => (n.id === id ? conn : n)))
         setExpanded((prev) => ({
           ...prev,
           ...defaultExpansion(conn, connected.name)
         }))
         setSelected(id)
-        if (connected.needsSchemaSelection) {
-          openManageSchemas(id, connected.name, connected.availableSchemas ?? [])
+        if (connectedVisible && connected.needsSchemaSelection) {
+          openManageCatalogs(
+            id,
+            connected.name,
+            connected.availableSchemas ?? []
+          )
         }
         return
       }
@@ -542,7 +570,7 @@ export function useConnectionState(): ConnectionState {
       setTestMsg(needsPassword ? 'Enter your password to connect.' : res.error)
       setDialogOpen(true)
     },
-    [profiles, tree, cacheSchema, openManageSchemas]
+    [profiles, tree, cacheSchema, openManageCatalogs]
   )
 
   const disconnectConnection = useCallback(
@@ -724,9 +752,14 @@ export function useConnectionState(): ConnectionState {
     setConnecting(false)
     setProfiles((prev) => ({ ...prev, [saved.id]: saved }))
     const connected = res.data.connectedDatabase
-    if (!connected.needsSchemaSelection) cacheSchema(connId, connected)
 
     const conn = connectionNodeFromResult(saved, res.data)
+    const connectedVisible = conn.children?.some(
+      (child) => child.label === connected.name
+    )
+    if (connectedVisible && !connected.needsSchemaSelection) {
+      cacheSchema(connId, connected)
+    }
     setTree((prev) =>
       prev.some((n) => n.id === conn.id)
         ? prev.map((n) => (n.id === conn.id ? conn : n))
@@ -743,10 +776,14 @@ export function useConnectionState(): ConnectionState {
     setTestMsg('')
     setForm(defaultForm())
     setDialogTab('params')
-    if (connected.needsSchemaSelection) {
-      openManageSchemas(connId, connected.name, connected.availableSchemas ?? [])
+    if (connectedVisible && connected.needsSchemaSelection) {
+      openManageCatalogs(
+        connId,
+        connected.name,
+        connected.availableSchemas ?? []
+      )
     }
-  }, [form, dialogTab, connecting, editingId, cacheSchema, openManageSchemas])
+  }, [form, dialogTab, connecting, editingId, cacheSchema, openManageCatalogs])
 
   const selectedNode = useMemo(() => findNode(selected, tree), [selected, tree])
   const canRemove = selectedNode?.kind === 'connection'
@@ -763,8 +800,8 @@ export function useConnectionState(): ConnectionState {
     schemas,
     ensureSchema,
     manageDialog,
-    openManageSchemas,
     openManageCatalogs,
+    loadManageCatalogSchemas,
     saveManageSelection,
     closeManageDialog,
     dialogOpen,

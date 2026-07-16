@@ -789,6 +789,7 @@ textarea {
   font-size: 12px;
 }
 .new-file-menu {
+  z-index: 61;
   min-width: 190px;
 }
 .new-file-menu__item {
@@ -2033,6 +2034,134 @@ body.is-grid-col-resizing {
   height: 32px;
   padding: 0 17px;
   font-size: 12.5px;
+}
+
+/* Hierarchical Databricks catalog/schema picker. */
+.manage-objects-dialog {
+  width: 560px;
+}
+.manage-objects-dialog__body {
+  min-height: 310px;
+  padding-top: 14px;
+}
+.manage-objects-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 9px;
+}
+.manage-objects-filter {
+  flex: 1 1 auto;
+}
+.manage-objects-link {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.manage-objects-tree {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+}
+.manage-objects-catalog + .manage-objects-catalog {
+  border-top: 1px solid var(--border-soft);
+}
+.manage-objects-row {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  gap: 8px;
+  padding: 3px 10px;
+  color: var(--text);
+  font-size: 13px;
+  user-select: none;
+}
+.manage-objects-row input {
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+.manage-objects-row--catalog {
+  font-weight: 600;
+  background: var(--panel-hi);
+}
+.manage-objects-row.is-disabled {
+  color: var(--text-faint);
+}
+.manage-objects-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.manage-objects-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.manage-objects-count {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 400;
+}
+.manage-objects-schemas {
+  padding: 2px 0 4px;
+}
+.manage-objects-row--schema {
+  min-height: 27px;
+  padding-left: 28px;
+  cursor: pointer;
+}
+.manage-objects-branch {
+  width: 10px;
+  height: 12px;
+  margin-top: -8px;
+  border-bottom: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+.manage-objects-schema-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.manage-objects-empty,
+.manage-objects-child-status,
+.manage-objects-child-error {
+  padding: 18px 12px;
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+}
+.manage-objects-child-status,
+.manage-objects-child-error {
+  padding: 9px 12px 9px 58px;
+  text-align: left;
+}
+.manage-objects-child-error {
+  color: var(--red);
 }
 .close-queries-dialog {
   width: 430px;

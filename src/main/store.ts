@@ -241,6 +241,33 @@ export function getSchemaConfig(id: string): SchemaSelectionConfig {
   }
 }
 
+/** Replace the complete catalog/schema selection in one persisted update. */
+export function setSchemaConfig(
+  id: string,
+  config: SchemaSelectionConfig
+): void {
+  const records = [...load()]
+  const index = records.findIndex((record) => record.id === id)
+  if (index < 0) return
+  const record = { ...records[index] }
+  if (config.catalogs) record.catalogSelection = [...config.catalogs]
+  else delete record.catalogSelection
+
+  const schemaSelections = Object.fromEntries(
+    Object.entries(config.schemas).map(([catalog, schemas]) => [
+      catalog,
+      [...schemas]
+    ])
+  )
+  if (Object.keys(schemaSelections).length > 0) {
+    record.schemaSelections = schemaSelections
+  } else {
+    delete record.schemaSelections
+  }
+  records[index] = record
+  persist(records)
+}
+
 /** Pin the catalogs shown for a connection; null clears (back to all). */
 export function setCatalogSelection(id: string, catalogs: string[] | null): void {
   const records = [...load()]
