@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { MouseEvent, ReactElement } from 'react'
+import type { CSSProperties, MouseEvent, ReactElement } from 'react'
 
 import type { AgentDbObjectItem } from '../../../shared/agent'
 import type {
@@ -21,6 +21,7 @@ import {
   SearchIcon,
   SparkleIcon
 } from '../components/icons'
+import type { ConnAccent } from './connColors'
 import { ConnectionTree } from './ConnectionTree'
 import { ReferencesPopover } from './ReferencesPopover'
 import { flattenTree } from './flatten'
@@ -59,6 +60,8 @@ interface ConnectionPanelProps {
   knowledgeBases?: KnowledgeBaseSummary[]
   /** Every knowledge link, for the submenu's checkmarks. */
   knowledgeLinks?: KnowledgeLink[]
+  /** Per-connection accent color for the active card and other-connection rows. */
+  accents: Map<string, ConnAccent>
 }
 
 /** Tree kinds that can ride along to the agent thread as context chips. */
@@ -122,12 +125,45 @@ export function ConnectionPanel({
   onKnowledgeAction,
   knowledgeIds,
   knowledgeBases,
-  knowledgeLinks
+  knowledgeLinks,
+  accents
 }: ConnectionPanelProps): ReactElement {
-  const rows = useMemo(
-    () => flattenTree(state.tree, { expanded: state.expanded, filter: state.filter }),
-    [state.tree, state.expanded, state.filter]
+  // The active card is open by default; header click toggles it independent
+  // of the tree's own expand/collapse state.
+  const [cardOpen, setCardOpen] = useState(true)
+
+  const activeNode = useMemo(
+    () => findNode(state.activeConnId, state.tree),
+    [state.activeConnId, state.tree]
   )
+
+  // Rows for the active connection's body: the connection root is dropped
+  // (the card header replaces it) and every depth shifts up by one.
+  const activeRows = useMemo(() => {
+    if (!activeNode || activeNode.status !== 'online') return []
+    return flattenTree([activeNode], {
+      expanded: { ...state.expanded, [activeNode.id]: true },
+      filter: state.filter
+    })
+      .slice(1)
+      .map((r) => ({ ...r, depth: r.depth - 1 }))
+  }, [activeNode, state.expanded, state.filter])
+
+  const otherNodes = useMemo(
+    () => state.tree.filter((node) => node.id !== state.activeConnId),
+    [state.tree, state.activeConnId]
+  )
+
+  // Other connections narrow with the shared filter box, matching on name or host.
+  const filteredOtherNodes = useMemo(() => {
+    const query = state.filter.trim().toLowerCase()
+    if (!query) return otherNodes
+    return otherNodes.filter(
+      (node) =>
+        node.label.toLowerCase().includes(query) ||
+        (node.subtitle ?? '').toLowerCase().includes(query)
+    )
+  }, [otherNodes, state.filter])
 
   const [menu, setMenu] = useState<MenuState | null>(null)
   // Whether the schema node's "Knowledge bases" submenu is open; reset with
@@ -286,8 +322,8 @@ export function ConnectionPanel({
           <input
             value={state.filter}
             onChange={(event) => state.setFilter(event.target.value)}
-            placeholder="Filter objects…"
-            aria-label="Filter objects"
+            placeholder="Filter connections & objects…"
+            aria-label="Filter connections & objects…"
           />
         </div>
       </div>
@@ -321,22 +357,119 @@ export function ConnectionPanel({
             </button>
           </div>
         ) : (
-          <ConnectionTree
-            rows={rows}
-            selected={state.selected}
-            mode={state.mode}
-            rowHeight={ROW_HEIGHT}
-            showStatusDots={SHOW_STATUS_DOTS}
-            knowledgeIds={knowledgeIds}
-            onRowClick={state.toggleRow}
-            onRowDoubleClick={(node) => {
-              const item = contextItemFor(node)
-              if (item && item.kind !== 'schema') onOpenDataPreview?.(item)
-            }}
-            onRowContextMenu={onRowContextMenu}
-          />
+          <>
+            {activeNode && (
+              <div className="conn-active-card">
+                <div
+                  className="conn-active-card__header"
+                  onClick={() => setCardOpen((open) => !open)}
+                  onContextMenu={(event) => onRowContextMenu(activeNode, event)}
+                >
+                  <span
+                    className={`conn-active-card__chev${cardOpen ? ' is-open' : ''}`}
+                  >
+                    <ChevronRightIcon size={11} />
+                  </span>
+                  <span className="conn-active-card__icon">
+                    <DatabaseIcon size={15} />
+                  </span>
+                  <span className="conn-active-card__name">{activeNode.label}</span>
+                  <span className="conn-active-card__host">
+                    {activeNode.subtitle ?? ''}
+                  </span>
+                  <span className="conn-active-card__badge">ACTIVE</span>
+                  <span
+                    className={`conn-active-card__health is-${activeNode.status ?? 'offline'}`}
+                  />
+                </div>
+                {cardOpen && (
+                  <div className="conn-active-card__body">
+                    {activeNode.status === 'online' ? (
+                      activeRows.length > 0 ? (
+                        <ConnectionTree
+                          rows={activeRows}
+                          selected={state.selected}
+                          mode={state.mode}
+                          rowHeight={ROW_HEIGHT}
+                          showStatusDots={SHOW_STATUS_DOTS}
+                          knowledgeIds={knowledgeIds}
+                          onRowClick={state.toggleRow}
+                          onRowDoubleClick={(node) => {
+                            const item = contextItemFor(node)
+                            if (item && item.kind !== 'schema')
+                              onOpenDataPreview?.(item)
+                          }}
+                          onRowContextMenu={onRowContextMenu}
+                        />
+                      ) : (
+                        <div className="conn-active-card__empty">
+                          No objects match the filter.
+                        </div>
+                      )
+                    ) : (
+                      <>
+                        <div className="conn-active-card__empty">
+                          Not connected — connect to browse objects and run queries.
+                        </div>
+                        <button
+                          className="conn-active-card__connect"
+                          disabled={!!activeNode.loading}
+                          onClick={() => state.activateConnection(activeNode.id)}
+                        >
+                          {activeNode.loading ? 'Connecting…' : 'Connect'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
+
+      {otherNodes.length > 0 && (
+        <div className="conn-others">
+          <div className="conn-others__header">
+            <span className="conn-others__title">
+              {activeNode ? 'OTHER CONNECTIONS' : 'CONNECTIONS'}
+            </span>
+            <span className="conn-others__count">
+              {filteredOtherNodes.length}
+            </span>
+            <span className="conn-others__rule" />
+          </div>
+          <div className="conn-others__rows">
+            {filteredOtherNodes.map((node) => (
+              <div
+                key={node.id}
+                className={`conn-other-row${node.loading ? ' is-loading' : ''}`}
+                style={
+                  { '--row-accent': accents.get(node.id)?.hex } as CSSProperties
+                }
+                title={`Activate ${node.label} — make it the whole-app context`}
+                onClick={() => state.activateConnection(node.id)}
+                onContextMenu={(event) => onRowContextMenu(node, event)}
+              >
+                <span className="conn-other-row__bar" />
+                <span className="conn-other-row__chev">
+                  <ChevronRightIcon size={10} />
+                </span>
+                <span className="conn-other-row__icon">
+                  <DatabaseIcon size={14} />
+                </span>
+                <span className="conn-other-row__name">{node.label}</span>
+                <span className="conn-other-row__host">
+                  {node.subtitle ?? ''}
+                </span>
+                <span
+                  className={`conn-other-row__dot is-${node.status ?? 'offline'}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {menu && menuNode && (
         <div

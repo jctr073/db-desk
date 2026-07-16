@@ -19,6 +19,7 @@
   --text-faint: #696d77;
   --row-hover: rgba(255, 255, 255, 0.05);
   --accent: #6b8afd;
+  --accent-rgb: 107, 138, 253;
   --accent-strong: #8aa2ff;
   --accent-soft: rgba(107, 138, 253, 0.16);
   --green: #bad761;
@@ -49,6 +50,7 @@
   --text-faint: #8c919c;
   --row-hover: rgba(0, 0, 0, 0.04);
   --accent: #3a63d8;
+  --accent-rgb: 58, 99, 216;
   --accent-strong: #2f56c9;
   --accent-soft: rgba(58, 99, 216, 0.12);
   --green: #1f9d4d;
@@ -155,15 +157,87 @@ textarea {
 .titlebar {
   height: 38px;
   flex: 0 0 auto;
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
+  /* Left padding clears the macOS traffic lights (hiddenInset). */
+  padding: 0 14px 0 84px;
   background: var(--titlebar);
   border-bottom: 1px solid var(--border);
   font-size: 13px;
   color: var(--text-dim);
   -webkit-app-region: drag;
   user-select: none;
+}
+.titlebar__app {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-faint);
+  z-index: 1;
+}
+/* Active-context pill, centered over the drag strip (unified connection). */
+.titlebar__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.titlebar-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--conn-accent, var(--accent));
+  background: rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.14);
+  border: 1px solid rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.42);
+  transition:
+    background-color 0.28s ease,
+    border-color 0.28s ease,
+    color 0.28s ease;
+}
+.titlebar-pill__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--conn-accent, var(--accent));
+  box-shadow: 0 0 8px rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.8);
+  flex: 0 0 auto;
+  transition: background-color 0.28s ease;
+}
+.titlebar-pill__name {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.titlebar-pill__sep {
+  opacity: 0.55;
+  font-weight: 500;
+}
+.titlebar-pill__db {
+  font-weight: 600;
+  opacity: 0.9;
+}
+.titlebar-pill__divider {
+  width: 1px;
+  height: 12px;
+  background: currentColor;
+  opacity: 0.28;
+  margin: 0 3px;
+}
+.titlebar-pill__label {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.7;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.has-active-conn .titlebar {
+  box-shadow: inset 0 -2px 0 rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.55);
 }
 
 .main-row {
@@ -231,6 +305,23 @@ textarea {
 .statusbar__btn:hover {
   background: var(--panel-hi);
   color: var(--text);
+}
+/* Unified context: the status bar tints toward the active connection. */
+.statusbar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--conn-accent, var(--accent));
+  flex: 0 0 auto;
+  transition: background-color 0.28s ease;
+}
+.has-active-conn .statusbar {
+  background: color-mix(
+    in srgb,
+    var(--conn-accent, var(--accent)) 10%,
+    var(--titlebar)
+  );
+  transition: background-color 0.28s ease;
 }
 
 /* ------------------------------------------------------------------ *
@@ -4510,4 +4601,347 @@ body.is-grid-col-resizing {
   color: var(--text-faint);
   letter-spacing: 1px;
   font-size: 10px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Unified connection context (see "DB Desk - Unified Connection")     *
+ * ------------------------------------------------------------------ */
+
+/* Locked context chip: names the app-wide target wherever queries land.
+   Tinted by the active connection's accent (--conn-accent on .app). */
+.ctx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  min-width: 0;
+  color: var(--text);
+  background: rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.14);
+  border: 1px solid rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.4);
+  transition:
+    background-color 0.28s ease,
+    border-color 0.28s ease;
+}
+.ctx-chip__lock {
+  display: inline-flex;
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+.ctx-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--conn-accent, var(--accent));
+  flex: 0 0 auto;
+  transition: background-color 0.28s ease;
+}
+.ctx-chip__name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-chip__db {
+  opacity: 0.65;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-chip--sm {
+  height: 23px;
+  padding: 0 9px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.ctx-chip--bare {
+  background: transparent;
+  border-color: var(--border-soft);
+  color: var(--text-dim);
+}
+
+/* --- Connections panel: pinned active card ------------------------- */
+.conn-active-card {
+  margin: 2px 6px 4px;
+  border: 1px solid rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.34);
+  border-left: 3px solid var(--conn-accent, var(--accent));
+  border-radius: 9px;
+  background: rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.08);
+  overflow: hidden;
+  transition:
+    background-color 0.28s ease,
+    border-color 0.28s ease;
+}
+.conn-active-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px 0 11px;
+  cursor: pointer;
+  user-select: none;
+  min-width: 0;
+}
+.conn-active-card__chev {
+  display: inline-flex;
+  width: 11px;
+  min-width: 11px;
+  justify-content: center;
+  color: var(--text-faint);
+  transition: transform 0.15s ease;
+}
+.conn-active-card__chev.is-open {
+  transform: rotate(90deg);
+}
+.conn-active-card__icon {
+  display: inline-flex;
+  color: var(--conn-accent, var(--accent));
+  flex: 0 0 auto;
+}
+.conn-active-card__name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+.conn-active-card__host {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.conn-active-card__badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  flex: 0 0 auto;
+  color: var(--conn-accent, var(--accent));
+  background: rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.16);
+  border: 1px solid rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.4);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+.conn-active-card__health {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.conn-active-card__health.is-online {
+  background: var(--green);
+  box-shadow: 0 0 7px var(--green);
+}
+.conn-active-card__health.is-idle {
+  background: var(--amber);
+}
+.conn-active-card__health.is-error {
+  background: var(--red);
+}
+.conn-active-card__health.is-offline {
+  background: var(--text-faint);
+}
+.conn-active-card__body {
+  padding: 2px 0 6px;
+}
+.conn-active-card__empty {
+  padding: 4px 12px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+.conn-active-card__connect {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  margin: 0 11px 10px;
+  padding: 0 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.5);
+  background: rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.16);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.conn-active-card__connect:hover {
+  background: rgba(var(--conn-accent-rgb, var(--accent-rgb)), 0.26);
+}
+.conn-active-card__connect:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* --- Connections panel: other connections -------------------------- */
+.conn-others {
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 40%;
+  padding: 0 6px 5px;
+  border-top: 1px solid var(--border-soft);
+}
+.conn-others__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px 5px 6px;
+}
+.conn-others__title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.conn-others__count {
+  font-size: 9.5px;
+  color: var(--text-faint);
+  background: var(--panel-hi);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 0 6px;
+  line-height: 15px;
+  flex: 0 0 auto;
+}
+.conn-others__rule {
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+.conn-others__rows {
+  min-height: 0;
+  overflow-y: auto;
+}
+/* One row per non-active connection; --row-accent is set inline. */
+.conn-other-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px 0 13px;
+  margin: 2px 0;
+  cursor: pointer;
+  border-radius: 7px;
+  background: var(--panel-hi);
+  border: 1px solid var(--border-soft);
+  overflow: hidden;
+  min-width: 0;
+}
+.conn-other-row:hover {
+  border-color: color-mix(in srgb, var(--row-accent, var(--accent)) 55%, transparent);
+}
+.conn-other-row.is-loading {
+  opacity: 0.6;
+  cursor: progress;
+}
+.conn-other-row__bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--row-accent, var(--accent));
+}
+.conn-other-row__chev {
+  display: inline-flex;
+  color: var(--text-faint);
+  flex: 0 0 auto;
+}
+.conn-other-row__icon {
+  display: inline-flex;
+  color: var(--row-accent, var(--accent));
+  flex: 0 0 auto;
+}
+.conn-other-row__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.conn-other-row__host {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.conn-other-row__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.conn-other-row__dot.is-online {
+  background: var(--green);
+}
+.conn-other-row__dot.is-idle {
+  background: var(--amber);
+}
+.conn-other-row__dot.is-error {
+  background: var(--red);
+}
+.conn-other-row__dot.is-offline {
+  background: var(--text-faint);
+}
+
+/* --- Editor: single-rail file tabs (no connection strip) ------------ */
+.editor-tabbar__files {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.editor-tabbar__files::-webkit-scrollbar {
+  height: 0;
+}
+.editor-tabbar__files .editor-tab.is-active {
+  box-shadow: inset 0 2px 0 var(--conn-accent, var(--accent));
+}
+.editor-tabbar__files .editor-tabbar__new {
+  margin-bottom: 7px;
+}
+
+/* --- Results: accent seam + context chip --------------------------- */
+.has-active-conn .results-host {
+  border-left: 3px solid var(--conn-accent, var(--accent));
+}
+
+/* --- Right panel: accent seam + locked target row ------------------- */
+.has-active-conn .agent-tabbar {
+  box-shadow: inset 0 2px 0 var(--conn-accent, var(--accent));
+}
+.agent-target-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--rail2-h);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.agent-target-row__hint {
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-target-row__spacer {
+  flex: 1 1 auto;
+  min-width: 4px;
 }

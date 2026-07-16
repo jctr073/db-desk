@@ -29,6 +29,7 @@ import {
   EyeIcon,
   FormatIcon,
   KebabIcon,
+  LockIcon,
   PlayIcon,
   PlusThinIcon,
   SaveIcon,
@@ -63,18 +64,11 @@ const PROPOSAL_DIFF_OPTIONS: editor.IDiffEditorConstructionOptions = {
   wordWrap: 'on'
 }
 
-/** Dot colors cycled per connection, in tree order (see connColors). */
-const CONN_COLORS = [
-  'var(--accent)',
-  'var(--teal)',
-  'var(--green)',
-  'var(--amber)',
-  'var(--red)'
-]
-
 interface EditorPanelProps {
   theme: Theme
   targets: QueryTarget[]
+  /** The app's single globally-active connection, or null when offline. */
+  activeConnId: string | null
   /** Connection id → display name, for labelling connection tabs. */
   connNames: Record<string, string>
   /** Introspection cache: connection id → database name → schema. */
@@ -86,8 +80,6 @@ interface EditorPanelProps {
   bridge: MutableRefObject<EditorBridge | null>
   /** Report the active result's summary + target up to the app status bar. */
   onQueryStatus?: (text: string, target: string) => void
-  /** Report the active connection tab's resolved target (for the status bar). */
-  onTargetChange?: (target: QueryTarget | null) => void
   /** Attach a context chip (editor selection, result data) to the AI thread. */
   onAddAgentContext?: (item: AgentEditorSelectionItem | AgentResultItem) => void
   /** Attach result context AND pre-fill the agent composer (Fix with AI). */
@@ -158,6 +150,7 @@ function menuPosition(button: HTMLButtonElement): {
 export function EditorPanel({
   theme,
   targets,
+  activeConnId,
   connNames,
   schemas,
   ensureSchema,
@@ -165,7 +158,6 @@ export function EditorPanel({
   runner,
   bridge,
   onQueryStatus,
-  onTargetChange,
   onAddAgentContext,
   onAskAgent
 }: EditorPanelProps): ReactElement {
@@ -197,7 +189,6 @@ export function EditorPanel({
   // Per-file buffers so switching tabs preserves unsaved edits.
   const buffersRef = useRef(new Map<string, string>())
   const activeFileIdRef = useRef<string | null>(null)
-  activeFileIdRef.current = files.selectedFileId
   // Distinguishes programmatic setValue (tab switch) from user typing.
   const suppressChangeRef = useRef(false)
 
@@ -208,6 +199,9 @@ export function EditorPanel({
       // Legacy connection-less files are re-homed on load (App.adoptOrphans);
       // until that lands they get no tab of their own.
       if (!file.connId) continue
+      // Scope to the app's single active connection — other connections'
+      // files hide until re-activated, they don't close.
+      if (file.connId !== activeConnId) continue
       const key = groupKeyOf(file.connId, file.database)
       let group = map.get(key)
       if (!group) {
@@ -224,6 +218,7 @@ export function EditorPanel({
     }
     for (const tab of runner.tabs) {
       if (tab.source !== 'preview') continue
+      if (tab.target.connId !== activeConnId) continue
       const key = groupKeyOf(tab.target.connId, tab.target.database)
       let group = map.get(key)
       if (!group) {
@@ -239,7 +234,7 @@ export function EditorPanel({
       group.previews.push(tab)
     }
     return [...map.values()]
-  }, [files.files, files.openFileIds, runner.tabs])
+  }, [files.files, files.openFileIds, runner.tabs, activeConnId])
 
   const activeResultTab =
     runner.tabs.find((tab) => tab.id === runner.activeTabId) ?? null
@@ -262,9 +257,14 @@ export function EditorPanel({
     null
 
   const target = resolveTarget(activeGroup, targets)
-  const activeFile = files.selectedFileId
+  const selectedFile = files.selectedFileId
     ? files.files.find((f) => f.id === files.selectedFileId)
     : null
+  // A stale selection from another connection never reaches Monaco.
+  const activeFile =
+    selectedFile && selectedFile.connId === activeConnId ? selectedFile : null
+  const activeFileId = activeFile?.id ?? null
+  activeFileIdRef.current = activeFileId
   const activeFileKind = fileKindFromName(activeFile?.name ?? 'query.sql')
   const activeLanguage = monacoLanguageForFile(activeFile?.name ?? 'query.sql')
   const isSqlFile = activeFileKind === 'sql'
@@ -274,13 +274,9 @@ export function EditorPanel({
     ? (buffersRef.current.get(activeFile.id) ?? '')
     : ''
 
-  /** Display name for a group's connection tab. */
-  const groupName = useCallback(
-    (group: FileGroup): string => connNames[group.connId] ?? group.connId,
-    [connNames]
+  const queryTabs = runner.tabs.filter(
+    (tab) => tab.source !== 'preview' && tab.target.connId === activeConnId
   )
-
-  const queryTabs = runner.tabs.filter((tab) => tab.source !== 'preview')
 
   const leavePreview = useCallback(() => {
     if (!activePreview) return
@@ -296,44 +292,16 @@ export function EditorPanel({
     [files.selectFile, leavePreview]
   )
 
-  // Switching back to a connection tab restores the file that was open there.
-  const lastFileByGroup = useRef(new Map<string, string>())
+  // A stale file selection from another connection is never left standing:
+  // fall back to the first visible file once the active connection changes.
   useEffect(() => {
-    if (files.selectedFileId && activeGroup) {
-      lastFileByGroup.current.set(activeGroup.key, files.selectedFileId)
-    }
-  }, [files.selectedFileId, activeGroup])
-
-  const selectGroup = useCallback(
-    (group: FileGroup) => {
-      const remembered = lastFileByGroup.current.get(group.key)
-      const file =
-        group.files.find((f) => f.id === remembered) ?? group.files[0]
-      if (file) {
-        selectFile(file.id)
-      } else if (group.previews[0]) {
-        runner.setActiveTab(group.previews[0].id)
-      }
-    },
-    [selectFile, runner]
-  )
-
-  /** Connection id → tab dot color, assigned in connection (tree) order. */
-  const connColors = useMemo(() => {
-    const out = new Map<string, string>()
-    for (const t of targets) {
-      if (!out.has(t.connId)) {
-        out.set(t.connId, CONN_COLORS[out.size % CONN_COLORS.length])
-      }
-    }
-    return out
-  }, [targets])
-
-  useEffect(() => {
-    onTargetChange?.(activePreview?.target ?? target)
-  }, [activePreview?.target, target, onTargetChange])
-  // The panel never unmounts in practice, but don't leave a stale target up.
-  useEffect(() => () => onTargetChange?.(null), [onTargetChange])
+    const id = files.selectedFileId
+    if (!id) return
+    const selected = files.files.find((f) => f.id === id)
+    if (!selected || selected.connId === activeConnId) return
+    const firstVisible = groups[0]?.files[0]
+    if (firstVisible) files.selectFile(firstVisible.id)
+  }, [files.selectedFileId, files.files, activeConnId, groups, files.selectFile])
 
   const activeFileNameRef = useRef<string | null>(null)
   activeFileNameRef.current = activeFile?.name ?? null
@@ -454,9 +422,11 @@ export function EditorPanel({
     suppressChangeRef.current = false
   }, [])
 
-  // Swap the editor buffer when the selected file changes.
+  // Swap the editor buffer when the visible file changes. Keyed on the
+  // active (visible) file, not the raw selection: a selection left on
+  // another connection's file must never land its SQL in Monaco.
   useEffect(() => {
-    const id = files.selectedFileId
+    const id = activeFileId
     if (!id) {
       setEditorValue('')
       return
@@ -486,7 +456,7 @@ export function EditorPanel({
     return () => {
       cancelled = true
     }
-  }, [files.selectedFileId, setEditorValue])
+  }, [activeFileId, setEditorValue])
 
   useEffect(() => {
     if (!actionsOpen) return
@@ -729,7 +699,6 @@ export function EditorPanel({
       )
       files.closeFiles(closing.fileIds)
       runner.closeTabs(closing.resultTabIds)
-      if (closing.groupKey) lastFileByGroup.current.delete(closing.groupKey)
       setTabMenu((menu) =>
         menu && closing.fileIds.includes(menu.fileId) ? null : menu
       )
@@ -765,27 +734,6 @@ export function EditorPanel({
   const closeFile = useCallback(
     (file: QueryFile) => requestClose([file.id], [], file.name),
     [requestClose]
-  )
-
-  const closeGroup = useCallback(
-    (group: FileGroup) => {
-      const groupTarget = resolveTarget(group, targets)
-      const resultTabIds = runner.tabs
-        .filter(
-          (tab) =>
-            groupTarget !== null &&
-            tab.target.connId === group.connId &&
-            tab.target.database === groupTarget.database
-        )
-        .map((tab) => tab.id)
-      requestClose(
-        group.files.map((file) => file.id),
-        resultTabIds,
-        `${groupName(group)}${groupTarget ? ` / ${groupTarget.database}` : ''}`,
-        group.key
-      )
-    },
-    [groupName, requestClose, runner.tabs, targets]
   )
 
   const saveAndClose = useCallback(async () => {
@@ -871,7 +819,7 @@ export function EditorPanel({
     proposal !== null &&
     !activePreview &&
     isSqlFile &&
-    files.selectedFileId === proposal.fileId
+    activeFileId === proposal.fileId
 
   useEffect(() => {
     if (!showProposal) return
@@ -912,12 +860,6 @@ export function EditorPanel({
     []
   )
 
-  const activeTabHint = activeGroup
-    ? `${activeGroup.files.length + activeGroup.previews.length} open · ${groupName(activeGroup)}${
-        target && activeGroup.connId ? ` / ${target.database}` : ''
-      }`
-    : ''
-
   /** Nothing open: show the default screen instead of a blank Monaco surface. */
   const isEmpty = groups.length === 0
   const closedFiles = useMemo(
@@ -930,68 +872,120 @@ export function EditorPanel({
     <section className="editor-panel">
       <div className="editor-tabbar">
         <div
-          className="editor-tabbar__tabs"
+          className="editor-tabbar__files"
           role="tablist"
-          aria-label="Query connections"
+          aria-label="Open files"
         >
-          {groups.map((group) => {
-            const isActive = group.key === activeGroup?.key
-            const groupTarget = resolveTarget(group, targets)
-            const color = connColors.get(group.connId) ?? 'var(--text-faint)'
-            return (
+          {groups.flatMap((group) =>
+            group.files.map((file) => (
               <div
-                key={group.key}
-                className={`conn-tab${isActive ? ' is-active' : ''}`}
-                role="tab"
-                aria-selected={isActive}
-                tabIndex={0}
-                title={
-                  groupTarget
-                    ? `${groupName(group)} / ${groupTarget.database}`
-                    : `${groupName(group)} (offline)`
-                }
-                onClick={() => selectGroup(group)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return
-                  event.preventDefault()
-                  selectGroup(group)
-                }}
+                key={file.id}
+                className={`editor-tab${!activePreview && files.selectedFileId === file.id ? ' is-active' : ''}`}
+                onClick={() => selectFile(file.id)}
+                onContextMenu={(event) => openTabMenu(event, file)}
+                title={`${file.name} · ${file.connId ?? 'no connection'}/${file.database || '(connection level)'}`}
               >
-                <span
-                  className="conn-tab__dot"
-                  style={{ background: color }}
-                  aria-hidden
-                />
-                <span className="conn-tab__icon">
-                  <DatabaseIcon size={13} />
-                </span>
-                <span className="conn-tab__name">{groupName(group)}</span>
-                {group.database && (
-                  <>
-                    <span className="conn-tab__sep">/</span>
-                    <span className="conn-tab__db">{group.database}</span>
-                  </>
+                <SqlFileIcon />
+                {renamingFileId === file.id ? (
+                  <input
+                    ref={renameInputRef}
+                    className="editor-tab__rename"
+                    value={renameDraft}
+                    aria-label={`Rename ${file.name}`}
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onClick={(event) => event.stopPropagation()}
+                    onBlur={commitRename}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        commitRename()
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault()
+                        cancelRenameRef.current = true
+                        setRenamingFileId(null)
+                      }
+                    }}
+                  />
+                ) : (
+                  file.name
                 )}
-                <span className="conn-tab__count">
-                  {group.files.length + group.previews.length}
-                </span>
+                {dirtyIds.has(file.id) && (
+                  <span className="editor-tab__dot" title="Unsaved changes" />
+                )}
                 <button
-                  className="conn-tab__close"
-                  type="button"
-                  title={`Close ${groupName(group)}${groupTarget ? ` / ${groupTarget.database}` : ''}`}
-                  aria-label={`Close ${groupName(group)}${groupTarget ? ` / ${groupTarget.database}` : ''}`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    closeGroup(group)
+                  className="editor-tab__close"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    closeFile(file)
                   }}
-                  onKeyDown={(event) => event.stopPropagation()}
+                  title="Close tab"
+                  type="button"
                 >
                   <CloseIcon />
                 </button>
               </div>
-            )
-          })}
+            ))
+          )}
+          {groups.flatMap((group) =>
+            group.previews.map((tab) => (
+              <div
+                key={tab.id}
+                className={`editor-tab${activePreview?.id === tab.id ? ' is-active' : ''}`}
+                onClick={() => runner.setActiveTab(tab.id)}
+                title={`${tab.title} · ${tab.target.connName}/${tab.target.database}`}
+                role="tab"
+                aria-selected={activePreview?.id === tab.id}
+              >
+                <DatabaseIcon size={13} />
+                {tab.title}
+                {tab.running && <span className="spinner spinner--xs" />}
+                <button
+                  className="editor-tab__close"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    runner.closeTab(tab.id)
+                  }}
+                  title="Close data preview"
+                  type="button"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            ))
+          )}
+          <button
+            ref={newFileBtnRef}
+            className="icon-btn icon-btn--sm editor-tabbar__new"
+            title={
+              activeGroup || target
+                ? 'New file'
+                : 'Connect to a database to add a file'
+            }
+            aria-label="New file"
+            aria-expanded={newFileMenuOpen}
+            disabled={!activeGroup && !target}
+            type="button"
+            onClick={() => {
+              setActionsOpen(false)
+              setNewFileMenuOpen((open) => !open)
+            }}
+          >
+            <PlusThinIcon />
+          </button>
         </div>
+        {target && (
+          <span
+            className="ctx-chip ctx-chip--sm"
+            title="Queries run against the app's active connection"
+          >
+            <span className="ctx-chip__lock">
+              <LockIcon />
+            </span>
+            <span className="ctx-chip__dot" />
+            <span className="ctx-chip__name">{target.connName}</span>
+            <span className="ctx-chip__db">/ {target.database}</span>
+          </span>
+        )}
         {!activePreview && (
           <>
             {isSqlFile ? (
@@ -1044,104 +1038,6 @@ export function EditorPanel({
               <KebabIcon />
             </button>
           </>
-        )}
-      </div>
-      <div className="file-tabbar">
-        {(activeGroup?.files ?? []).map((file) => (
-          <div
-            key={file.id}
-            className={`editor-tab${!activePreview && files.selectedFileId === file.id ? ' is-active' : ''}`}
-            onClick={() => selectFile(file.id)}
-            onContextMenu={(event) => openTabMenu(event, file)}
-            title={`${file.name} · ${file.connId ?? 'no connection'}/${file.database || '(connection level)'}`}
-          >
-            <SqlFileIcon />
-            {renamingFileId === file.id ? (
-              <input
-                ref={renameInputRef}
-                className="editor-tab__rename"
-                value={renameDraft}
-                aria-label={`Rename ${file.name}`}
-                onChange={(event) => setRenameDraft(event.target.value)}
-                onClick={(event) => event.stopPropagation()}
-                onBlur={commitRename}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    commitRename()
-                  } else if (event.key === 'Escape') {
-                    event.preventDefault()
-                    cancelRenameRef.current = true
-                    setRenamingFileId(null)
-                  }
-                }}
-              />
-            ) : (
-              file.name
-            )}
-            {dirtyIds.has(file.id) && (
-              <span className="editor-tab__dot" title="Unsaved changes" />
-            )}
-            <button
-              className="editor-tab__close"
-              onClick={(e) => {
-                e.stopPropagation()
-                closeFile(file)
-              }}
-              title="Close tab"
-              type="button"
-            >
-              <CloseIcon />
-            </button>
-          </div>
-        ))}
-        {(activeGroup?.previews ?? []).map((tab) => (
-          <div
-            key={tab.id}
-            className={`editor-tab${activePreview?.id === tab.id ? ' is-active' : ''}`}
-            onClick={() => runner.setActiveTab(tab.id)}
-            title={`${tab.title} · ${tab.target.connName}/${tab.target.database}`}
-            role="tab"
-            aria-selected={activePreview?.id === tab.id}
-          >
-            <DatabaseIcon size={13} />
-            {tab.title}
-            {tab.running && <span className="spinner spinner--xs" />}
-            <button
-              className="editor-tab__close"
-              onClick={(event) => {
-                event.stopPropagation()
-                runner.closeTab(tab.id)
-              }}
-              title="Close data preview"
-              type="button"
-            >
-              <CloseIcon />
-            </button>
-          </div>
-        ))}
-        <button
-          ref={newFileBtnRef}
-          className="icon-btn icon-btn--sm editor-tabbar__new"
-          title={
-            activeGroup || target
-              ? 'New file'
-              : 'Connect to a database to add a file'
-          }
-          aria-label="New file"
-          aria-expanded={newFileMenuOpen}
-          disabled={!activeGroup && !target}
-          type="button"
-          onClick={() => {
-            setActionsOpen(false)
-            setNewFileMenuOpen((open) => !open)
-          }}
-        >
-          <PlusThinIcon />
-        </button>
-        <div className="editor-tabbar__spacer" />
-        {activeTabHint && (
-          <span className="file-tabbar__hint">{activeTabHint}</span>
         )}
       </div>
       {files.loadError && (
@@ -1320,11 +1216,9 @@ export function EditorPanel({
               className="toolbar-menu__item"
               type="button"
               role="menuitem"
-              disabled={
-                !files.selectedFileId || !dirtyIds.has(files.selectedFileId)
-              }
+              disabled={!activeFileId || !dirtyIds.has(activeFileId)}
               onClick={() => {
-                saveFileById(files.selectedFileId)
+                saveFileById(activeFileId)
                 setActionsOpen(false)
               }}
             >

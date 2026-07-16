@@ -7,6 +7,8 @@ interface FilesPanelProps {
   files: FileState
   /** Connection id → display name. */
   connNames: Record<string, string>
+  /** When set, only files on this connection are listed — the panel follows the app's active connection. */
+  activeConnId?: string | null
 }
 
 function groupLabel(
@@ -18,9 +20,19 @@ function groupLabel(
   return file.database ? `${name} / ${file.database}` : name
 }
 
-export function FilesPanel({ files, connNames }: FilesPanelProps): ReactElement {
+export function FilesPanel({
+  files,
+  connNames,
+  activeConnId
+}: FilesPanelProps): ReactElement {
+  const visibleFiles =
+    activeConnId != null
+      ? files.files.filter((file) => file.connId === activeConnId)
+      : files.files
+  const hiddenCount = files.files.length - visibleFiles.length
+
   const groups = new Map<string, QueryFile[]>()
-  for (const file of files.files) {
+  for (const file of visibleFiles) {
     const label = groupLabel(file, connNames)
     const list = groups.get(label) ?? []
     list.push(file)
@@ -31,6 +43,19 @@ export function FilesPanel({ files, connNames }: FilesPanelProps): ReactElement 
     return (
       <div className="files-panel-empty">
         <div className="files-panel-empty__text">No query files yet</div>
+        <div className="files-panel-empty__hint">
+          Use the + button in the editor tab bar, or right-click a connection
+        </div>
+      </div>
+    )
+  }
+
+  if (visibleFiles.length === 0) {
+    return (
+      <div className="files-panel-empty">
+        <div className="files-panel-empty__text">
+          No query files on this connection yet
+        </div>
         <div className="files-panel-empty__hint">
           Use the + button in the editor tab bar, or right-click a connection
         </div>
@@ -68,6 +93,11 @@ export function FilesPanel({ files, connNames }: FilesPanelProps): ReactElement 
           ))}
         </div>
       ))}
+      {hiddenCount > 0 && (
+        <div className="files-panel-empty__hint" style={{ padding: '8px 12px' }}>
+          {hiddenCount} file{hiddenCount === 1 ? '' : 's'} on other connections
+        </div>
+      )}
     </div>
   )
 }

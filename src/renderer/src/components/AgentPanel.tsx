@@ -77,6 +77,7 @@ import {
   FolderIcon,
   GlobeIcon,
   HistoryIcon,
+  LockIcon,
   NewChatIcon,
   PlayIcon,
   PlugIcon,
@@ -98,6 +99,8 @@ interface AgentPanelProps {
   /** Connection id → display name. */
   connNames: Record<string, string>
   targets: QueryTarget[]
+  /** The app-wide active connection + database; the panel follows this, it never picks its own. */
+  activeTarget: QueryTarget | null
   editorBridge: MutableRefObject<EditorBridge | null>
   /** Mirrors an agent-executed query into the results grid. */
   onAgentQuery: (
@@ -194,7 +197,6 @@ interface ArchivedChat {
   contextTokens: number
   createdAt: number
   updatedAt: number
-  selectedTargetKey: string | null
   modelId: string
   effort: AgentEffort | null
   mode: AgentMode
@@ -210,10 +212,6 @@ function nextId(prefix: string): string {
 }
 
 const MODE_STORAGE_KEY = 'agent.mode'
-
-function targetKey(target: QueryTarget): string {
-  return JSON.stringify([target.connId, target.database])
-}
 
 function chatTitle(messages: ChatMessage[]): string {
   const firstUser = messages.find((message) => message.role === 'user')
@@ -423,6 +421,7 @@ export function AgentPanel({
   files,
   connNames,
   targets,
+  activeTarget,
   editorBridge,
   onAgentQuery,
   onAgentTurnEnd,
@@ -461,9 +460,6 @@ export function AgentPanel({
   const [modelId, setModelId] = useState(DEFAULT_AGENT_MODEL.id)
   const [effort, setEffort] = useState<AgentEffort | null>(
     DEFAULT_AGENT_MODEL.defaultEffort
-  )
-  const [selectedTargetKey, setSelectedTargetKey] = useState<string | null>(
-    null
   )
   const [keyStatus, setKeyStatus] = useState<AgentKeyStatus | null>(null)
   const [input, setInput] = useState('')
@@ -529,7 +525,7 @@ export function AgentPanel({
   const model =
     AGENT_MODELS.find((m) => m.id === modelId) ?? DEFAULT_AGENT_MODEL
   const modeOption = AGENT_MODES.find((m) => m.id === mode) ?? AGENT_MODES[0]
-  const target = targets.find((t) => targetKey(t) === selectedTargetKey) ?? null
+  const target = activeTarget
   /** Where the files tab's "+" puts a new file: the chat's target, else primary. */
   const fileHome =
     target ?? targets.find((t) => t.primary) ?? targets[0] ?? null
@@ -647,18 +643,6 @@ export function AgentPanel({
     },
     [chatRecordById, onOpenKnowledgeRecord]
   )
-
-  // Keep the target selection valid as connections come and go.
-  useEffect(() => {
-    if (
-      selectedTargetKey &&
-      targets.some((t) => targetKey(t) === selectedTargetKey)
-    ) {
-      return
-    }
-    const fallback = targets.find((t) => t.primary) ?? targets[0]
-    setSelectedTargetKey(fallback ? targetKey(fallback) : null)
-  }, [targets, selectedTargetKey])
 
   useEffect(() => {
     void window.dbDesk.agent.keyStatus().then(setKeyStatus)
@@ -901,16 +885,7 @@ export function AgentPanel({
     setActiveTab('agent')
     setInput(seed.text)
     setDraftIntent(seed.intent)
-    const requestedTarget = seed.target
-    const seedTarget = requestedTarget
-      ? targets.find(
-          (candidate) =>
-            candidate.connId === requestedTarget.connId &&
-            candidate.database === requestedTarget.database
-        )
-      : null
-    if (seedTarget) setSelectedTargetKey(targetKey(seedTarget))
-  }, [seed, targets])
+  }, [seed])
 
   // "Show usages" / "Add annotation…" from the tree reveals the knowledge tab.
   const prevNavSeq = useRef(0)
@@ -1168,7 +1143,6 @@ export function AgentPanel({
     if (!knowledgeTarget || !knowledgeRepoStatus?.root || busy || compacting) {
       return
     }
-    setSelectedTargetKey(targetKey(knowledgeTarget))
     setRepoEnabled(true)
     setActiveTab('agent')
     const prompt =
@@ -1203,7 +1177,6 @@ export function AgentPanel({
       ) {
         return
       }
-      setSelectedTargetKey(targetKey(knowledgeTarget))
       setRepoEnabled(true)
       setActiveTab('agent')
       const template = skillById.get(TARGETED_SCAN_SKILL_ID)?.prompt
@@ -1263,7 +1236,6 @@ export function AgentPanel({
         kbId = defaultBaseFor(runTarget.connId, runTarget.database)
         setRepoEnabled(true)
       }
-      if (runTarget) setSelectedTargetKey(targetKey(runTarget))
       setActiveTab('agent')
       sendPrompt(prompt, runTarget, needsRepo, 'chat', kbId)
       return null
@@ -1291,7 +1263,6 @@ export function AgentPanel({
       contextTokens,
       createdAt: chatCreatedAt,
       updatedAt: chatUpdatedAt,
-      selectedTargetKey,
       modelId,
       effort,
       mode,
@@ -1306,7 +1277,6 @@ export function AgentPanel({
       contextTokens,
       chatCreatedAt,
       chatUpdatedAt,
-      selectedTargetKey,
       modelId,
       effort,
       mode,
@@ -1356,7 +1326,6 @@ export function AgentPanel({
       setChatUpdatedAt(nextChat.updatedAt)
       setMessages(nextChat.messages)
       setContextTokens(nextChat.contextTokens)
-      setSelectedTargetKey(nextChat.selectedTargetKey)
       setModelId(nextChat.modelId)
       setEffort(nextChat.effort)
       setMode(nextChat.mode)
@@ -1528,8 +1497,76 @@ export function AgentPanel({
           <PlusThinIcon />
         </button>
       </div>
+      <div className="agent-target-row">
+        {activeTarget ? (
+          <span
+            className="ctx-chip"
+            title="The agent follows the app's active connection"
+          >
+            <span className="ctx-chip__lock">
+              <LockIcon />
+            </span>
+            <span className="ctx-chip__dot" />
+            <span className="ctx-chip__name">{activeTarget.connName}</span>
+            <span className="ctx-chip__db">/ {activeTarget.database}</span>
+          </span>
+        ) : (
+          <span className="ctx-chip ctx-chip--bare">No connection</span>
+        )}
+        <span className="agent-target-row__hint">follows app context</span>
+        <span className="agent-target-row__spacer" />
+        <div className="mode-ctl">
+          <button
+            type="button"
+            className="model-pill"
+            title="Agent access mode"
+            onClick={() => setModeOpen((open) => !open)}
+          >
+            <ShieldIcon size={12} />
+            <span className="model-pill__name">{modeOption.label}</span>
+            <ChevronDownIcon size={10} />
+          </button>
+          {modeOpen && (
+            <>
+              <div
+                className="ctx-overlay"
+                onMouseDown={() => setModeOpen(false)}
+              />
+              <div className="model-pop mode-pop">
+                {AGENT_MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`model-pop__row mode-pop__row${m.id === mode ? ' is-active' : ''}`}
+                    disabled={!m.enabled}
+                    title={
+                      m.id === 'write-admin'
+                        ? 'Structure and data changes by the agent are disabled in this version.'
+                        : undefined
+                    }
+                    onClick={() => pickMode(m)}
+                  >
+                    <span className="mode-pop__text">
+                      <span className="mode-pop__label">{m.label}</span>
+                      <span className="mode-pop__desc">{m.description}</span>
+                    </span>
+                    {m.id === mode && <CheckIcon size={13} />}
+                  </button>
+                ))}
+                <div className="mode-pop__note">
+                  For maximum safety, connect with a read-only database role.
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
       {activeTab === 'files' ? (
-        <FilesPanel files={files} connNames={connNames} />
+        <FilesPanel
+          files={files}
+          connNames={connNames}
+          activeConnId={activeTarget?.connId ?? null}
+        />
       ) : activeTab === 'skills' ? (
         <SkillsPanel
           state={skills}
@@ -1672,70 +1709,6 @@ export function AgentPanel({
         />
       ) : (
         <div className="chat">
-          <div className="chat__target-bar">
-            <select
-              className="toolbar-select chat__target"
-              title="Connection and database the agent works against"
-              value={selectedTargetKey ?? ''}
-              onChange={(e) => setSelectedTargetKey(e.target.value || null)}
-              disabled={targets.length === 0}
-            >
-              {targets.length === 0 && <option value="">No connection</option>}
-              {targets.map((t) => (
-                <option key={targetKey(t)} value={targetKey(t)}>
-                  {t.connName} / {t.database}
-                </option>
-              ))}
-            </select>
-            <div className="mode-ctl">
-              <button
-                type="button"
-                className="model-pill"
-                title="Agent access mode"
-                onClick={() => setModeOpen((open) => !open)}
-              >
-                <ShieldIcon size={12} />
-                <span className="model-pill__name">{modeOption.label}</span>
-                <ChevronDownIcon size={10} />
-              </button>
-              {modeOpen && (
-                <>
-                  <div
-                    className="ctx-overlay"
-                    onMouseDown={() => setModeOpen(false)}
-                  />
-                  <div className="model-pop mode-pop">
-                    {AGENT_MODES.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        className={`model-pop__row mode-pop__row${m.id === mode ? ' is-active' : ''}`}
-                        disabled={!m.enabled}
-                        title={
-                          m.id === 'write-admin'
-                            ? 'Structure and data changes by the agent are disabled in this version.'
-                            : undefined
-                        }
-                        onClick={() => pickMode(m)}
-                      >
-                        <span className="mode-pop__text">
-                          <span className="mode-pop__label">{m.label}</span>
-                          <span className="mode-pop__desc">
-                            {m.description}
-                          </span>
-                        </span>
-                        {m.id === mode && <CheckIcon size={13} />}
-                      </button>
-                    ))}
-                    <div className="mode-pop__note">
-                      For maximum safety, connect with a read-only database
-                      role.
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
           <div className="chat__session-bar">
             <div className="chat-history-ctl">
               <button

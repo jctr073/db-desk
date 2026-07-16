@@ -911,6 +911,16 @@ export function ResultsPanel({
           </button>
         )}
         <div className="editor-tabbar__spacer" />
+        {active && (
+          <span
+            className="ctx-chip ctx-chip--sm"
+            title={`Result target — ${active.target.connName} / ${active.target.database}`}
+          >
+            <span className="ctx-chip__dot" />
+            <span className="ctx-chip__name">{active.target.connName}</span>
+            <span className="ctx-chip__db">/ {active.target.database}</span>
+          </span>
+        )}
         {showLimitControl && (
           <button
             ref={limitBtnRef}

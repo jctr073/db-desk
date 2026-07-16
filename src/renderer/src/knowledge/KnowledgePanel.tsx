@@ -385,23 +385,38 @@ export function KnowledgePanel({
   return (
     <div className="knowledge">
       <div className="chat__target-bar">
-        <select
-          className="toolbar-select chat__target"
-          title="Connection and database this knowledge belongs to"
-          value={targetKey ?? ''}
-          onChange={(e) => onTargetKeyChange(e.target.value || null)}
-          disabled={targets.length === 0}
-        >
-          {targets.length === 0 && <option value="">No connection</option>}
-          {targets.map((t) => (
-            <option
-              key={knowledgeTargetKeyOf(t.connId, t.database)}
-              value={knowledgeTargetKeyOf(t.connId, t.database)}
-            >
-              {t.connName} / {t.database}
-            </option>
-          ))}
-        </select>
+        {targets.length > 1 ? (
+          <select
+            className="toolbar-select chat__target"
+            title="Connection and database this knowledge belongs to"
+            value={targetKey ?? ''}
+            onChange={(e) => onTargetKeyChange(e.target.value || null)}
+            disabled={targets.length === 0}
+          >
+            {targets.length === 0 && <option value="">No connection</option>}
+            {targets.map((t) => (
+              <option
+                key={knowledgeTargetKeyOf(t.connId, t.database)}
+                value={knowledgeTargetKeyOf(t.connId, t.database)}
+              >
+                {t.connName} / {t.database}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span
+            className="ctx-chip ctx-chip--sm"
+            title="Knowledge follows the app's active connection"
+          >
+            <span className="ctx-chip__dot" />
+            <span className="ctx-chip__name">
+              {capTarget?.connName ?? 'No connection'}
+            </span>
+            {capTarget && (
+              <span className="ctx-chip__db">/ {capTarget.database}</span>
+            )}
+          </span>
+        )}
         {targetActions}
         <button
           ref={newBtnRef}

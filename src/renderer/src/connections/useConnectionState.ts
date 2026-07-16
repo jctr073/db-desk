@@ -40,6 +40,10 @@ export interface ConnectionState {
   tree: TreeNode[]
   expanded: Record<string, boolean>
   selected: string | null
+  /** The app-wide active connection (unified context); null when none. */
+  activeConnId: string | null
+  /** Make a connection the whole-app context, connecting it first if offline. */
+  activateConnection: (id: string) => void
   mode: TreeMode
   filter: string
   selectedNode: TreeNode | null
@@ -147,6 +151,7 @@ export function useConnectionState(): ConnectionState {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [selected, setSelected] = useState<string | null>(null)
+  const [activeConnId, setActiveConnId] = useState<string | null>(null)
   const [mode, setMode] = useState<TreeMode>('A')
   const [filter, setFilter] = useState('')
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -173,6 +178,9 @@ export function useConnectionState(): ConnectionState {
   /** Mirror of `schemas` so ensureSchema doesn't go stale across renders. */
   const schemasRef = useRef(schemas)
   schemasRef.current = schemas
+  /** Mirror of `tree` for callbacks that must not re-bind on every tree change. */
+  const treeRef = useRef(tree)
+  treeRef.current = tree
   /** connId + database pairs with an introspection request in flight. */
   const introspecting = useRef(new Set<string>())
   /** Catalog schema-list requests in flight for the manage dialog. */
@@ -236,11 +244,22 @@ export function useConnectionState(): ConnectionState {
         Object.fromEntries(saved.map((profile) => [profile.id, profile]))
       )
       setTree(saved.map(savedConnectionNode))
+      // The active-context designation survives relaunch; the connection
+      // itself comes back offline (nothing auto-connects).
+      const storedActive = localStorage.getItem('conn.activeId')
+      if (storedActive && saved.some((profile) => profile.id === storedActive)) {
+        setActiveConnId(storedActive)
+      }
     })
     return () => {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (activeConnId) localStorage.setItem('conn.activeId', activeConnId)
+    else localStorage.removeItem('conn.activeId')
+  }, [activeConnId])
 
   const closeManageDialog = useCallback(() => setManageDialog(null), [])
 
@@ -548,6 +567,8 @@ export function useConnectionState(): ConnectionState {
           ...defaultExpansion(conn, connected.name)
         }))
         setSelected(id)
+        // Connecting is activating: the connection becomes the app context.
+        setActiveConnId(id)
         if (connectedVisible && connected.needsSchemaSelection) {
           openManageCatalogs(
             id,
@@ -589,6 +610,14 @@ export function useConnectionState(): ConnectionState {
       setSelected((prev) =>
         prev && (prev === id || prev.startsWith(`${id}/`)) ? id : prev
       )
+      // The app context moves to another online connection, if there is one.
+      setActiveConnId((act) => {
+        if (act !== id) return act
+        const fallback = treeRef.current.find(
+          (node) => node.id !== id && node.status === 'online'
+        )
+        return fallback?.id ?? null
+      })
     },
     [dropSchemas]
   )
@@ -611,6 +640,13 @@ export function useConnectionState(): ConnectionState {
       setSelected((prev) =>
         prev && (prev === id || prev.startsWith(`${id}/`)) ? null : prev
       )
+      setActiveConnId((act) => {
+        if (act !== id) return act
+        const fallback = treeRef.current.find(
+          (node) => node.id !== id && node.status === 'online'
+        )
+        return fallback?.id ?? null
+      })
     },
     [dropSchemas]
   )
@@ -619,6 +655,25 @@ export function useConnectionState(): ConnectionState {
     const node = findNode(selected, tree)
     if (node?.kind === 'connection') removeConnection(node.id)
   }, [selected, tree, removeConnection])
+
+  /**
+   * Unified context: make one connection the whole-app target. Online
+   * connections switch instantly; offline ones connect first (connectSaved
+   * activates on success).
+   */
+  const activateConnection = useCallback(
+    (id: string) => {
+      const node = treeRef.current.find((n) => n.id === id)
+      if (!node || node.loading) return
+      if (node.status === 'online') {
+        setActiveConnId(id)
+        setSelected(id)
+      } else {
+        void connectSaved(id)
+      }
+    },
+    [connectSaved]
+  )
 
   const openDialog = useCallback(() => {
     // Always start from a clean form: leftovers from a canceled attempt or
@@ -770,6 +825,7 @@ export function useConnectionState(): ConnectionState {
       ...defaultExpansion(conn, connected.name)
     }))
     setSelected(conn.id)
+    setActiveConnId(conn.id)
     setDialogOpen(false)
     setEditingId(null)
     setTestState('idle')
@@ -792,6 +848,8 @@ export function useConnectionState(): ConnectionState {
     tree,
     expanded,
     selected,
+    activeConnId,
+    activateConnection,
     mode,
     filter,
     selectedNode,
