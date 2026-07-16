@@ -1,25 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactElement, ReactNode } from 'react'
+import type { ReactElement } from 'react'
 
 import type { DatabaseIntrospection } from '../../../shared/db'
 import { lookupUsages } from '../../../shared/knowledge'
 import type {
   ColumnRef,
-  KnowledgeBaseSummary,
   KnowledgeKind,
   KnowledgeRecord,
   KnowledgeSource,
   UsageHit
 } from '../../../shared/knowledge'
-import { BaseNameDialog } from '../components/BaseNameDialog'
 import {
   BookIcon,
-  ChevronDownIcon,
   CloseIcon,
   PlusThinIcon,
   SearchIcon
 } from '../components/icons'
-import { LinkBaseDialog } from '../components/LinkBaseDialog'
 import { InlineMarkdown } from '../components/MarkdownText'
 import type { QueryTarget } from '../components/useQueryRunner'
 import {
@@ -61,8 +57,8 @@ interface KnowledgePanelProps {
   newSeq: number
   /** Called once `newSeq` has been acted on, so the parent can reset it. */
   onNewConsumed: () => void
-  /** Database-scoped controls that belong beside the knowledge target. */
-  targetActions?: ReactNode
+  /** Opens the "Manage Knowledge Bases" dialog (owned by the parent). */
+  onManageBases: () => void
 }
 
 /**
@@ -80,7 +76,7 @@ export function KnowledgePanel({
   onNavConsumed,
   newSeq,
   onNewConsumed,
-  targetActions
+  onManageBases
 }: KnowledgePanelProps): ReactElement {
   const [search, setSearch] = useState('')
   const [kindFilter, setKindFilter] = useState<KnowledgeKind | 'all'>('all')
@@ -91,27 +87,16 @@ export function KnowledgePanel({
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [newMenu, setNewMenu] = useState<{ x: number; y: number } | null>(null)
   const newBtnRef = useRef<HTMLButtonElement | null>(null)
-  const [manageOpen, setManageOpen] = useState(false)
-  /** Which base-name dialog is open (create vs rename), if any. */
-  const [baseDialog, setBaseDialog] = useState<'new' | 'rename' | null>(null)
-  /** Candidate bases for the link dialog; null while the dialog is closed. */
-  const [linkCandidates, setLinkCandidates] = useState<
-    KnowledgeBaseSummary[] | null
-  >(null)
   // Fresh id per opened editor: guarantees a remount when swapping between two
   // different "new" drafts (e.g. a tree-prefilled one and a toolbar one).
   const editorSeq = useRef(0)
   const openEditor = (next: Omit<EditorState, 'seq'>): void =>
     setEditor({ ...next, seq: ++editorSeq.current })
 
-  // Leaving the database resets the view — records and refs don't carry over,
-  // and any half-open base menu/dialog belongs to the previous target.
+  // Leaving the database resets the view — records and refs don't carry over.
   useEffect(() => {
     setUsagesRef(null)
     setEditor(null)
-    setManageOpen(false)
-    setBaseDialog(null)
-    setLinkCandidates(null)
   }, [state.connId, state.database])
 
   // Introspection backs the ref pickers and dangling-ref warnings.
@@ -172,16 +157,13 @@ export function KnowledgePanel({
   }, [newSeq, onNewConsumed])
 
   useEffect(() => {
-    if (!newMenu && !manageOpen) return
+    if (!newMenu) return
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        setNewMenu(null)
-        setManageOpen(false)
-      }
+      if (event.key === 'Escape') setNewMenu(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [newMenu, manageOpen])
+  }, [newMenu])
 
   const intro =
     state.connId && state.database
@@ -189,11 +171,6 @@ export function KnowledgePanel({
       : undefined
   const validKeys = useMemo(
     () => (intro ? buildRefKeySet(intro) : null),
-    [intro]
-  )
-  /** Introspected schema names, for the link dialogs' schema pickers. */
-  const schemaOptions = useMemo(
-    () => intro?.schemas.map((s) => s.name) ?? [],
     [intro]
   )
   /** " · schema: a, b" suffix for a group's dropdown/list labels. */
@@ -276,94 +253,6 @@ export function KnowledgePanel({
     openEditor({ record: null, kind, prefillTarget: null })
   }
 
-  // --- Knowledge-base management. Structural changes reload the groups via
-  // the hook's onStructureChanged subscription, so these only fire the API. ---
-  const createAndLinkBase = async (
-    name: string,
-    schema?: string
-  ): Promise<void> => {
-    if (!state.connId || !state.database || !schema) return
-    const base = await window.dbDesk.knowledge.createBase(name)
-    await window.dbDesk.knowledge.addLink({
-      kbId: base.id,
-      connId: state.connId,
-      database: state.database,
-      schema
-    })
-    // Select the new base immediately instead of waiting for the reload.
-    state.setSelectedKbId(base.id)
-  }
-
-  const renameSelectedBase = async (name: string): Promise<void> => {
-    if (state.selectedKbId) {
-      await window.dbDesk.knowledge.renameBase(state.selectedKbId, name)
-    }
-  }
-
-  const linkExistingBase = async (
-    kbId: string,
-    schema: string
-  ): Promise<void> => {
-    if (!state.connId || !state.database) return
-    await window.dbDesk.knowledge.addLink({
-      kbId,
-      connId: state.connId,
-      database: state.database,
-      schema
-    })
-    state.setSelectedKbId(kbId)
-  }
-
-  const openLinkDialog = async (): Promise<void> => {
-    setManageOpen(false)
-    // Every base is a candidate: links are schema-scoped, so a base already
-    // linked to one schema can still be linked to another (relinking an
-    // existing scope is a harmless no-op in the store).
-    setLinkCandidates(await window.dbDesk.knowledge.listBases())
-  }
-
-  const unlinkSelectedBase = (): void => {
-    setManageOpen(false)
-    if (!selectedGroup) return
-    const scopes = selectedGroup.links
-      .map((l) => l.schema)
-      .filter((s): s is string => !!s)
-    const scopeText =
-      scopes.length > 0
-        ? ` (schema${scopes.length === 1 ? '' : 's'} ${scopes.join(', ')})`
-        : ''
-    if (
-      !window.confirm(
-        `Unlink "${selectedGroup.base.name}" from this database${scopeText}? The base and its records are kept — only the links to this database are removed.`
-      )
-    ) {
-      return
-    }
-    for (const link of selectedGroup.links) {
-      void window.dbDesk.knowledge.removeLink(link.id)
-    }
-  }
-
-  const deleteSelectedBase = (): void => {
-    setManageOpen(false)
-    if (!selectedGroup) return
-    if (
-      !window.confirm(
-        `Delete knowledge base "${selectedGroup.base.name}"? This permanently deletes all of its records and removes it from every database it is linked to, not only this one. This cannot be undone.`
-      )
-    ) {
-      return
-    }
-    void window.dbDesk.knowledge.deleteBase(selectedGroup.base.id)
-  }
-
-  /** Empty-state shortcut: the new-base dialog prefilled with the database
-   * name. A dialog rather than a one-click create because links are
-   * schema-scoped — the schema choice has to be explicit. */
-  const createDefaultBase = (): void => {
-    if (state.database) setBaseDialog('new')
-  }
-
   const saveDraft = async (
     input: Parameters<KnowledgeState['save']>[0]
   ): Promise<void> => {
@@ -417,7 +306,6 @@ export function KnowledgePanel({
             )}
           </span>
         )}
-        {targetActions}
         <button
           ref={newBtnRef}
           type="button"
@@ -447,7 +335,7 @@ export function KnowledgePanel({
               type="button"
               className="kn-base-create"
               title="Create a knowledge base for this database"
-              onClick={createDefaultBase}
+              onClick={onManageBases}
             >
               <PlusThinIcon size={12} />
               Create knowledge base
@@ -470,77 +358,15 @@ export function KnowledgePanel({
               ))}
             </select>
           )}
-          <div className="kn-base-manage">
-            <button
-              type="button"
-              className="kn-base-manage__btn"
-              title="Manage knowledge bases"
-              aria-expanded={manageOpen}
-              onClick={() => setManageOpen((open) => !open)}
-            >
-              <BookIcon size={13} />
-              Manage
-              <ChevronDownIcon size={10} />
-            </button>
-            {manageOpen && (
-              <>
-                <div
-                  className="ctx-overlay"
-                  onMouseDown={() => setManageOpen(false)}
-                />
-                <div className="model-pop kn-base-pop">
-                  <button
-                    type="button"
-                    className="model-pop__row"
-                    onClick={() => {
-                      setManageOpen(false)
-                      setBaseDialog('new')
-                    }}
-                  >
-                    New base…
-                  </button>
-                  <button
-                    type="button"
-                    className="model-pop__row"
-                    onClick={() => void openLinkDialog()}
-                  >
-                    Link existing base…
-                  </button>
-                  <button
-                    type="button"
-                    className="model-pop__row"
-                    disabled={!selectedGroup}
-                    title={selectedGroup ? undefined : 'Select a single base first'}
-                    onClick={() => {
-                      setManageOpen(false)
-                      setBaseDialog('rename')
-                    }}
-                  >
-                    Rename base…
-                  </button>
-                  <div className="model-pop__sep" />
-                  <button
-                    type="button"
-                    className="model-pop__row"
-                    disabled={!selectedGroup}
-                    title={selectedGroup ? undefined : 'Select a single base first'}
-                    onClick={unlinkSelectedBase}
-                  >
-                    Unlink from this database
-                  </button>
-                  <button
-                    type="button"
-                    className="model-pop__row"
-                    disabled={!selectedGroup}
-                    title={selectedGroup ? undefined : 'Select a single base first'}
-                    onClick={deleteSelectedBase}
-                  >
-                    Delete base…
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+          <button
+            type="button"
+            className="kn-base-manage__btn"
+            title="Manage knowledge bases, codebases, and scans"
+            onClick={onManageBases}
+          >
+            <BookIcon size={13} />
+            Manage
+          </button>
         </div>
       )}
 
@@ -774,40 +600,6 @@ export function KnowledgePanel({
         </div>
       )}
 
-      {baseDialog === 'new' && (
-        <BaseNameDialog
-          title="New Knowledge Base"
-          subtitle={
-            capTarget ? `${capTarget.connName} / ${capTarget.database}` : ''
-          }
-          initialName={state.groups.length === 0 ? state.database ?? '' : ''}
-          submitLabel="Create Base"
-          schemaOptions={schemaOptions}
-          onSubmit={createAndLinkBase}
-          onClose={() => setBaseDialog(null)}
-        />
-      )}
-      {baseDialog === 'rename' && selectedGroup && (
-        <BaseNameDialog
-          title="Rename Knowledge Base"
-          subtitle={selectedGroup.base.name}
-          initialName={selectedGroup.base.name}
-          submitLabel="Rename"
-          onSubmit={renameSelectedBase}
-          onClose={() => setBaseDialog(null)}
-        />
-      )}
-      {linkCandidates && (
-        <LinkBaseDialog
-          targetLabel={
-            capTarget ? `${capTarget.connName} / ${capTarget.database}` : ''
-          }
-          bases={linkCandidates}
-          schemaOptions={schemaOptions}
-          onLink={linkExistingBase}
-          onClose={() => setLinkCandidates(null)}
-        />
-      )}
     </div>
   )
 }

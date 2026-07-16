@@ -29,7 +29,6 @@ import type {
   AgentPromptIntent
 } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
-import { dialectFor } from '../../../shared/dialect'
 import { pickDefaultLink } from '../../../shared/knowledge'
 import type { KnowledgeLink } from '../../../shared/knowledge'
 import type { McpServerStatus } from '../../../shared/mcp'
@@ -63,8 +62,8 @@ import {
   splitFences
 } from './agentTurn'
 import type { TurnRecap } from './agentTurn'
-import { DetachCodebaseDialog } from './DetachCodebaseDialog'
 import type { EditorBridge } from './editorBridge'
+import { ManageKnowledgeDialog } from './ManageKnowledgeDialog'
 import { SqlCode } from './SqlCode'
 import type { QueryTarget } from './useQueryRunner'
 import {
@@ -92,7 +91,6 @@ import { FilesPanel } from './FilesPanel'
 import { KbRefContext, Markdown } from './MarkdownText'
 import { McpSettingsDialog } from './McpSettingsDialog'
 import { SaveExemplarDialog } from './SaveExemplarDialog'
-import { TargetedScanDialog } from './TargetedScanDialog'
 
 interface AgentPanelProps {
   files: FileState
@@ -227,12 +225,6 @@ function chatTime(timestamp: number): string {
     return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   }
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
-
-/** Last path segment of a repo root, for display — renderer never parses paths. */
-function repoRootName(root: string): string {
-  const parts = root.split(/[/\\]/).filter(Boolean)
-  return parts[parts.length - 1] ?? root
 }
 
 interface ToolMeta {
@@ -489,15 +481,8 @@ export function AgentPanel({
   )
   /** Every knowledge link, so any target's default base resolves in-process. */
   const [links, setLinks] = useState<KnowledgeLink[]>([])
-  const [repoMenuOpen, setRepoMenuOpen] = useState(false)
-  /** The knowledge panel's "Targeted scan…" focus dialog. */
-  const [targetedScanOpen, setTargetedScanOpen] = useState(false)
-  const [detachRequest, setDetachRequest] = useState<{
-    target: QueryTarget
-    kbId: string
-    repoName: string | null
-    baseName: string | null
-  } | null>(null)
+  /** The knowledge tab's "Manage Knowledge Bases" dialog. */
+  const [manageKnowledgeOpen, setManageKnowledgeOpen] = useState(false)
   // On by default: once a codebase is attached, using it is opt-out per chat.
   const [repoEnabled, setRepoEnabled] = useState(true)
 
@@ -562,32 +547,13 @@ export function AgentPanel({
     [defaultBaseFor, repoStatuses]
   )
 
-  /**
-   * The default base for a target, creating and linking one (named after the
-   * database) when the target has none yet — used before any operation that
-   * needs a kbId (attach codebase). Links are schema-scoped; with nothing
-   * more specific to go on here, the auto-created link takes the engine's
-   * default schema.
-   */
-  const ensureDefaultBase = useCallback(
-    async (t: QueryTarget): Promise<string> => {
-      const existing = defaultBaseFor(t.connId, t.database)
-      if (existing) return existing
-      const base = await window.dbDesk.knowledge.createBase(t.database)
-      await window.dbDesk.knowledge.addLink({
-        kbId: base.id,
-        connId: t.connId,
-        database: t.database,
-        schema: dialectFor(t.connectionType).defaultSchema
-      })
-      return base.id
-    },
-    [defaultBaseFor]
-  )
-
-  const knowledgeRepoStatus = knowledgeTarget
-    ? repoStatusFor(knowledgeTarget.connId, knowledgeTarget.database)
-    : null
+  /** Introspected schema names of the knowledge target, for the manage dialog. */
+  const knowledgeSchemaOptions = useMemo(() => {
+    const intro = knowledgeTarget
+      ? schemas[knowledgeTarget.connId]?.[knowledgeTarget.database]
+      : undefined
+    return intro?.schemas.map((s) => s.name) ?? []
+  }, [knowledgeTarget, schemas])
 
   // Knowledge records for the CHAT target — the knowledge tab may be viewing
   // a different database — so [kb:id] citations in assistant prose resolve to
@@ -679,15 +645,18 @@ export function AgentPanel({
     }
   }, [])
 
-  // Load codebase status for the default base of every connected target, so the
-  // composer's repo flag and the Knowledge tab's attach control both resolve.
-  // Re-runs when the links change (a new default base) or targets come and go.
+  // Load codebase status for every base linked to a connected target, so the
+  // composer's repo flag and the manage dialog's per-base codebase view both
+  // resolve. Re-runs when the links change or targets come and go.
   useEffect(() => {
     let cancelled = false
     const kbIds = new Set<string>()
     for (const t of targets) {
-      const kbId = defaultBaseFor(t.connId, t.database)
-      if (kbId) kbIds.add(kbId)
+      for (const link of links) {
+        if (link.connId === t.connId && link.database === t.database) {
+          kbIds.add(link.kbId)
+        }
+      }
     }
     for (const kbId of kbIds) {
       void window.dbDesk.repo.get(kbId).then((status) => {
@@ -699,7 +668,12 @@ export function AgentPanel({
     return () => {
       cancelled = true
     }
-  }, [targets, defaultBaseFor])
+  }, [targets, links])
+
+  // The manage dialog is scoped to the knowledge target; leaving it closes it.
+  useEffect(() => {
+    setManageKnowledgeOpen(false)
+  }, [knowledgeTargetKey])
 
   // Once the chat target's default base has a codebase, default to using it.
   useEffect(() => {
@@ -898,20 +872,18 @@ export function AgentPanel({
 
   // Escape dismisses whichever popover is open.
   useEffect(() => {
-    if (!modelOpen && !pickerOpen && !modeOpen && !historyOpen && !repoMenuOpen)
-      return
+    if (!modelOpen && !pickerOpen && !modeOpen && !historyOpen) return
     const onKey = (e: globalThis.KeyboardEvent): void => {
       if (e.key === 'Escape') {
         setModelOpen(false)
         setPickerOpen(false)
         setModeOpen(false)
         setHistoryOpen(false)
-        setRepoMenuOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [modelOpen, pickerOpen, modeOpen, historyOpen, repoMenuOpen])
+  }, [modelOpen, pickerOpen, modeOpen, historyOpen])
 
   const openPicker = useCallback(() => {
     setPickerFilter('')
@@ -1092,13 +1064,11 @@ export function AgentPanel({
   }, [])
 
   /**
-   * Attaches (or changes) a codebase for a target: the codebase lives on the
-   * base, so ensure the target has a default base first, then open the native
-   * directory picker for that base.
+   * Attaches (or changes) the codebase of an explicit base: opens the native
+   * directory picker for it — the path never comes from the renderer.
    */
-  const attachCodebase = useCallback(
-    async (t: QueryTarget): Promise<void> => {
-      const kbId = await ensureDefaultBase(t)
+  const attachCodebaseTo = useCallback(
+    async (kbId: string): Promise<void> => {
       const status = await window.dbDesk.repo.choose(kbId)
       rememberRepoStatus(status)
       if (
@@ -1108,7 +1078,7 @@ export function AgentPanel({
         setRepoEnabled(true)
       }
     },
-    [ensureDefaultBase, rememberRepoStatus, defaultBaseFor, target]
+    [rememberRepoStatus, defaultBaseFor, target]
   )
 
   /** Clears the base's codebase; its knowledge records are kept. */
@@ -1116,7 +1086,6 @@ export function AgentPanel({
     async (kbId: string): Promise<void> => {
       const status = await window.dbDesk.repo.clear(kbId)
       rememberRepoStatus(status)
-      setDetachRequest(null)
     },
     [rememberRepoStatus]
   )
@@ -1127,7 +1096,6 @@ export function AgentPanel({
       const status = await window.dbDesk.repo.clear(kbId)
       rememberRepoStatus(status)
       await window.dbDesk.knowledge.deleteBase(kbId)
-      setDetachRequest(null)
     },
     [rememberRepoStatus]
   )
@@ -1139,51 +1107,41 @@ export function AgentPanel({
     [skills.skills]
   )
 
-  const scanCodebase = useCallback(() => {
-    if (!knowledgeTarget || !knowledgeRepoStatus?.root || busy || compacting) {
-      return
-    }
-    setRepoEnabled(true)
-    setActiveTab('agent')
-    const prompt =
-      skillById.get(SCAN_CODEBASE_SKILL_ID)?.prompt ?? REPO_SCAN_PROMPT
-    // Pin the scan to the base whose codebase is attached (the default base) so
-    // its findings are written there. This launch point collects no input;
-    // strip any {{args}} a user edit added so the placeholder never reaches the
-    // model as literal text.
-    const kbId = defaultBaseFor(
-      knowledgeTarget.connId,
-      knowledgeTarget.database
-    )
-    sendPrompt(applySkillArgs(prompt, ''), knowledgeTarget, true, 'chat', kbId)
-  }, [
-    knowledgeTarget,
-    knowledgeRepoStatus,
-    busy,
-    compacting,
-    sendPrompt,
-    skillById,
-    defaultBaseFor
-  ])
-
-  /** Follow-up scan scoped by the focus text from the targeted-scan dialog. */
-  const targetedScan = useCallback(
-    (focus: string) => {
-      if (
-        !knowledgeTarget ||
-        !knowledgeRepoStatus?.root ||
-        busy ||
-        compacting
-      ) {
+  const scanBase = useCallback(
+    (kbId: string) => {
+      if (!knowledgeTarget || !repoStatuses[kbId]?.root || busy || compacting) {
         return
       }
+      setManageKnowledgeOpen(false)
+      setRepoEnabled(true)
+      setActiveTab('agent')
+      const prompt =
+        skillById.get(SCAN_CODEBASE_SKILL_ID)?.prompt ?? REPO_SCAN_PROMPT
+      // Pin the scan to the base whose codebase is attached so its findings
+      // are written there. This launch point collects no input; strip any
+      // {{args}} a user edit added so the placeholder never reaches the model
+      // as literal text.
+      sendPrompt(
+        applySkillArgs(prompt, ''),
+        knowledgeTarget,
+        true,
+        'chat',
+        kbId
+      )
+    },
+    [knowledgeTarget, repoStatuses, busy, compacting, sendPrompt, skillById]
+  )
+
+  /** Follow-up scan scoped by the focus text from the targeted-scan dialog. */
+  const targetedScanBase = useCallback(
+    (kbId: string, focus: string) => {
+      if (!knowledgeTarget || !repoStatuses[kbId]?.root || busy || compacting) {
+        return
+      }
+      setManageKnowledgeOpen(false)
       setRepoEnabled(true)
       setActiveTab('agent')
       const template = skillById.get(TARGETED_SCAN_SKILL_ID)?.prompt
-      const kbId = defaultBaseFor(
-        knowledgeTarget.connId,
-        knowledgeTarget.database
-      )
       sendPrompt(
         template
           ? applySkillArgs(template, focus)
@@ -1194,15 +1152,7 @@ export function AgentPanel({
         kbId
       )
     },
-    [
-      knowledgeTarget,
-      knowledgeRepoStatus,
-      busy,
-      compacting,
-      sendPrompt,
-      skillById,
-      defaultBaseFor
-    ]
+    [knowledgeTarget, repoStatuses, busy, compacting, sendPrompt, skillById]
   )
 
   /**
@@ -1230,7 +1180,7 @@ export function AgentPanel({
           return 'Connect to a database first — this skill scans its attached codebase.'
         }
         if (!repoStatusFor(runTarget.connId, runTarget.database)?.root) {
-          return 'Attach a codebase to this connection first (Knowledge tab → folder menu).'
+          return 'Attach a codebase to this connection first (Knowledge tab → Manage).'
         }
         // Scan-style skills write into the base whose codebase is attached.
         kbId = defaultBaseFor(runTarget.connId, runTarget.database)
@@ -1588,124 +1538,11 @@ export function AgentPanel({
           onNavConsumed={onKnowledgeNavConsumed}
           newSeq={knowledgeNewSeq}
           onNewConsumed={consumeKnowledgeNewSeq}
-          targetActions={
-            <div className="mcp-ctl repo-ctl repo-ctl--knowledge">
-              <button
-                type="button"
-                className={`composer__web mcp-ctl__plug${
-                  knowledgeRepoStatus?.root ? ' is-on' : ''
-                }`}
-                title={
-                  !knowledgeTarget
-                    ? 'Connect to a database to attach a codebase'
-                    : !knowledgeRepoStatus?.root
-                      ? 'Attach a local codebase'
-                      : `Codebase attached — ${repoRootName(knowledgeRepoStatus.root)}`
-                }
-                disabled={!knowledgeTarget}
-                onClick={() => {
-                  if (knowledgeTarget) void attachCodebase(knowledgeTarget)
-                }}
-              >
-                <FolderIcon size={14} />
-              </button>
-              <button
-                type="button"
-                className="mcp-ctl__chev"
-                title="Codebase options"
-                aria-label="Codebase options"
-                aria-expanded={repoMenuOpen}
-                disabled={!knowledgeTarget}
-                onClick={() => setRepoMenuOpen((open) => !open)}
-              >
-                <ChevronDownIcon size={10} />
-              </button>
-              {repoMenuOpen && knowledgeTarget && (
-                <>
-                  <div
-                    className="ctx-overlay"
-                    onMouseDown={() => setRepoMenuOpen(false)}
-                  />
-                  <div className="model-pop mcp-pop repo-pop">
-                    <div className="model-pop__heading">Codebase</div>
-                    <div className="mcp-pop__empty repo-pop__info">
-                      {knowledgeRepoStatus?.root ? (
-                        <>
-                          {knowledgeRepoStatus.root}
-                          {knowledgeRepoStatus.commit &&
-                            ` @ ${knowledgeRepoStatus.commit}`}
-                        </>
-                      ) : (
-                        'No codebase attached.'
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      className="model-pop__row"
-                      // Also gated on the skills load so an edited scan
-                      // prompt is never silently bypassed by the fallback.
-                      disabled={!knowledgeRepoStatus?.root || skills.loading}
-                      title="Send the codebase-scan prompt as a chat message"
-                      onClick={() => {
-                        setRepoMenuOpen(false)
-                        scanCodebase()
-                      }}
-                    >
-                      Scan codebase
-                    </button>
-                    <button
-                      type="button"
-                      className="model-pop__row"
-                      disabled={!knowledgeRepoStatus?.root || skills.loading}
-                      title="Re-scan a specific part of the codebase with your own focus instructions"
-                      onClick={() => {
-                        setRepoMenuOpen(false)
-                        setTargetedScanOpen(true)
-                      }}
-                    >
-                      Targeted scan…
-                    </button>
-                    <button
-                      type="button"
-                      className="model-pop__row"
-                      onClick={() => {
-                        setRepoMenuOpen(false)
-                        void attachCodebase(knowledgeTarget)
-                      }}
-                    >
-                      Change directory…
-                    </button>
-                    <button
-                      type="button"
-                      className="model-pop__row"
-                      disabled={!knowledgeRepoStatus?.root}
-                      title="Detach the codebase, keeping or deleting the knowledge base"
-                      onClick={() => {
-                        setRepoMenuOpen(false)
-                        const kbId = defaultBaseFor(
-                          knowledgeTarget.connId,
-                          knowledgeTarget.database
-                        )
-                        if (!kbId) return
-                        setDetachRequest({
-                          target: knowledgeTarget,
-                          kbId,
-                          repoName: knowledgeRepoStatus?.root
-                            ? repoRootName(knowledgeRepoStatus.root)
-                            : null,
-                          baseName:
-                            knowledge.groups.find((g) => g.base.id === kbId)
-                              ?.base.name ?? null
-                        })
-                      }}
-                    >
-                      Detach
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          }
+          onManageBases={() => {
+            if (!knowledgeTarget) return
+            ensureSchema(knowledgeTarget.connId, knowledgeTarget.database)
+            setManageKnowledgeOpen(true)
+          }}
         />
       ) : (
         <div className="chat">
@@ -2298,29 +2135,29 @@ export function AgentPanel({
           </div>
         </div>
       )}
-      {targetedScanOpen && knowledgeTarget && (
-        <TargetedScanDialog
-          targetLabel={`${knowledgeTarget.connName} / ${knowledgeTarget.database}`}
-          repoName={
-            knowledgeRepoStatus?.root
-              ? repoRootName(knowledgeRepoStatus.root)
-              : null
+      {manageKnowledgeOpen && knowledgeTarget && (
+        <ManageKnowledgeDialog
+          target={knowledgeTarget}
+          groups={knowledge.groups}
+          links={links}
+          connNames={connNames}
+          schemaOptions={knowledgeSchemaOptions}
+          repoStatuses={repoStatuses}
+          initialKbId={knowledge.selectedKbId}
+          onSelectBase={knowledge.setSelectedKbId}
+          onAttachCodebase={attachCodebaseTo}
+          onDetachCodebase={detachCodebase}
+          onDetachAndDeleteBase={detachAndDeleteBase}
+          onScan={scanBase}
+          onTargetedScan={targetedScanBase}
+          scanDisabledReason={
+            skills.loading
+              ? 'Skills are still loading — try again in a moment'
+              : busy || compacting
+                ? 'The agent is busy — wait for the current turn to finish'
+                : null
           }
-          onClose={() => setTargetedScanOpen(false)}
-          onScan={(focus) => {
-            setTargetedScanOpen(false)
-            targetedScan(focus)
-          }}
-        />
-      )}
-      {detachRequest && (
-        <DetachCodebaseDialog
-          targetLabel={`${detachRequest.target.connName} / ${detachRequest.target.database}`}
-          repoName={detachRequest.repoName}
-          baseName={detachRequest.baseName}
-          onClose={() => setDetachRequest(null)}
-          onDetach={() => detachCodebase(detachRequest.kbId)}
-          onDetachAndDelete={() => detachAndDeleteBase(detachRequest.kbId)}
+          onClose={() => setManageKnowledgeOpen(false)}
         />
       )}
       {exemplarSql !== null && target && (
