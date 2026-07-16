@@ -96,12 +96,6 @@ interface RefsViewState {
 
 const RELATION_KINDS = new Set<NodeKind>(['table', 'view', 'matview'])
 
-/** Human label for a node kind, for the footer's "Kind · name" summary. */
-function kindLabel(kind: NodeKind): string {
-  if (kind === 'matview') return 'Materialized view'
-  return kind.charAt(0).toUpperCase() + kind.slice(1)
-}
-
 /** Build the chip payload for a schema/table/view node from its path-based id. */
 function contextItemFor(node: TreeNode): AgentDbObjectItem | null {
   if (!AGENT_CONTEXT_KINDS.has(node.kind)) return null
@@ -170,12 +164,6 @@ export function ConnectionPanel({
         (node.subtitle ?? '').toLowerCase().includes(query)
     )
   }, [otherNodes, state.filter])
-
-  const footLeft = state.selectedNode
-    ? `${kindLabel(state.selectedNode.kind)} · ${state.selectedNode.label}`
-    : 'Ready'
-  const footRight =
-    otherNodes.length === 0 ? 'No other connections' : `${otherNodes.length} other · idle`
 
   const [menu, setMenu] = useState<MenuState | null>(null)
   // Whether the schema node's "Knowledge bases" submenu is open; reset with
@@ -436,60 +424,52 @@ export function ConnectionPanel({
                 )}
               </div>
             )}
-
-            {otherNodes.length > 0 && (
-              <div className="conn-others">
-                <div className="conn-others__header">
-                  <span className="conn-others__title">
-                    {activeNode ? 'OTHER CONNECTIONS' : 'CONNECTIONS'}
-                  </span>
-                  <span className="conn-others__count">
-                    {filteredOtherNodes.length}
-                  </span>
-                  <span className="conn-others__rule" />
-                </div>
-                <div className="conn-others__hint">
-                  {activeNode
-                    ? 'Activate one to make it the whole-app context — it moves up here and everything re-syncs.'
-                    : 'Activate a connection to make it the whole-app context.'}
-                </div>
-                {filteredOtherNodes.map((node) => (
-                  <div
-                    key={node.id}
-                    className={`conn-other-row${node.loading ? ' is-loading' : ''}`}
-                    style={
-                      { '--row-accent': accents.get(node.id)?.hex } as CSSProperties
-                    }
-                    title={`Activate ${node.label} — make it the whole-app context`}
-                    onClick={() => state.activateConnection(node.id)}
-                    onContextMenu={(event) => onRowContextMenu(node, event)}
-                  >
-                    <span className="conn-other-row__bar" />
-                    <span className="conn-other-row__chev">
-                      <ChevronRightIcon size={10} />
-                    </span>
-                    <span className="conn-other-row__icon">
-                      <DatabaseIcon size={14} />
-                    </span>
-                    <span className="conn-other-row__name">{node.label}</span>
-                    <span className="conn-other-row__host">
-                      {node.subtitle ?? ''}
-                    </span>
-                    <span
-                      className={`conn-other-row__dot is-${node.status ?? 'offline'}`}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
           </>
         )}
       </div>
 
-      <div className="conn-panel__foot">
-        <span className="conn-panel__foot-left">{footLeft}</span>
-        <span className="conn-panel__foot-right">{footRight}</span>
-      </div>
+      {otherNodes.length > 0 && (
+        <div className="conn-others">
+          <div className="conn-others__header">
+            <span className="conn-others__title">
+              {activeNode ? 'OTHER CONNECTIONS' : 'CONNECTIONS'}
+            </span>
+            <span className="conn-others__count">
+              {filteredOtherNodes.length}
+            </span>
+            <span className="conn-others__rule" />
+          </div>
+          <div className="conn-others__rows">
+            {filteredOtherNodes.map((node) => (
+              <div
+                key={node.id}
+                className={`conn-other-row${node.loading ? ' is-loading' : ''}`}
+                style={
+                  { '--row-accent': accents.get(node.id)?.hex } as CSSProperties
+                }
+                title={`Activate ${node.label} — make it the whole-app context`}
+                onClick={() => state.activateConnection(node.id)}
+                onContextMenu={(event) => onRowContextMenu(node, event)}
+              >
+                <span className="conn-other-row__bar" />
+                <span className="conn-other-row__chev">
+                  <ChevronRightIcon size={10} />
+                </span>
+                <span className="conn-other-row__icon">
+                  <DatabaseIcon size={14} />
+                </span>
+                <span className="conn-other-row__name">{node.label}</span>
+                <span className="conn-other-row__host">
+                  {node.subtitle ?? ''}
+                </span>
+                <span
+                  className={`conn-other-row__dot is-${node.status ?? 'offline'}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {menu && menuNode && (
         <div

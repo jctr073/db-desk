@@ -4779,13 +4779,19 @@ body.is-grid-col-resizing {
 
 /* --- Connections panel: other connections -------------------------- */
 .conn-others {
-  padding: 0 6px 10px;
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 40%;
+  padding: 0 6px 5px;
+  border-top: 1px solid var(--border-soft);
 }
 .conn-others__header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 14px 4px 7px 6px;
+  padding: 8px 4px 5px 6px;
 }
 .conn-others__title {
   font-size: 10px;
@@ -4809,11 +4815,9 @@ body.is-grid-col-resizing {
   height: 1px;
   background: var(--border-soft);
 }
-.conn-others__hint {
-  font-size: 10.5px;
-  color: var(--text-faint);
-  padding: 0 6px 8px;
-  line-height: 1.4;
+.conn-others__rows {
+  min-height: 0;
+  overflow-y: auto;
 }
 /* One row per non-active connection; --row-accent is set inline. */
 .conn-other-row {
@@ -4888,30 +4892,6 @@ body.is-grid-col-resizing {
 }
 .conn-other-row__dot.is-offline {
   background: var(--text-faint);
-}
-
-/* Connections panel footer strip. */
-.conn-panel__foot {
-  flex: 0 0 auto;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border-top: 1px solid var(--border-soft);
-  font-size: 10.5px;
-  color: var(--text-faint);
-}
-.conn-panel__foot-left {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.conn-panel__foot-right {
-  flex: 0 0 auto;
-  white-space: nowrap;
 }
 
 /* --- Editor: single-rail file tabs (no connection strip) ------------ */
