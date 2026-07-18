@@ -136,6 +136,7 @@ function makeReq(overrides: Partial<AgentSendRequest> = {}): AgentSendRequest {
   return {
     chatId: 'chat-1',
     prompt: 'hello',
+    intent: 'chat',
     model: 'claude-opus-4-8',
     effort: null,
     mode: 'metadata',

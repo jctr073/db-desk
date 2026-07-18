@@ -4,13 +4,16 @@
   "version": "0.1.0",
   "description": "Mac desktop database client foundation.",
   "private": true,
+  "engines": {
+    "node": ">=20.19"
+  },
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "sh scripts/patch-dev-electron.sh",
     "predev": "sh scripts/patch-dev-electron.sh",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p src/renderer/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p src/renderer/tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "preview": "electron-vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",

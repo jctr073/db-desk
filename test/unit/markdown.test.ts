@@ -10,7 +10,7 @@ import type { InlineToken } from '../../src/renderer/src/components/markdown'
 
 /** Flattens inline tokens back to plain text (delimiters stripped). */
 function flat(spans: InlineToken[]): string {
-  return spans.map((s) => ('children' in s ? flat(s.children) : s.text)).join('')
+  return spans.map((s) => ('children' in s ? flat(s.children) : 'text' in s ? s.text : '')).join('')
 }
 
 describe('parseInline', () => {
