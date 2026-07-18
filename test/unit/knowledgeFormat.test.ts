@@ -208,9 +208,7 @@ describe('recordRefs / danglingRefs / buildRefKeySet', () => {
         col('public', 'public_users', 'missing')
       ]
     }
-    expect(danglingRefs(record, keys)).toEqual([
-      col('public', 'public_users', 'missing')
-    ])
+    expect(danglingRefs(record, keys)).toEqual([col('public', 'public_users', 'missing')])
   })
 
   it('resolves unprefixed refs against schema-prefixed tables (Postgres-form ref, Databricks schema)', () => {
@@ -244,9 +242,7 @@ describe('recordRefs / danglingRefs / buildRefKeySet', () => {
 
 describe('tableNameAliases', () => {
   it('always offers the schema-prefixed form', () => {
-    expect(tableNameAliases('billing', 'subscriptions')).toEqual([
-      'billing_subscriptions'
-    ])
+    expect(tableNameAliases('billing', 'subscriptions')).toEqual(['billing_subscriptions'])
   })
 
   it('offers the stripped form when the table already carries the prefix', () => {
@@ -369,9 +365,7 @@ describe('refSuggestions', () => {
             ]
           }
         ],
-        views: [
-          { name: 'active_users', columns: [{ name: 'id', dataType: 'int', badge: null }] }
-        ],
+        views: [{ name: 'active_users', columns: [{ name: 'id', dataType: 'int', badge: null }] }],
         matviews: [],
         indexes: [],
         functions: [],

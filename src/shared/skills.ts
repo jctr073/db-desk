@@ -80,8 +80,7 @@ export const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
   {
     id: TARGETED_SCAN_SKILL_ID,
     name: 'Targeted scan',
-    description:
-      `Follow-up codebase scan scoped to focus instructions (${SKILL_ARGS_PLACEHOLDER}). Sent by the Knowledge tab’s "Targeted scan…" action.`,
+    description: `Follow-up codebase scan scoped to focus instructions (${SKILL_ARGS_PLACEHOLDER}). Sent by the Knowledge tab’s "Targeted scan…" action.`,
     prompt: repoTargetedScanPrompt(SKILL_ARGS_PLACEHOLDER)
   }
 ]

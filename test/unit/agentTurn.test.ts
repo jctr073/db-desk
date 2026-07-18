@@ -8,9 +8,7 @@ import {
 
 describe('splitFences', () => {
   it('returns plain text as a single non-code segment', () => {
-    expect(splitFences('hello world')).toEqual([
-      { code: false, body: 'hello world' }
-    ])
+    expect(splitFences('hello world')).toEqual([{ code: false, body: 'hello world' }])
   })
 
   it('marks fenced segments as code and strips the language tag', () => {
@@ -38,9 +36,7 @@ describe('lastSqlFence', () => {
   })
 
   it('returns the single fenced query', () => {
-    expect(lastSqlFence('Here you go:\n```sql\nSELECT 1;\n```')).toBe(
-      'SELECT 1;'
-    )
+    expect(lastSqlFence('Here you go:\n```sql\nSELECT 1;\n```')).toBe('SELECT 1;')
   })
 
   it('returns the last of several fences', () => {

@@ -11,9 +11,7 @@ export function splitFences(text: string): { code: boolean; body: string }[] {
     const newline = segment.indexOf('\n')
     const firstLine = newline === -1 ? segment : segment.slice(0, newline)
     const body =
-      /^[a-zA-Z]*$/.test(firstLine.trim()) && newline !== -1
-        ? segment.slice(newline + 1)
-        : segment
+      /^[a-zA-Z]*$/.test(firstLine.trim()) && newline !== -1 ? segment.slice(newline + 1) : segment
     return { code: true, body }
   })
 }

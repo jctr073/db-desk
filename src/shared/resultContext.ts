@@ -31,11 +31,7 @@ function hexPreview(bytes: Uint8Array): string {
 function rawCellString(cell: unknown): string {
   if (cell === null || cell === undefined) return 'NULL'
   if (typeof cell === 'string') return cell
-  if (
-    typeof cell === 'number' ||
-    typeof cell === 'boolean' ||
-    typeof cell === 'bigint'
-  ) {
+  if (typeof cell === 'number' || typeof cell === 'boolean' || typeof cell === 'bigint') {
     return String(cell)
   }
   if (cell instanceof Date) return cell.toISOString()
@@ -59,10 +55,7 @@ function stringifyCell(cell: unknown): string {
 }
 
 /** Ascending, de-duplicated, in-range indexes; null/empty selection = all. */
-function resolveIndexes(
-  selected: ReadonlySet<number> | null | undefined,
-  count: number
-): number[] {
+function resolveIndexes(selected: ReadonlySet<number> | null | undefined, count: number): number[] {
   const all = (): number[] => Array.from({ length: count }, (_, i) => i)
   if (!selected || selected.size === 0) return all()
   return [...selected].filter((i) => i >= 0 && i < count).sort((a, b) => a - b)
@@ -76,14 +69,8 @@ function rowScope(params: {
   keptRowIndexes: number[]
   trimmedForChars: boolean
 }): string {
-  const {
-    totalRows,
-    rowFilterActive,
-    baseCount,
-    keptCount,
-    keptRowIndexes,
-    trimmedForChars
-  } = params
+  const { totalRows, rowFilterActive, baseCount, keptCount, keptRowIndexes, trimmedForChars } =
+    params
   const trimmedSuffix = trimmedForChars ? ' (trimmed to fit)' : ''
   const plural = (n: number): string => (n === 1 ? '' : 's')
 
@@ -110,8 +97,7 @@ function columnScopeSuffix(columnFilterActive: boolean, columnNames: string[]): 
   const maxListed = 5
   const listed = columnNames.slice(0, maxListed)
   const remaining = columnNames.length - listed.length
-  const names =
-    remaining > 0 ? `${listed.join(', ')}, and ${remaining} more` : listed.join(', ')
+  const names = remaining > 0 ? `${listed.join(', ')}, and ${remaining} more` : listed.join(', ')
   return `, columns ${names} (selected)`
 }
 
@@ -179,7 +165,11 @@ export function buildResultContextItem(args: {
         keptCount: indexes.length,
         keptRowIndexes: indexes,
         trimmedForChars
-      }) + columnScopeSuffix(columnFilterActive, columns.map((c) => c.name)),
+      }) +
+      columnScopeSuffix(
+        columnFilterActive,
+        columns.map((c) => c.name)
+      ),
     error: null
   })
 
@@ -187,10 +177,7 @@ export function buildResultContextItem(args: {
   let trimmedForChars = false
   let item = buildItem(keptRowIndexes, trimmedForChars)
 
-  while (
-    JSON.stringify(item).length > RESULT_CONTEXT_MAX_CHARS &&
-    keptRowIndexes.length > 1
-  ) {
+  while (JSON.stringify(item).length > RESULT_CONTEXT_MAX_CHARS && keptRowIndexes.length > 1) {
     keptRowIndexes = keptRowIndexes.slice(0, Math.ceil(keptRowIndexes.length / 2))
     trimmedForChars = true
     item = buildItem(keptRowIndexes, trimmedForChars)

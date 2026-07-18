@@ -70,19 +70,11 @@ export function SaveExemplarDialog({
         (l) => l.connId === connId && l.database === database
       )
       const kbId = pickDefaultLink(linked)?.kbId ?? null
-      const saved = await window.dbDesk.knowledge.saveExemplar(
-        kbId,
-        connId,
-        database,
-        q,
-        s
-      )
+      const saved = await window.dbDesk.knowledge.saveExemplar(kbId, connId, database, q, s)
       onSaved?.(saved)
       onClose()
     } catch (err) {
-      setError(
-        `Failed to save exemplar: ${err instanceof Error ? err.message : String(err)}`
-      )
+      setError(`Failed to save exemplar: ${err instanceof Error ? err.message : String(err)}`)
       setSaving(false)
     }
   }, [saving, question, sql, connId, database, onSaved, onClose])
@@ -91,12 +83,7 @@ export function SaveExemplarDialog({
     // No click-to-close on the overlay: a stray click must not discard a
     // half-filled form (same rule as the other dialogs).
     <div className="dialog-overlay">
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Save as exemplar"
-      >
+      <div className="dialog" role="dialog" aria-modal="true" aria-label="Save as exemplar">
         <div className="dialog__header">
           <span className="dialog__icon">
             <SparkleIcon size={18} />
@@ -105,12 +92,7 @@ export function SaveExemplarDialog({
             <div className="dialog__title">Save as Exemplar</div>
             <div className="dialog__subtitle">{targetLabel}</div>
           </div>
-          <button
-            className="dialog__close"
-            onClick={onClose}
-            title="Close"
-            type="button"
-          >
+          <button className="dialog__close" onClick={onClose} title="Close" type="button">
             <CloseIcon />
           </button>
         </div>
@@ -139,9 +121,8 @@ export function SaveExemplarDialog({
               onChange={(event) => setSql(event.target.value)}
             />
             <div className="url-hint">
-              Saved as a reusable example for the AI agent. Table and column
-              references are extracted automatically so it shows up under their
-              usages.
+              Saved as a reusable example for the AI agent. Table and column references are
+              extracted automatically so it shows up under their usages.
             </div>
           </div>
           {error && <div className="mcp-form-error">{error}</div>}

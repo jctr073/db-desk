@@ -339,11 +339,7 @@ textarea {
   transition: background-color 0.28s ease;
 }
 .has-active-conn .statusbar {
-  background: color-mix(
-    in srgb,
-    var(--conn-accent, var(--accent)) 10%,
-    var(--titlebar)
-  );
+  background: color-mix(in srgb, var(--conn-accent, var(--accent)) 10%, var(--titlebar));
   transition: background-color 0.28s ease;
 }
 
@@ -882,8 +878,7 @@ textarea {
   max-width: 100%;
   margin: 0;
   font-family:
-    ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo,
-    monospace;
+    ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;

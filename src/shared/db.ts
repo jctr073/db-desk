@@ -123,8 +123,7 @@ export interface SchemaRefreshEvent {
 }
 
 /** All db IPC calls resolve to this shape; errors travel as values, not throws. */
-export type DbResult<T> =
-  { ok: true; data: T } | { ok: false; error: string; code?: string }
+export type DbResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string }
 
 /** Grid cell payload; every driver value is folded into one of these. */
 export type CellValue = string | number | boolean | null

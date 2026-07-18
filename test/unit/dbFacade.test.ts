@@ -8,11 +8,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type {
-  ConnectParams,
-  QueryResult,
-  SchemaRefreshEvent
-} from '../../src/shared/db'
+import type { ConnectParams, QueryResult, SchemaRefreshEvent } from '../../src/shared/db'
 import { LARGE_CATALOG_SCHEMA_THRESHOLD } from '../../src/shared/schemaSelection'
 
 vi.mock('../../src/main/drivers/databricks', () => ({
@@ -68,8 +64,8 @@ vi.mock('../../src/main/schemaCache', () => ({
 }))
 
 let db: typeof import('../../src/main/db')
-let databricksDriver: typeof import('../../src/main/drivers/databricks')['databricksDriver']
-let postgresDriver: typeof import('../../src/main/drivers/postgres')['postgresDriver']
+let databricksDriver: (typeof import('../../src/main/drivers/databricks'))['databricksDriver']
+let postgresDriver: (typeof import('../../src/main/drivers/postgres'))['postgresDriver']
 let store: typeof import('../../src/main/store')
 let schemaCache: typeof import('../../src/main/schemaCache')
 
@@ -101,10 +97,8 @@ function okConnect(connected: string, databases: string[]) {
 beforeEach(async () => {
   vi.resetModules()
   db = await import('../../src/main/db')
-  databricksDriver = (await import('../../src/main/drivers/databricks'))
-    .databricksDriver
-  postgresDriver = (await import('../../src/main/drivers/postgres'))
-    .postgresDriver
+  databricksDriver = (await import('../../src/main/drivers/databricks')).databricksDriver
+  postgresDriver = (await import('../../src/main/drivers/postgres')).postgresDriver
   store = await import('../../src/main/store')
   schemaCache = await import('../../src/main/schemaCache')
   // The mock factories' results are cached across resetModules, so call
@@ -169,14 +163,10 @@ describe('introspectDatabase', () => {
       data: { name: 'dev', schemas: [] }
     })
     await db.introspectDatabase('dbx', 'dev')
-    expect(databricksDriver.introspectDatabase).toHaveBeenCalledWith(
-      'dbx',
-      'dev',
-      {
-        allowedSchemas: ['sales', 'ops'],
-        maxUnpinnedSchemas: LARGE_CATALOG_SCHEMA_THRESHOLD
-      }
-    )
+    expect(databricksDriver.introspectDatabase).toHaveBeenCalledWith('dbx', 'dev', {
+      allowedSchemas: ['sales', 'ops'],
+      maxUnpinnedSchemas: LARGE_CATALOG_SCHEMA_THRESHOLD
+    })
     expect(store.schemaSelectionFor).toHaveBeenLastCalledWith('dbx', 'dev')
   })
 
@@ -217,18 +207,8 @@ describe('searchSchema / describeTable', () => {
     })
     await db.searchSchema('dbx', 'main', 'orders')
     await db.describeTable('dbx', 'main', 'orders')
-    expect(databricksDriver.searchSchema).toHaveBeenCalledWith(
-      'dbx',
-      'main',
-      'orders',
-      ['sales']
-    )
-    expect(databricksDriver.describeTable).toHaveBeenCalledWith(
-      'dbx',
-      'main',
-      'orders',
-      ['sales']
-    )
+    expect(databricksDriver.searchSchema).toHaveBeenCalledWith('dbx', 'main', 'orders', ['sales'])
+    expect(databricksDriver.describeTable).toHaveBeenCalledWith('dbx', 'main', 'orders', ['sales'])
   })
 
   it('pass null for Postgres (no pinning)', async () => {
@@ -239,12 +219,7 @@ describe('searchSchema / describeTable', () => {
       data: ''
     })
     await db.searchSchema('pg', 'app', 'orders')
-    expect(postgresDriver.searchSchema).toHaveBeenCalledWith(
-      'pg',
-      'app',
-      'orders',
-      null
-    )
+    expect(postgresDriver.searchSchema).toHaveBeenCalledWith('pg', 'app', 'orders', null)
   })
 })
 
@@ -320,9 +295,7 @@ describe('schema cache', () => {
       introspections: {}
     })
     vi.mocked(schemaCache.cachedIntrospection).mockReturnValue(cachedDb)
-    vi.mocked(databricksDriver.connect).mockResolvedValue(
-      okConnect('main', ['main'])
-    )
+    vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
     vi.mocked(databricksDriver.introspectDatabase).mockResolvedValue({
       ok: true,
       data: { name: 'main', schemas: [] }
@@ -384,9 +357,7 @@ describe('schema cache', () => {
     await db.runQuery('pg', 'app', 'SELECT 1', null)
     expect(events).toEqual([])
 
-    vi.mocked(postgresDriver.runQuery).mockResolvedValue(
-      okQuery('CREATE TABLE')
-    )
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(okQuery('CREATE TABLE'))
     await db.runQuery('pg', 'app', 'CREATE TABLE t (x int)', null)
     await vi.waitFor(() => {
       expect(events.map((evt) => evt.state)).toEqual(['validating', 'ok'])

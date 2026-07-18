@@ -289,11 +289,7 @@ export function TreeRow({
       </span>
       {hasKnowledge && (
         <span
-          title={
-            node.kind === 'schema'
-              ? 'Has linked knowledge bases'
-              : 'Has local knowledge'
-          }
+          title={node.kind === 'schema' ? 'Has linked knowledge bases' : 'Has local knowledge'}
           style={knowledgeDotStyle}
         />
       )}
@@ -303,10 +299,7 @@ export function TreeRow({
         </span>
       )}
       {node.kind === 'column' && node.badge === 'fk' && (
-        <span
-          style={fkStyle}
-          title={node.fkRef ? `Foreign key → ${node.fkRef}` : 'Foreign key'}
-        >
+        <span style={fkStyle} title={node.fkRef ? `Foreign key → ${node.fkRef}` : 'Foreign key'}>
           FK
         </span>
       )}

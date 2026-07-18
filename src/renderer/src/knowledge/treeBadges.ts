@@ -27,9 +27,7 @@ export function knowledgeBadgeIds(
   if (index.size === 0) return ids
 
   const conn = tree.find((node) => node.id === connId)
-  const db = conn?.children?.find(
-    (node) => node.kind === 'database' && node.label === database
-  )
+  const db = conn?.children?.find((node) => node.kind === 'database' && node.label === database)
   for (const schema of db?.children ?? []) {
     if (schema.kind !== 'schema') continue
     for (const category of schema.children ?? []) {
@@ -59,17 +57,12 @@ export function knowledgeBadgeIds(
  * Unity Catalog is case-insensitive, and a migrated link may carry a record
  * ref's casing rather than the catalog's.
  */
-export function schemaLinkBadgeIds(
-  tree: TreeNode[],
-  links: KnowledgeLink[]
-): Set<string> {
+export function schemaLinkBadgeIds(tree: TreeNode[], links: KnowledgeLink[]): Set<string> {
   const ids = new Set<string>()
   if (links.length === 0) return ids
   const keys = new Set(
     links.flatMap((l) =>
-      l.schema
-        ? [`${l.connId}\n${l.database.toLowerCase()}\n${l.schema.toLowerCase()}`]
-        : []
+      l.schema ? [`${l.connId}\n${l.database.toLowerCase()}\n${l.schema.toLowerCase()}`] : []
     )
   )
   for (const conn of tree) {
@@ -147,10 +140,7 @@ export interface TreeSchemaRef {
  * ancestor chain's raw labels (same rule as `treeNodeRef` — never parsed out
  * of the slug-based node id). Null for any other node kind.
  */
-export function treeSchemaRef(
-  node: TreeNode,
-  tree: TreeNode[]
-): TreeSchemaRef | null {
+export function treeSchemaRef(node: TreeNode, tree: TreeNode[]): TreeSchemaRef | null {
   if (node.kind !== 'schema') return null
   const path = nodePath(node, tree)
   if (!path || path.length < 3) return null

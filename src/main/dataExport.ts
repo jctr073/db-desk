@@ -4,18 +4,11 @@ import { basename } from 'node:path'
 import type { BrowserWindow, SaveDialogOptions } from 'electron'
 import { dialog } from 'electron'
 
-import type {
-  ChooseExportResult,
-  DataExportFormat,
-  WriteExportResult
-} from '../shared/export'
+import type { ChooseExportResult, DataExportFormat, WriteExportResult } from '../shared/export'
 
 const destinations = new Map<string, string>()
 
-const formatOptions: Record<
-  DataExportFormat,
-  { extension: string; name: string }
-> = {
+const formatOptions: Record<DataExportFormat, { extension: string; name: string }> = {
   csv: { extension: 'csv', name: 'CSV' },
   tsv: { extension: 'tsv', name: 'Tab-delimited text' },
   json: { extension: 'json', name: 'JSON' }
@@ -25,15 +18,10 @@ function isDataExportFormat(value: unknown): value is DataExportFormat {
   return value === 'csv' || value === 'tsv' || value === 'json'
 }
 
-function defaultFileName(
-  suggestedName: string,
-  format: DataExportFormat
-): string {
+function defaultFileName(suggestedName: string, format: DataExportFormat): string {
   const { extension } = formatOptions[format]
   const safeName = basename(suggestedName.trim()) || 'query-results'
-  return safeName.toLowerCase().endsWith(`.${extension}`)
-    ? safeName
-    : `${safeName}.${extension}`
+  return safeName.toLowerCase().endsWith(`.${extension}`) ? safeName : `${safeName}.${extension}`
 }
 
 export async function chooseExportDestination(

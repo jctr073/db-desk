@@ -18,11 +18,7 @@ export interface FileState {
   loadError: string | null
 
   selectFile: (id: string) => void
-  createFile: (
-    connId: string,
-    database: string | null,
-    kind?: FileKind
-  ) => void
+  createFile: (connId: string, database: string | null, kind?: FileKind) => void
   /** Re-home files saved before files were bound to a connection. */
   adoptOrphans: (connId: string, database: string | null) => void
   saveFile: (id: string, content: string) => Promise<boolean>
@@ -39,9 +35,7 @@ export function closeOpenFiles(
   closingIds: readonly string[]
 ): { openFileIds: Set<string>; selectedFileId: string | null } {
   const closing = new Set(closingIds)
-  const nextOpenFileIds = new Set(
-    [...openFileIds].filter((candidate) => !closing.has(candidate))
-  )
+  const nextOpenFileIds = new Set([...openFileIds].filter((candidate) => !closing.has(candidate)))
   return {
     openFileIds: nextOpenFileIds,
     selectedFileId:
@@ -80,37 +74,28 @@ export function useFileState(): FileState {
   filesRef.current = files
   const adoptingRef = useRef(false)
 
-  const adoptOrphans = useCallback(
-    async (connId: string, database: string | null) => {
-      if (adoptingRef.current) return
-      const orphans = filesRef.current.filter((file) => !file.connId)
-      if (orphans.length === 0) return
-      adoptingRef.current = true
-      try {
-        const adopted = await Promise.all(
-          orphans.map((file) =>
-            window.dbDesk.files.reassign(file.id, connId, database)
-          )
-        )
-        const byId = new Map(adopted.map((file) => [file.id, file]))
-        setFiles((prev) => prev.map((file) => byId.get(file.id) ?? file))
-      } catch (error) {
-        setLoadError(
-          `Failed to move files onto a connection: ${error instanceof Error ? error.message : String(error)}`
-        )
-      } finally {
-        adoptingRef.current = false
-      }
-    },
-    []
-  )
+  const adoptOrphans = useCallback(async (connId: string, database: string | null) => {
+    if (adoptingRef.current) return
+    const orphans = filesRef.current.filter((file) => !file.connId)
+    if (orphans.length === 0) return
+    adoptingRef.current = true
+    try {
+      const adopted = await Promise.all(
+        orphans.map((file) => window.dbDesk.files.reassign(file.id, connId, database))
+      )
+      const byId = new Map(adopted.map((file) => [file.id, file]))
+      setFiles((prev) => prev.map((file) => byId.get(file.id) ?? file))
+    } catch (error) {
+      setLoadError(
+        `Failed to move files onto a connection: ${error instanceof Error ? error.message : String(error)}`
+      )
+    } finally {
+      adoptingRef.current = false
+    }
+  }, [])
 
   const createFile = useCallback(
-    async (
-      connId: string,
-      database: string | null,
-      kind: FileKind = 'sql'
-    ) => {
+    async (connId: string, database: string | null, kind: FileKind = 'sql') => {
       try {
         const newFile = await window.dbDesk.files.create(connId, database, kind)
         setFiles((prev) => [...prev, newFile])
@@ -128,14 +113,10 @@ export function useFileState(): FileState {
   const saveFile = useCallback(async (id: string, content: string) => {
     try {
       await window.dbDesk.files.save(id, content)
-      setFiles((prev) =>
-        prev.map((f) => (f.id === id ? { ...f, updatedAt: Date.now() } : f))
-      )
+      setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, updatedAt: Date.now() } : f)))
       return true
     } catch (error) {
-      setLoadError(
-        `Failed to save file: ${error instanceof Error ? error.message : String(error)}`
-      )
+      setLoadError(`Failed to save file: ${error instanceof Error ? error.message : String(error)}`)
       return false
     }
   }, [])
@@ -170,9 +151,7 @@ export function useFileState(): FileState {
         setFiles((prev) => {
           const next = prev.filter((f) => f.id !== id)
           if (selectedFileId === id) {
-            setSelectedFileId(
-              next.find((file) => openFileIds.has(file.id))?.id ?? null
-            )
+            setSelectedFileId(next.find((file) => openFileIds.has(file.id))?.id ?? null)
           }
           return next
         })

@@ -31,8 +31,7 @@ export function parseInline(text: string): InlineToken[] {
   const out: InlineToken[] = []
   let last = 0
   for (let m = inlineRe.exec(text); m; m = inlineRe.exec(text)) {
-    if (m.index > last)
-      out.push({ type: 'text', text: text.slice(last, m.index) })
+    if (m.index > last) out.push({ type: 'text', text: text.slice(last, m.index) })
     if (m[1]) {
       out.push({ type: 'code', text: m[1].slice(1, -1) })
     } else if (m[2]) {

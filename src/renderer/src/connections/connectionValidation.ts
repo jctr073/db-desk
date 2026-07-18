@@ -22,9 +22,7 @@ export function databaseFieldError(
   if (dialect.multiDatabase) return null
 
   if (isParams) {
-    return database.trim()
-      ? null
-      : `${dialect.form.databaseLabel} is required.`
+    return database.trim() ? null : `${dialect.form.databaseLabel} is required.`
   }
 
   // Only flag a URL that parses but omits the database segment; a malformed

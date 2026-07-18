@@ -53,10 +53,7 @@ export function ReferencesPopover({
   const popoverRef = useRef<HTMLDivElement>(null)
   const [showAllPeers, setShowAllPeers] = useState(false)
   const [left, setLeft] = useState(() =>
-    Math.max(
-      POP_LEFT_MARGIN,
-      Math.min(x, window.innerWidth - POP_WIDTH - POP_RIGHT_MARGIN)
-    )
+    Math.max(POP_LEFT_MARGIN, Math.min(x, window.innerWidth - POP_WIDTH - POP_RIGHT_MARGIN))
   )
 
   useEffect(() => {
@@ -74,16 +71,9 @@ export function ReferencesPopover({
     const updateLeft = (): void => {
       const nextLeft = Math.max(
         POP_LEFT_MARGIN,
-        Math.min(
-          x,
-          window.innerWidth -
-            popover.getBoundingClientRect().width -
-            POP_RIGHT_MARGIN
-        )
+        Math.min(x, window.innerWidth - popover.getBoundingClientRect().width - POP_RIGHT_MARGIN)
       )
-      setLeft((currentLeft) =>
-        currentLeft === nextLeft ? currentLeft : nextLeft
-      )
+      setLeft((currentLeft) => (currentLeft === nextLeft ? currentLeft : nextLeft))
     }
 
     updateLeft()
@@ -106,30 +96,19 @@ export function ReferencesPopover({
       return subjectColumn ? `→ ${target}` : `${edge.from.column} → ${target}`
     }
     const source = fmt(edge.from)
-    return edge.fromRelationKind === 'table'
-      ? source
-      : `${source} (${edge.fromRelationKind})`
+    return edge.fromRelationKind === 'table' ? source : `${source} (${edge.fromRelationKind})`
   }
 
-  const sourceLabel = (
-    endpoint: ColumnEndpoint,
-    relationKind: RelationKind
-  ): string => {
+  const sourceLabel = (endpoint: ColumnEndpoint, relationKind: RelationKind): string => {
     const source = fmt(endpoint)
     return relationKind === 'table' ? source : `${source} (${relationKind})`
   }
 
   const referenceBadge = (edge: ReferenceEdge): ReactElement => (
     <span
-      className={
-        edge.kind === 'fk'
-          ? 'refs-pop__badge'
-          : 'refs-pop__badge refs-pop__badge--lfk'
-      }
+      className={edge.kind === 'fk' ? 'refs-pop__badge' : 'refs-pop__badge refs-pop__badge--lfk'}
       title={
-        edge.kind === 'fk'
-          ? 'Declared foreign key'
-          : 'Logical foreign key (inferred from naming)'
+        edge.kind === 'fk' ? 'Declared foreign key' : 'Logical foreign key (inferred from naming)'
       }
     >
       {edge.kind === 'fk' ? 'FK' : 'LFK'}
@@ -171,9 +150,7 @@ export function ReferencesPopover({
     if (peers.kind === 'name') {
       heading = `Also has ${subjectColumn ?? ''}`
     } else {
-      const targets = new Set(
-        peers.peers.map((edge) => `${edge.to.schema}.${edge.to.table}`)
-      )
+      const targets = new Set(peers.peers.map((edge) => `${edge.to.schema}.${edge.to.table}`))
       heading =
         targets.size === 1
           ? `Also references ${[...targets][0]}`
@@ -184,45 +161,43 @@ export function ReferencesPopover({
       <>
         <div className="refs-pop__section">{heading}</div>
         {peers.kind === 'semantic'
-          ? (showAllPeers
-              ? peers.peers
-              : peers.peers.slice(0, PEER_INITIAL_LIMIT)
-            ).map((edge, index) => {
-              const label = sourceLabel(edge.from, edge.fromRelationKind)
-              return (
-                <button
-                  key={`semantic-${index}`}
-                  className="refs-pop__row"
-                  onClick={() => onNavigate(edge.from)}
-                  title={label}
-                >
-                  <span className="refs-pop__name">{label}</span>
-                  {referenceBadge(edge)}
-                </button>
-              )
-            })
-          : (showAllPeers
-              ? peers.peers
-              : peers.peers.slice(0, PEER_INITIAL_LIMIT)
-            ).map((peer, index) => {
-              const label = sourceLabel(peer.endpoint, peer.relationKind)
-              return (
-                <button
-                  key={`name-${index}`}
-                  className="refs-pop__row"
-                  onClick={() => onNavigate(peer.endpoint)}
-                  title={label}
-                >
-                  <span className="refs-pop__name">{label}</span>
-                  <span
-                    className="refs-pop__badge refs-pop__badge--name"
-                    title="Matching column name and type family"
+          ? (showAllPeers ? peers.peers : peers.peers.slice(0, PEER_INITIAL_LIMIT)).map(
+              (edge, index) => {
+                const label = sourceLabel(edge.from, edge.fromRelationKind)
+                return (
+                  <button
+                    key={`semantic-${index}`}
+                    className="refs-pop__row"
+                    onClick={() => onNavigate(edge.from)}
+                    title={label}
                   >
-                    NAME
-                  </span>
-                </button>
-              )
-            })}
+                    <span className="refs-pop__name">{label}</span>
+                    {referenceBadge(edge)}
+                  </button>
+                )
+              }
+            )
+          : (showAllPeers ? peers.peers : peers.peers.slice(0, PEER_INITIAL_LIMIT)).map(
+              (peer, index) => {
+                const label = sourceLabel(peer.endpoint, peer.relationKind)
+                return (
+                  <button
+                    key={`name-${index}`}
+                    className="refs-pop__row"
+                    onClick={() => onNavigate(peer.endpoint)}
+                    title={label}
+                  >
+                    <span className="refs-pop__name">{label}</span>
+                    <span
+                      className="refs-pop__badge refs-pop__badge--name"
+                      title="Matching column name and type family"
+                    >
+                      NAME
+                    </span>
+                  </button>
+                )
+              }
+            )}
         {hasMore && !showAllPeers && (
           <button
             className="refs-pop__more"

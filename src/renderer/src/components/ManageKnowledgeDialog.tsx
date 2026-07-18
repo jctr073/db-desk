@@ -9,13 +9,7 @@ import type {
 import type { RepoStatus } from '../../../shared/repo'
 import { BaseNameDialog } from './BaseNameDialog'
 import { DetachCodebaseDialog } from './DetachCodebaseDialog'
-import {
-  BookIcon,
-  CloseIcon,
-  FolderIcon,
-  PlusThinIcon,
-  SearchIcon
-} from './icons'
+import { BookIcon, CloseIcon, FolderIcon, PlusThinIcon, SearchIcon } from './icons'
 import { LinkBaseDialog } from './LinkBaseDialog'
 import { MonorepoSetupDialog } from './MonorepoSetupDialog'
 import { TargetedScanDialog } from './TargetedScanDialog'
@@ -104,9 +98,7 @@ export function ManageKnowledgeDialog({
   // the tree submenu while this dialog is open) — keep the selection valid.
   useEffect(() => {
     setSelectedKbId((current) =>
-      current && groups.some((g) => g.base.id === current)
-        ? current
-        : (groups[0]?.base.id ?? null)
+      current && groups.some((g) => g.base.id === current) ? current : (groups[0]?.base.id ?? null)
     )
   }, [groups])
 
@@ -127,9 +119,7 @@ export function ManageKnowledgeDialog({
 
   const targetLabel = `${target.connName} / ${target.database}`
 
-  const status = selectedGroup
-    ? (repoStatuses[selectedGroup.base.id] ?? null)
-    : null
+  const status = selectedGroup ? (repoStatuses[selectedGroup.base.id] ?? null) : null
   // Until repo:get resolves, fall back to the base record's own repoRoot.
   const repoRoot = status ? status.root : (selectedGroup?.base.repoRoot ?? null)
   const repoName = repoRoot ? repoRootName(repoRoot) : null
@@ -201,9 +191,7 @@ export function ManageKnowledgeDialog({
   const unlinkSelectedBase = useCallback(async (): Promise<void> => {
     if (!selectedGroup) return
     await Promise.all(
-      selectedGroup.links.map((link) =>
-        window.dbDesk.knowledge.removeLink(link.id)
-      )
+      selectedGroup.links.map((link) => window.dbDesk.knowledge.removeLink(link.id))
     )
   }, [selectedGroup])
 
@@ -240,9 +228,8 @@ export function ManageKnowledgeDialog({
   const schemaRows = useMemo((): SchemaRow[] => {
     if (!selectedGroup) return []
     const linkFor = (schema: string): KnowledgeLink | null =>
-      selectedGroup.links.find(
-        (l) => (l.schema ?? '').toLowerCase() === schema.toLowerCase()
-      ) ?? null
+      selectedGroup.links.find((l) => (l.schema ?? '').toLowerCase() === schema.toLowerCase()) ??
+      null
     const rows: SchemaRow[] = schemaOptions.map((schema) => ({
       label: schema,
       schema,
@@ -343,15 +330,11 @@ export function ManageKnowledgeDialog({
 
   /** " · schema: a, b" — same shape as the panel's base-selector labels. */
   const schemasLabel = (groupLinks: Array<{ schema?: string }>): string => {
-    const scopes = groupLinks
-      .map((l) => l.schema)
-      .filter((s): s is string => !!s)
+    const scopes = groupLinks.map((l) => l.schema).filter((s): s is string => !!s)
     return scopes.length > 0 ? scopes.join(', ') : ''
   }
 
-  const scanBlocked = !repoRoot
-    ? 'Attach a codebase first'
-    : (scanDisabledReason ?? null)
+  const scanBlocked = !repoRoot ? 'Attach a codebase first' : (scanDisabledReason ?? null)
 
   const unlinkScopes = selectedGroup
     ? selectedGroup.links.map((l) => l.schema).filter((s): s is string => !!s)
@@ -402,8 +385,7 @@ export function ManageKnowledgeDialog({
                       </div>
                     )}
                     {section.items.map((g) => {
-                      const gRoot =
-                        repoStatuses[g.base.id]?.root ?? g.base.repoRoot
+                      const gRoot = repoStatuses[g.base.id]?.root ?? g.base.repoRoot
                       const scopes = schemasLabel(g.links)
                       return (
                         <button
@@ -427,9 +409,7 @@ export function ManageKnowledgeDialog({
                           </span>
                           <span className="manage-kb__item-meta">
                             {g.base.subPath && (
-                              <span title={g.base.subPath}>
-                                {g.base.subPath} ·{' '}
-                              </span>
+                              <span title={g.base.subPath}>{g.base.subPath} · </span>
                             )}
                             {scopes && <span title={scopes}>{scopes} · </span>}
                             {g.records.length} record
@@ -484,21 +464,15 @@ export function ManageKnowledgeDialog({
                       <div className="manage-kb__repo-path" title={repoRoot}>
                         {repoRoot}
                         {status?.commit && (
-                          <span className="manage-kb__repo-commit">
-                            {' '}
-                            @ {status.commit}
-                          </span>
+                          <span className="manage-kb__repo-commit"> @ {status.commit}</span>
                         )}
                       </div>
                     ) : (
-                      <div className="manage-kb__repo-none">
-                        No codebase attached.
-                      </div>
+                      <div className="manage-kb__repo-none">No codebase attached.</div>
                     )}
                     {selectedGroup.base.subPath && (
                       <div className="manage-kb__repo-sub">
-                        Monorepo folder{' '}
-                        <strong>{selectedGroup.base.subPath}</strong>
+                        Monorepo folder <strong>{selectedGroup.base.subPath}</strong>
                         {selectedGroup.base.repoRoot && (
                           <> of {repoRootName(selectedGroup.base.repoRoot)}</>
                         )}{' '}
@@ -537,10 +511,7 @@ export function ManageKnowledgeDialog({
                         type="button"
                         className="manage-kb__btn"
                         disabled={!!scanBlocked}
-                        title={
-                          scanBlocked ??
-                          'Send the codebase-scan prompt as a chat message'
-                        }
+                        title={scanBlocked ?? 'Send the codebase-scan prompt as a chat message'}
                         onClick={() => onScan(selectedGroup.base.id)}
                       >
                         <SearchIcon size={11} />
@@ -562,26 +533,17 @@ export function ManageKnowledgeDialog({
                   </div>
 
                   <div className="manage-kb__section">
-                    <div className="manage-kb__section-title">
-                      Linked schemas
-                    </div>
+                    <div className="manage-kb__section-title">Linked schemas</div>
                     {schemaRows.length === 0 ? (
-                      <div className="manage-kb__repo-none">
-                        Loading schemas…
-                      </div>
+                      <div className="manage-kb__repo-none">Loading schemas…</div>
                     ) : (
                       <div className="manage-kb__schemas">
                         {schemaRows.map((row) => (
-                          <label
-                            key={row.schema ?? '·legacy·'}
-                            className="manage-kb__schema-row"
-                          >
+                          <label key={row.schema ?? '·legacy·'} className="manage-kb__schema-row">
                             <input
                               type="checkbox"
                               checked={!!row.link}
-                              disabled={pendingSchemas.has(
-                                row.schema ?? row.label
-                              )}
+                              disabled={pendingSchemas.has(row.schema ?? row.label)}
                               onChange={() => void toggleSchema(row)}
                             />
                             <span className="manage-kb__schema-name">
@@ -633,8 +595,7 @@ export function ManageKnowledgeDialog({
                 </>
               ) : (
                 <div className="manage-kb__detail-empty">
-                  Create a knowledge base or link an existing one to get
-                  started.
+                  Create a knowledge base or link an existing one to get started.
                 </div>
               )}
             </div>
@@ -648,12 +609,7 @@ export function ManageKnowledgeDialog({
             ) : (
               <div className="test-msg" />
             )}
-            <button
-              className="btn-cancel"
-              onClick={onClose}
-              type="button"
-              disabled={attaching}
-            >
+            <button className="btn-cancel" onClick={onClose} type="button" disabled={attaching}>
               Close
             </button>
           </div>
@@ -742,8 +698,7 @@ export function ManageKnowledgeDialog({
           onClose={() => setSubDialog(null)}
         >
           <p>
-            Unlink <strong>“{selectedGroup.base.name}”</strong> from this
-            database
+            Unlink <strong>“{selectedGroup.base.name}”</strong> from this database
             {unlinkScopes.length > 0 && (
               <>
                 {' '}
@@ -751,8 +706,7 @@ export function ManageKnowledgeDialog({
                 <strong>{unlinkScopes.join(', ')}</strong>)
               </>
             )}
-            ? The base and its records are kept — only the links to this
-            database are removed.
+            ? The base and its records are kept — only the links to this database are removed.
           </p>
         </ConfirmBaseDialog>
       )}
@@ -766,12 +720,10 @@ export function ManageKnowledgeDialog({
           onClose={() => setSubDialog(null)}
         >
           <p>
-            Permanently delete{' '}
-            <strong>“{selectedGroup.base.name}”</strong> and all of its{' '}
+            Permanently delete <strong>“{selectedGroup.base.name}”</strong> and all of its{' '}
             {selectedGroup.records.length} record
-            {selectedGroup.records.length === 1 ? '' : 's'}? The base is
-            removed from every database it is linked to, not only this one.
-            This cannot be undone.
+            {selectedGroup.records.length === 1 ? '' : 's'}? The base is removed from every database
+            it is linked to, not only this one. This cannot be undone.
           </p>
           {linksElsewhere.length > 0 && (
             <p>
@@ -779,10 +731,7 @@ export function ManageKnowledgeDialog({
               <strong>
                 {[
                   ...new Set(
-                    linksElsewhere.map(
-                      (l) =>
-                        `${connNames[l.connId] ?? l.connId} / ${l.database}`
-                    )
+                    linksElsewhere.map((l) => `${connNames[l.connId] ?? l.connId} / ${l.database}`)
                   )
                 ].join(', ')}
               </strong>
@@ -844,12 +793,7 @@ function ConfirmBaseDialog({
 
   return (
     <div className="dialog-overlay">
-      <div
-        className="dialog"
-        role="alertdialog"
-        aria-modal="true"
-        aria-label={title}
-      >
+      <div className="dialog" role="alertdialog" aria-modal="true" aria-label={title}>
         <div className="dialog__header">
           <span className="dialog__icon">
             <BookIcon size={16} />

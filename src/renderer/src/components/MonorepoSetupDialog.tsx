@@ -47,9 +47,7 @@ export function MonorepoSetupDialog({
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** folder → selected schema ('' = none picked yet). */
-  const [schemaByFolder, setSchemaByFolder] = useState<Record<string, string>>(
-    {}
-  )
+  const [schemaByFolder, setSchemaByFolder] = useState<Record<string, string>>({})
   const [checked, setChecked] = useState<Set<string>>(new Set())
 
   const busy = picking || creating
@@ -98,10 +96,7 @@ export function MonorepoSetupDialog({
     return pick.folders.map((folder) => ({
       folder,
       suggested: suggestSchema(folder, schemaOptions),
-      mapped:
-        bases.find(
-          (b) => b.repoRoot === pick.root && (b.subPath ?? null) === folder
-        ) ?? null
+      mapped: bases.find((b) => b.repoRoot === pick.root && (b.subPath ?? null) === folder) ?? null
     }))
   }, [pick, bases, schemaOptions])
 
@@ -201,10 +196,9 @@ export function MonorepoSetupDialog({
           {!pick ? (
             <>
               <p className="monorepo__intro">
-                Map service folders of one repository to the schemas they own.
-                Each mapped folder becomes its own knowledge base, scoped to
-                that folder — scans and agent lookups for a schema read only
-                its service&rsquo;s code.
+                Map service folders of one repository to the schemas they own. Each mapped folder
+                becomes its own knowledge base, scoped to that folder — scans and agent lookups for
+                a schema read only its service&rsquo;s code.
               </p>
               <div className="manage-kb__row-actions">
                 <button
@@ -244,14 +238,13 @@ export function MonorepoSetupDialog({
               </div>
               {schemasLoading && (
                 <div className="url-hint">
-                  Loading schemas — the schema dropdowns fill in once
-                  introspection finishes.
+                  Loading schemas — the schema dropdowns fill in once introspection finishes.
                 </div>
               )}
               {pick.folders.length === 0 ? (
                 <div className="manage-kb__repo-none">
-                  This folder has no subfolders to map. Choose the directory
-                  whose children are the services.
+                  This folder has no subfolders to map. Choose the directory whose children are the
+                  services.
                 </div>
               ) : (
                 <div className="monorepo__rows">
@@ -311,8 +304,8 @@ export function MonorepoSetupDialog({
                 </div>
               )}
               <div className="url-hint">
-                Only checked folders are mapped; everything else is left
-                alone. Re-open this setup any time to map more folders.
+                Only checked folders are mapped; everything else is left alone. Re-open this setup
+                any time to map more folders.
               </div>
             </>
           )}
@@ -321,12 +314,7 @@ export function MonorepoSetupDialog({
 
         <div className="dialog__footer">
           <div className="test-msg" />
-          <button
-            className="btn-cancel"
-            onClick={onClose}
-            type="button"
-            disabled={busy}
-          >
+          <button className="btn-cancel" onClick={onClose} type="button" disabled={busy}>
             Cancel
           </button>
           <button

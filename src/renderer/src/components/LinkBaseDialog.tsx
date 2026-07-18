@@ -98,9 +98,7 @@ export function LinkBaseDialog({
             KNOWLEDGE BASE
           </label>
           {bases.length === 0 ? (
-            <div className="url-hint">
-              No knowledge bases exist yet — create one first.
-            </div>
+            <div className="url-hint">No knowledge bases exist yet — create one first.</div>
           ) : (
             <select
               id="link-base"
@@ -149,8 +147,8 @@ export function LinkBaseDialog({
               />
             )}
             <div className="url-hint">
-              Knowledge bases link at the schema level: the base applies to
-              this one schema. Link again to attach it to another schema.
+              Knowledge bases link at the schema level: the base applies to this one schema. Link
+              again to attach it to another schema.
             </div>
           </div>
           {error && <div className="mcp-form-error">{error}</div>}
@@ -158,12 +156,7 @@ export function LinkBaseDialog({
 
         <div className="dialog__footer">
           <div className="test-msg" />
-          <button
-            className="btn-cancel"
-            onClick={onClose}
-            type="button"
-            disabled={saving}
-          >
+          <button className="btn-cancel" onClick={onClose} type="button" disabled={saving}>
             Cancel
           </button>
           <button

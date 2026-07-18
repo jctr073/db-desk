@@ -110,8 +110,7 @@ const POSTGRES: DialectInfo = {
     catalogHint: 'prefer them over querying pg_catalog yourself',
     supportsExplainAnalyze: true
   },
-  explainSql: (sql, analyze) =>
-    `EXPLAIN (FORMAT TEXT${analyze ? ', ANALYZE, BUFFERS' : ''}) ${sql}`
+  explainSql: (sql, analyze) => `EXPLAIN (FORMAT TEXT${analyze ? ', ANALYZE, BUFFERS' : ''}) ${sql}`
 }
 
 const DATABRICKS: DialectInfo = {
@@ -150,8 +149,7 @@ const DATABRICKS: DialectInfo = {
       '- Databricks has no indexes, sequences, or SERIAL; use IDENTITY columns, and GENERATE ALWAYS AS for computed columns.',
       '- Use Spark SQL functions and date arithmetic (date_add, datediff, current_timestamp()); :: casts and Postgres operators like ILIKE do not exist — use CAST(...) and lower()/rlike.'
     ],
-    catalogHint:
-      'prefer them over querying information_schema or SHOW commands yourself',
+    catalogHint: 'prefer them over querying information_schema or SHOW commands yourself',
     supportsExplainAnalyze: false
   },
   explainSql: (sql) => `EXPLAIN FORMATTED ${sql}`

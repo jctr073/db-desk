@@ -28,14 +28,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -110,9 +103,7 @@ const glossary: KnowledgeRecordInput = {
   source: 'human',
   term: 'MRN',
   synonyms: ['medical record number'],
-  mappings: [
-    { ref: ref('public', 'patients', 'mrn'), caveat: 'may be null pre-2019' }
-  ]
+  mappings: [{ ref: ref('public', 'patients', 'mrn'), caveat: 'may be null pre-2019' }]
 }
 
 const exemplar: KnowledgeRecordInput = {
@@ -198,9 +189,7 @@ describe('knowledge base CRUD', () => {
   })
 
   it('renameBase throws for an unknown base', () => {
-    expect(() => knowledge.renameBase('kb-nope', 'x')).toThrow(
-      /Unknown knowledge base/
-    )
+    expect(() => knowledge.renameBase('kb-nope', 'x')).toThrow(/Unknown knowledge base/)
   })
 
   it('deleteBase removes the base file, evicts the cache, and drops its links', () => {
@@ -305,9 +294,7 @@ describe('base repo root attachment', () => {
   })
 
   it('setBaseRepoRoot throws for an unknown base', () => {
-    expect(() => knowledge.setBaseRepoRoot('kb-nope', '/tmp')).toThrow(
-      /Unknown knowledge base/
-    )
+    expect(() => knowledge.setBaseRepoRoot('kb-nope', '/tmp')).toThrow(/Unknown knowledge base/)
   })
 })
 
@@ -331,14 +318,7 @@ describe('record CRUD per base', () => {
   })
 
   it('round-trips every record kind', () => {
-    for (const rec of [
-      annotation,
-      standardRel,
-      polymorphicRel,
-      glossary,
-      exemplar,
-      note
-    ]) {
+    for (const rec of [annotation, standardRel, polymorphicRel, glossary, exemplar, note]) {
       knowledge.saveRecord(baseId, rec)
     }
     const kinds = knowledge.listRecords(baseId).map((r) => r.kind)
@@ -391,9 +371,7 @@ describe('record CRUD per base', () => {
   })
 
   it('saveRecord throws for an unknown base', () => {
-    expect(() => knowledge.saveRecord('kb-nope', annotation)).toThrow(
-      /Unknown knowledge base/
-    )
+    expect(() => knowledge.saveRecord('kb-nope', annotation)).toThrow(/Unknown knowledge base/)
   })
 
   it('deleteRecord is a no-op for an unknown record id', () => {
@@ -448,10 +426,7 @@ describe('validation rejects malformed records per kind', () => {
     ['bad source', { ...note, source: 'robot' }],
     ['bad confidence', { ...note, confidence: 'certain' }],
     ['unknown kind', { kind: 'metric', source: 'human' }],
-    [
-      'annotation without target',
-      { kind: 'annotation', source: 'human', text: 'x' }
-    ],
+    ['annotation without target', { kind: 'annotation', source: 'human', text: 'x' }],
     [
       'annotation with malformed target',
       {
@@ -472,38 +447,24 @@ describe('validation rejects malformed records per kind', () => {
       'polymorphic relationship without discriminator',
       { ...polymorphicRel, discriminator: undefined }
     ],
-    [
-      'polymorphic relationship without targets',
-      { ...polymorphicRel, targets: undefined }
-    ],
+    ['polymorphic relationship without targets', { ...polymorphicRel, targets: undefined }],
     [
       'polymorphic targets with a bad ref',
       { ...polymorphicRel, targets: { patient: { schema: 'public' } } }
     ],
     ['glossary with empty term', { ...glossary, term: '' }],
     ['glossary with non-array synonyms', { ...glossary, synonyms: 'x' }],
-    [
-      'glossary with malformed mapping',
-      { ...glossary, mappings: [{ caveat: 'no ref' }] }
-    ],
+    ['glossary with malformed mapping', { ...glossary, mappings: [{ caveat: 'no ref' }] }],
     ['exemplar with non-string sql', { ...exemplar, sql: 123 }],
-    [
-      'exemplar with non-ref references',
-      { ...exemplar, references: ['users.id'] }
-    ],
-    [
-      'note without body',
-      { kind: 'note', source: 'human', title: 't', references: [] }
-    ],
+    ['exemplar with non-ref references', { ...exemplar, references: ['users.id'] }],
+    ['note without body', { kind: 'note', source: 'human', title: 't', references: [] }],
     ['note with non-array references', { ...note, references: null }]
   ]
 
   it.each(cases)('rejects: %s', (_name, bad) => {
     const baseId = knowledge.createBase('B').id
     expect(() => knowledge.validateKnowledgeRecord(bad)).toThrow()
-    expect(() =>
-      knowledge.saveRecord(baseId, bad as KnowledgeRecordInput)
-    ).toThrow()
+    expect(() => knowledge.saveRecord(baseId, bad as KnowledgeRecordInput)).toThrow()
     // A rejected save must not persist anything.
     expect(knowledge.listRecords(baseId)).toEqual([])
   })
@@ -527,9 +488,9 @@ describe('id and identifier hygiene', () => {
   })
 
   it('rejects an empty-string id instead of persisting a colliding falsy id', () => {
-    expect(() =>
-      knowledge.saveRecord(baseId, { ...annotation, id: '' })
-    ).toThrow(/id must be a non-empty string/)
+    expect(() => knowledge.saveRecord(baseId, { ...annotation, id: '' })).toThrow(
+      /id must be a non-empty string/
+    )
   })
 
   it('rejects a non-string id', () => {
@@ -582,7 +543,12 @@ describe('links', () => {
   it('dedupes an identical link (same base, target and scope)', () => {
     const base = knowledge.createBase('B')
     const first = knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
-    const second = knowledge.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })
+    const second = knowledge.addLink({
+      kbId: base.id,
+      connId: CONN,
+      database: DB,
+      schema: 'public'
+    })
     expect(second).toEqual(first)
     expect(knowledge.listLinks()).toHaveLength(1)
   })
@@ -646,10 +612,7 @@ describe('linksForTarget, defaultKbForTarget and pickDefaultLink ordering', () =
     // A link for a different target must not appear.
     knowledge.addLink({ kbId: b2.id, connId: CONN, database: 'other', schema: 'public' })
 
-    expect(knowledge.linksForTarget(CONN, DB).map((l) => l.id)).toEqual([
-      l1.id,
-      l2.id
-    ])
+    expect(knowledge.linksForTarget(CONN, DB).map((l) => l.id)).toEqual([l1.id, l2.id])
   })
 
   it('returns null with no links at all', () => {
@@ -808,27 +771,13 @@ describe('knowledge base id path safety', () => {
   it('rejects traversal kbIds on every entry point', () => {
     for (const kbId of evil) {
       expect(() => knowledge.getBase(kbId)).toThrow(/Invalid knowledge base id/)
-      expect(() => knowledge.renameBase(kbId, 'x')).toThrow(
-        /Invalid knowledge base id/
-      )
-      expect(() => knowledge.deleteBase(kbId)).toThrow(
-        /Invalid knowledge base id/
-      )
-      expect(() => knowledge.setBaseRepoRoot(kbId, '/tmp')).toThrow(
-        /Invalid knowledge base id/
-      )
-      expect(() => knowledge.getBaseRepoRoot(kbId)).toThrow(
-        /Invalid knowledge base id/
-      )
-      expect(() => knowledge.listRecords(kbId)).toThrow(
-        /Invalid knowledge base id/
-      )
-      expect(() => knowledge.saveRecord(kbId, annotation)).toThrow(
-        /Invalid knowledge base id/
-      )
-      expect(() => knowledge.deleteRecord(kbId, 'kn-x')).toThrow(
-        /Invalid knowledge base id/
-      )
+      expect(() => knowledge.renameBase(kbId, 'x')).toThrow(/Invalid knowledge base id/)
+      expect(() => knowledge.deleteBase(kbId)).toThrow(/Invalid knowledge base id/)
+      expect(() => knowledge.setBaseRepoRoot(kbId, '/tmp')).toThrow(/Invalid knowledge base id/)
+      expect(() => knowledge.getBaseRepoRoot(kbId)).toThrow(/Invalid knowledge base id/)
+      expect(() => knowledge.listRecords(kbId)).toThrow(/Invalid knowledge base id/)
+      expect(() => knowledge.saveRecord(kbId, annotation)).toThrow(/Invalid knowledge base id/)
+      expect(() => knowledge.deleteRecord(kbId, 'kn-x')).toThrow(/Invalid knowledge base id/)
       expect(() =>
         knowledge.addLink({ kbId, connId: CONN, database: DB, schema: 'public' })
       ).toThrow(/Invalid knowledge base id/)
@@ -855,11 +804,7 @@ describe('corrupt and malformed files', () => {
   it('quarantines an unparseable base file rather than overwriting it, orphaning the id', async () => {
     const base = knowledge.createBase('B')
     knowledge.saveRecord(base.id, annotation)
-    writeFileSync(
-      basePath(base.id),
-      '{ "version": 2, "base": { trailing-junk',
-      'utf8'
-    )
+    writeFileSync(basePath(base.id), '{ "version": 2, "base": { trailing-junk', 'utf8')
 
     vi.resetModules()
     const reloaded = await import('../../src/main/knowledge')
@@ -871,14 +816,10 @@ describe('corrupt and malformed files', () => {
     const dir = basesDir()
     const quarantined = readdirSync(dir).filter((f) => f.includes('.corrupt-'))
     expect(quarantined).toHaveLength(1)
-    expect(readFileSync(join(dir, quarantined[0]), 'utf8')).toContain(
-      'trailing-junk'
-    )
+    expect(readFileSync(join(dir, quarantined[0]), 'utf8')).toContain('trailing-junk')
     // …and the id no longer names a base until one is recreated (a base is
     // an explicit entity now, unlike the old per-database file).
-    expect(() => reloaded.saveRecord(base.id, note)).toThrow(
-      /Unknown knowledge base/
-    )
+    expect(() => reloaded.saveRecord(base.id, note)).toThrow(/Unknown knowledge base/)
   })
 
   it('quarantines a base file with a valid-JSON but malformed shape', async () => {
@@ -893,9 +834,7 @@ describe('corrupt and malformed files', () => {
     const reloaded = await import('../../src/main/knowledge')
 
     expect(reloaded.getBase(base.id)).toBeNull()
-    expect(
-      readdirSync(basesDir()).some((f) => f.includes('.corrupt-'))
-    ).toBe(true)
+    expect(readdirSync(basesDir()).some((f) => f.includes('.corrupt-'))).toBe(true)
   })
 
   it('drops null and shapeless record entries on load but keeps unknown kinds', async () => {
@@ -934,13 +873,9 @@ describe('corrupt and malformed files', () => {
 
     expect(reloaded.listLinks()).toEqual([])
     const dir = join(userDataDir, 'knowledge')
-    const quarantined = readdirSync(dir).filter((f) =>
-      f.startsWith('links.json.corrupt-')
-    )
+    const quarantined = readdirSync(dir).filter((f) => f.startsWith('links.json.corrupt-'))
     expect(quarantined).toHaveLength(1)
-    expect(readFileSync(join(dir, quarantined[0]), 'utf8')).toContain(
-      'trailing-junk'
-    )
+    expect(readFileSync(join(dir, quarantined[0]), 'utf8')).toContain('trailing-junk')
 
     // A subsequent link starts a fresh table without touching the backup.
     reloaded.addLink({ kbId: base.id, connId: CONN, database: DB, schema: 'public' })

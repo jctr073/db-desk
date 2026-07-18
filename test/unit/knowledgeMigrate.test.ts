@@ -16,14 +16,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -91,11 +84,7 @@ function writeLegacyKnowledgeFile(
 }
 
 function writeLegacyRepoRoots(entries: Array<{ connId: string; root: string }>): void {
-  writeFileSync(
-    join(userDataDir, 'repo-roots.json'),
-    JSON.stringify(entries),
-    'utf8'
-  )
+  writeFileSync(join(userDataDir, 'repo-roots.json'), JSON.stringify(entries), 'utf8')
 }
 
 let repoRootKnown: string
@@ -122,7 +111,7 @@ describe('migrateLegacyKnowledge', () => {
     expect(knowledge.listLinks()).toEqual([])
   })
 
-  it('converts a known connection\'s v1 file into a named, database-linked base', () => {
+  it("converts a known connection's v1 file into a named, database-linked base", () => {
     const rec = legacyRecord('kn-1')
     writeLegacyKnowledgeFile(KNOWN_CONN, 'analytics', KNOWN_CONN_DB, [rec])
 
@@ -170,9 +159,7 @@ describe('migrateLegacyKnowledge', () => {
   })
 
   it('attaches a v1 repo root to the base migrated from the same connection', () => {
-    writeLegacyKnowledgeFile(KNOWN_CONN, 'analytics', KNOWN_CONN_DB, [
-      legacyRecord('kn-1')
-    ])
+    writeLegacyKnowledgeFile(KNOWN_CONN, 'analytics', KNOWN_CONN_DB, [legacyRecord('kn-1')])
     writeLegacyRepoRoots([{ connId: KNOWN_CONN, root: repoRootKnown }])
 
     knowledge.migrateLegacyKnowledge(resolver)
@@ -203,9 +190,7 @@ describe('migrateLegacyKnowledge', () => {
   })
 
   it('moves the original v1 files to knowledge/legacy-v1/ and repo-roots.legacy-v1.json as backups', () => {
-    writeLegacyKnowledgeFile(KNOWN_CONN, 'analytics', KNOWN_CONN_DB, [
-      legacyRecord('kn-1')
-    ])
+    writeLegacyKnowledgeFile(KNOWN_CONN, 'analytics', KNOWN_CONN_DB, [legacyRecord('kn-1')])
     writeLegacyRepoRoots([{ connId: KNOWN_CONN, root: repoRootKnown }])
 
     knowledge.migrateLegacyKnowledge(resolver)
@@ -217,9 +202,7 @@ describe('migrateLegacyKnowledge', () => {
     const backupDir = join(userDataDir, 'knowledge', 'legacy-v1', KNOWN_CONN)
     expect(existsSync(backupDir)).toBe(true)
     expect(existsSync(join(backupDir, 'analytics.json'))).toBe(true)
-    const backedUpRecord = JSON.parse(
-      readFileSync(join(backupDir, 'analytics.json'), 'utf8')
-    )
+    const backedUpRecord = JSON.parse(readFileSync(join(backupDir, 'analytics.json'), 'utf8'))
     expect(backedUpRecord.rawDatabase).toBe(KNOWN_CONN_DB)
 
     const repoRootsBackup = join(userDataDir, 'repo-roots.legacy-v1.json')
@@ -242,9 +225,7 @@ describe('migrateLegacyKnowledge', () => {
   })
 
   it('is idempotent: a second run does not duplicate bases or links', () => {
-    writeLegacyKnowledgeFile(KNOWN_CONN, 'analytics', KNOWN_CONN_DB, [
-      legacyRecord('kn-1')
-    ])
+    writeLegacyKnowledgeFile(KNOWN_CONN, 'analytics', KNOWN_CONN_DB, [legacyRecord('kn-1')])
     writeLegacyRepoRoots([
       { connId: KNOWN_CONN, root: repoRootKnown },
       { connId: REPO_ONLY_CONN, root: repoRootStaging }
@@ -267,9 +248,7 @@ describe('migrateLegacyKnowledge', () => {
     // "name / database" combination.
     const dupeConn = 'c-known-dupe'
     const dupeResolver = (connId: string): { name: string; database: string } | null =>
-      connId === dupeConn
-        ? { name: KNOWN_CONN_NAME, database: KNOWN_CONN_DB }
-        : resolver(connId)
+      connId === dupeConn ? { name: KNOWN_CONN_NAME, database: KNOWN_CONN_DB } : resolver(connId)
     writeLegacyKnowledgeFile(dupeConn, 'db2', KNOWN_CONN_DB, [])
 
     knowledge.migrateLegacyKnowledge(dupeResolver)
@@ -277,9 +256,7 @@ describe('migrateLegacyKnowledge', () => {
     const names = knowledge.listBases().map((b) => b.name)
     expect(new Set(names).size).toBe(names.length)
     expect(names).toContain(`${KNOWN_CONN_NAME} / ${KNOWN_CONN_DB}`)
-    expect(names.some((n) => n === `${KNOWN_CONN_NAME} / ${KNOWN_CONN_DB} (2)`)).toBe(
-      true
-    )
+    expect(names.some((n) => n === `${KNOWN_CONN_NAME} / ${KNOWN_CONN_DB} (2)`)).toBe(true)
   })
 })
 
@@ -289,11 +266,7 @@ describe('migrateLinksToSchemaScope', () => {
   function writeLinksFile(links: unknown[]): void {
     const dir = join(userDataDir, 'knowledge')
     mkdirSync(dir, { recursive: true })
-    writeFileSync(
-      join(dir, 'links.json'),
-      JSON.stringify({ version: 1, links }),
-      'utf8'
-    )
+    writeFileSync(join(dir, 'links.json'), JSON.stringify({ version: 1, links }), 'utf8')
   }
 
   function dbWideLink(
@@ -370,9 +343,7 @@ describe('migrateLinksToSchemaScope', () => {
     vi.resetModules()
     const reloaded = await import('../../src/main/knowledge')
 
-    reloaded.migrateLinksToSchemaScope((connId) =>
-      connId === 'c-db' ? 'default' : 'public'
-    )
+    reloaded.migrateLinksToSchemaScope((connId) => (connId === 'c-db' ? 'default' : 'public'))
 
     const links = reloaded.listLinks()
     expect(links).toHaveLength(1)
@@ -388,7 +359,14 @@ describe('migrateLinksToSchemaScope', () => {
       text: 'x'
     })
     writeLinksFile([
-      { id: 'kl-scoped', kbId: base.id, connId: 'c-1', database: 'analytics', schema: 'SALES', createdAt: 1 },
+      {
+        id: 'kl-scoped',
+        kbId: base.id,
+        connId: 'c-1',
+        database: 'analytics',
+        schema: 'SALES',
+        createdAt: 1
+      },
       dbWideLink('kl-wide', base.id, 'c-1', 'analytics', 2)
     ])
     vi.resetModules()
@@ -418,9 +396,7 @@ describe('migrateLinksToSchemaScope', () => {
   })
 
   it('converts the database-wide links the legacy v1 migration mints', () => {
-    writeLegacyKnowledgeFile(KNOWN_CONN, 'analytics', KNOWN_CONN_DB, [
-      legacyRecord('kn-1')
-    ])
+    writeLegacyKnowledgeFile(KNOWN_CONN, 'analytics', KNOWN_CONN_DB, [legacyRecord('kn-1')])
 
     knowledge.migrateLegacyKnowledge(resolver)
     knowledge.migrateLinksToSchemaScope(fallback)

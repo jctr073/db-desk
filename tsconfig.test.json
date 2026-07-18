@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // Tests exercise main-process, shared, and renderer code alike, so this
+    // project needs the union of both runtimes' settings (node + DOM + JSX).
+    "jsx": "react-jsx",
+    "types": ["node", "electron"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true
+  },
+  "include": ["vitest.config.ts", "test/**/*.ts", "src/shared/**/*.test.ts"]
+}

@@ -2,11 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, MouseEvent, ReactElement } from 'react'
 
 import type { AgentDbObjectItem } from '../../../shared/agent'
-import type {
-  ColumnRef,
-  KnowledgeBaseSummary,
-  KnowledgeLink
-} from '../../../shared/knowledge'
+import type { ColumnRef, KnowledgeBaseSummary, KnowledgeLink } from '../../../shared/knowledge'
 import { BaseNameDialog } from '../components/BaseNameDialog'
 import { formatRef } from '../knowledge/format'
 import { treeNodeRef, treeSchemaRef } from '../knowledge/treeBadges'
@@ -25,12 +21,7 @@ import type { ConnAccent } from './connColors'
 import { ConnectionTree } from './ConnectionTree'
 import { ReferencesPopover } from './ReferencesPopover'
 import { flattenTree } from './flatten'
-import {
-  buildReferenceIndex,
-  columnPeers,
-  columnReferences,
-  tableReferences
-} from './references'
+import { buildReferenceIndex, columnPeers, columnReferences, tableReferences } from './references'
 import type { ColumnEndpoint } from './references'
 import { findNode } from './treeData'
 import type { NodeKind, TreeNode } from './types'
@@ -70,14 +61,7 @@ const AGENT_CONTEXT_KINDS = new Set<NodeKind>(['schema', 'table', 'view', 'matvi
 /** Tree kinds the knowledge actions (usages/annotation) apply to. */
 const KNOWLEDGE_KINDS = new Set<NodeKind>(['table', 'view', 'matview', 'column'])
 
-type MenuKind =
-  | 'connection'
-  | 'database'
-  | 'schema'
-  | 'table'
-  | 'view'
-  | 'matview'
-  | 'column'
+type MenuKind = 'connection' | 'database' | 'schema' | 'table' | 'view' | 'matview' | 'column'
 
 interface MenuState {
   x: number
@@ -174,9 +158,7 @@ export function ConnectionPanel({
   const menuNode = menu ? findNode(menu.nodeId, state.tree) : null
   const menuContextItem = menuNode ? contextItemFor(menuNode) : null
   const menuRef =
-    menuNode && KNOWLEDGE_KINDS.has(menuNode.kind)
-      ? treeNodeRef(menuNode, state.tree)
-      : null
+    menuNode && KNOWLEDGE_KINDS.has(menuNode.kind) ? treeNodeRef(menuNode, state.tree) : null
   const menuSchemaRef = menuNode ? treeSchemaRef(menuNode, state.tree) : null
 
   /** The link attaching this base to the menu's schema target, if any.
@@ -212,13 +194,10 @@ export function ConnectionPanel({
   // References only work where introspection carries FK data (Postgres for now).
   const menuRefIsPostgres =
     !!menuRef &&
-    state.tree.find((node) => node.id === menuRef.connId)?.connectionType ===
-      'postgres'
+    state.tree.find((node) => node.id === menuRef.connId)?.connectionType === 'postgres'
 
   const [refsView, setRefsView] = useState<RefsViewState | null>(null)
-  const refsIntro = refsView
-    ? state.schemas[refsView.connId]?.[refsView.database]
-    : undefined
+  const refsIntro = refsView ? state.schemas[refsView.connId]?.[refsView.database] : undefined
   const refsData = useMemo(() => {
     if (!refsView || !refsIntro) return null
     const index = buildReferenceIndex(refsIntro)
@@ -251,10 +230,7 @@ export function ConnectionPanel({
       const col = rel.children?.find(
         (node) => node.kind === 'column' && node.label === endpoint.column
       )
-      state.reveal(
-        [conn!.id, db!.id, schema!.id, category.id, rel.id],
-        col?.id ?? rel.id
-      )
+      state.reveal([conn!.id, db!.id, schema!.id, category.id, rel.id], col?.id ?? rel.id)
       setRefsView(null)
       // Rows render on the next frame; then best-effort scroll to the target.
       const targetId = col?.id ?? rel.id
@@ -365,18 +341,14 @@ export function ConnectionPanel({
                   onClick={() => setCardOpen((open) => !open)}
                   onContextMenu={(event) => onRowContextMenu(activeNode, event)}
                 >
-                  <span
-                    className={`conn-active-card__chev${cardOpen ? ' is-open' : ''}`}
-                  >
+                  <span className={`conn-active-card__chev${cardOpen ? ' is-open' : ''}`}>
                     <ChevronRightIcon size={11} />
                   </span>
                   <span className="conn-active-card__icon">
                     <DatabaseIcon size={15} />
                   </span>
                   <span className="conn-active-card__name">{activeNode.label}</span>
-                  <span className="conn-active-card__host">
-                    {activeNode.subtitle ?? ''}
-                  </span>
+                  <span className="conn-active-card__host">{activeNode.subtitle ?? ''}</span>
                   <span className="conn-active-card__badge">ACTIVE</span>
                   <span
                     className={`conn-active-card__health is-${activeNode.status ?? 'offline'}`}
@@ -396,15 +368,12 @@ export function ConnectionPanel({
                           onRowClick={state.toggleRow}
                           onRowDoubleClick={(node) => {
                             const item = contextItemFor(node)
-                            if (item && item.kind !== 'schema')
-                              onOpenDataPreview?.(item)
+                            if (item && item.kind !== 'schema') onOpenDataPreview?.(item)
                           }}
                           onRowContextMenu={onRowContextMenu}
                         />
                       ) : (
-                        <div className="conn-active-card__empty">
-                          No objects match the filter.
-                        </div>
+                        <div className="conn-active-card__empty">No objects match the filter.</div>
                       )
                     ) : (
                       <>
@@ -434,9 +403,7 @@ export function ConnectionPanel({
             <span className="conn-others__title">
               {activeNode ? 'OTHER CONNECTIONS' : 'CONNECTIONS'}
             </span>
-            <span className="conn-others__count">
-              {filteredOtherNodes.length}
-            </span>
+            <span className="conn-others__count">{filteredOtherNodes.length}</span>
             <span className="conn-others__rule" />
           </div>
           <div className="conn-others__rows">
@@ -444,9 +411,7 @@ export function ConnectionPanel({
               <div
                 key={node.id}
                 className={`conn-other-row${node.loading ? ' is-loading' : ''}`}
-                style={
-                  { '--row-accent': accents.get(node.id)?.hex } as CSSProperties
-                }
+                style={{ '--row-accent': accents.get(node.id)?.hex } as CSSProperties}
                 title={`Activate ${node.label} — make it the whole-app context`}
                 onClick={() => state.activateConnection(node.id)}
                 onContextMenu={(event) => onRowContextMenu(node, event)}
@@ -459,12 +424,8 @@ export function ConnectionPanel({
                   <DatabaseIcon size={14} />
                 </span>
                 <span className="conn-other-row__name">{node.label}</span>
-                <span className="conn-other-row__host">
-                  {node.subtitle ?? ''}
-                </span>
-                <span
-                  className={`conn-other-row__dot is-${node.status ?? 'offline'}`}
-                />
+                <span className="conn-other-row__host">{node.subtitle ?? ''}</span>
+                <span className={`conn-other-row__dot is-${node.status ?? 'offline'}`} />
               </div>
             ))}
           </div>
@@ -550,18 +511,12 @@ export function ConnectionPanel({
                             }
                             onClick={() => toggleSchemaLink(base.id)}
                           >
-                            <span className="ctx-menu__check">
-                              {linked ? '✓' : ''}
-                            </span>
-                            <span className="ctx-menu__check-label">
-                              {base.name}
-                            </span>
+                            <span className="ctx-menu__check">{linked ? '✓' : ''}</span>
+                            <span className="ctx-menu__check-label">{base.name}</span>
                           </button>
                         )
                       })}
-                      {(knowledgeBases ?? []).length > 0 && (
-                        <div className="ctx-menu__sep" />
-                      )}
+                      {(knowledgeBases ?? []).length > 0 && <div className="ctx-menu__sep" />}
                       <button
                         className="ctx-menu__item"
                         role="menuitem"
@@ -602,12 +557,7 @@ export function ConnectionPanel({
                   className="ctx-menu__item"
                   role="menuitem"
                   onClick={() => {
-                    onKnowledgeAction?.(
-                      'usages',
-                      menuRef.connId,
-                      menuRef.database,
-                      menuRef.ref
-                    )
+                    onKnowledgeAction?.('usages', menuRef.connId, menuRef.database, menuRef.ref)
                     setMenu(null)
                   }}
                 >
@@ -617,12 +567,7 @@ export function ConnectionPanel({
                   className="ctx-menu__item"
                   role="menuitem"
                   onClick={() => {
-                    onKnowledgeAction?.(
-                      'annotate',
-                      menuRef.connId,
-                      menuRef.database,
-                      menuRef.ref
-                    )
+                    onKnowledgeAction?.('annotate', menuRef.connId, menuRef.database, menuRef.ref)
                     setMenu(null)
                   }}
                 >
@@ -655,17 +600,13 @@ export function ConnectionPanel({
                 >
                   New Query File
                 </button>
-                {state.tree.find(
-                  (node) => node.id === menu.nodeId.split('/')[0]
-                )?.connectionType === 'databricks' && (
+                {state.tree.find((node) => node.id === menu.nodeId.split('/')[0])
+                  ?.connectionType === 'databricks' && (
                   <button
                     className="ctx-menu__item"
                     role="menuitem"
                     onClick={() => {
-                      state.openManageCatalogs(
-                        menu.nodeId.split('/')[0],
-                        menuNode.label
-                      )
+                      state.openManageCatalogs(menu.nodeId.split('/')[0], menuNode.label)
                       setMenu(null)
                     }}
                   >
@@ -791,7 +732,6 @@ export function ConnectionPanel({
           onClose={() => setRefsView(null)}
         />
       )}
-
     </section>
   )
 }

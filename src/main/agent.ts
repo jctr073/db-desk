@@ -41,13 +41,7 @@ import { AGENT_MODELS, resolveAgentMode } from '../shared/agent'
 import { apiKeyVarName, loadApiKey } from './settings'
 import { callMcpTool, mcpToolsForTurn } from './mcp'
 import type { McpAgentTool } from './mcp'
-import {
-  getRepoCommit,
-  getRepoRoot,
-  grepRepo,
-  listRepoFiles,
-  readRepoFile
-} from './repo'
+import { getRepoCommit, getRepoRoot, grepRepo, listRepoFiles, readRepoFile } from './repo'
 import {
   addLink,
   createBase,
@@ -147,14 +141,9 @@ function schemaCacheKey(target: AgentTargetRef): string {
  * selection so the agent's next turn reflects the new pinning without
  * waiting for agent:reset.
  */
-export function invalidateAgentSchemaCache(
-  connId: string,
-  database?: string
-): void {
+export function invalidateAgentSchemaCache(connId: string, database?: string): void {
   const match = (key: string): boolean =>
-    database !== undefined
-      ? key === `${connId}/${database}`
-      : key.startsWith(`${connId}/`)
+    database !== undefined ? key === `${connId}/${database}` : key.startsWith(`${connId}/`)
   for (const cache of [schemaCache, introspectionCache]) {
     for (const key of [...cache.keys()]) {
       if (match(key)) cache.delete(key)
@@ -200,10 +189,7 @@ function renderSchema(db: DatabaseIntrospection, detail: SchemaDetail): string {
       }
       continue
     }
-    const renderRelation = (
-      kind: string,
-      rel: (typeof schema.tables)[number]
-    ): void => {
+    const renderRelation = (kind: string, rel: (typeof schema.tables)[number]): void => {
       const cols =
         detail === 'full'
           ? summarizeColumns(rel.columns)
@@ -256,10 +242,7 @@ function summarizeSchema(db: DatabaseIntrospection): string {
   if (names.length + abridgedNote.length <= SCHEMA_SUMMARY_MAX_CHARS) {
     return names + abridgedNote
   }
-  return (
-    names.slice(0, SCHEMA_SUMMARY_MAX_CHARS - abridgedNote.length) +
-    abridgedNote
-  )
+  return names.slice(0, SCHEMA_SUMMARY_MAX_CHARS - abridgedNote.length) + abridgedNote
 }
 
 async function schemaSummaryFor(target: AgentTargetRef): Promise<string> {
@@ -338,9 +321,7 @@ function resolveActiveKbId(target: AgentTargetRef): string | null {
 /** Union of records across every base linked to the target — what
  * search_knowledge and describe_table consult. */
 function allRecordsForTarget(target: AgentTargetRef): KnowledgeRecord[] {
-  return groupsForTarget(target.connId, target.database).flatMap(
-    (g) => g.records
-  )
+  return groupsForTarget(target.connId, target.database).flatMap((g) => g.records)
 }
 
 /** The five kinds this build renders; unknown kinds are preserved on disk but skipped here. */
@@ -372,18 +353,14 @@ function refName(ref: ColumnRef | undefined): string {
     return '(invalid ref)'
   }
   return singleLine(
-    ref.column
-      ? `${ref.schema}.${ref.table}.${ref.column}`
-      : `${ref.schema}.${ref.table}`
+    ref.column ? `${ref.schema}.${ref.table}.${ref.column}` : `${ref.schema}.${ref.table}`
   )
 }
 
 /** Provenance marker so the model can weigh agent-inferred records. */
 function sourceTag(rec: KnowledgeRecord): string {
   if (rec.source !== 'agent') return ''
-  return rec.confidence
-    ? ` [agent-recorded, ${rec.confidence} confidence]`
-    : ' [agent-recorded]'
+  return rec.confidence ? ` [agent-recorded, ${rec.confidence} confidence]` : ' [agent-recorded]'
 }
 
 /**
@@ -455,18 +432,18 @@ function renderKnowledge(records: KnowledgeRecord[], detail: KnowledgeDetail): s
   const dropExemplarSql = detail === 'no-exemplar-sql' || detail === 'terms'
   const terms = detail === 'terms'
 
-  const relationships = records.filter(
-    (r): r is RelationshipRecord => r.kind === 'relationship'
-  )
+  const relationships = records.filter((r): r is RelationshipRecord => r.kind === 'relationship')
   const glossary = records.filter((r): r is GlossaryRecord => r.kind === 'glossary')
-  const annotations = records.filter(
-    (r): r is AnnotationRecord => r.kind === 'annotation'
-  )
+  const annotations = records.filter((r): r is AnnotationRecord => r.kind === 'annotation')
   const exemplars = records.filter((r): r is ExemplarRecord => r.kind === 'exemplar')
   const notes = records.filter((r): r is NoteRecord => r.kind === 'note')
   if (
-    relationships.length + glossary.length + annotations.length +
-      exemplars.length + notes.length === 0
+    relationships.length +
+      glossary.length +
+      annotations.length +
+      exemplars.length +
+      notes.length ===
+    0
   ) {
     return ''
   }
@@ -550,19 +527,13 @@ export function summarizeKnowledge(groups: KnowledgePromptGroup[]): string {
     for (const group of groups) {
       const body = renderKnowledge(group.records, detail)
       if (body === '') continue
-      const schemas = group.schemas.filter(
-        (s) => typeof s === 'string' && s !== ''
-      )
-      const scopeNames = schemas
-        .map((s) => `"${singleLine(s)}"`)
-        .join(', ')
+      const schemas = group.schemas.filter((s) => typeof s === 'string' && s !== '')
+      const scopeNames = schemas.map((s) => `"${singleLine(s)}"`).join(', ')
       const scope =
         schemas.length > 0
           ? `\nThis knowledge base describes the ${scopeNames} schema${schemas.length === 1 ? '' : 's'} of this database. Its records may name schemas as they exist in the source codebase's own engine — map them onto ${scopeNames} here.`
           : ''
-      sections.push(
-        `### Knowledge base: ${singleLine(group.name)}${scope}\n${body}`
-      )
+      sections.push(`### Knowledge base: ${singleLine(group.name)}${scope}\n${body}`)
     }
     if (sections.length === 0) return ''
     return [
@@ -587,10 +558,7 @@ export function summarizeKnowledge(groups: KnowledgePromptGroup[]): string {
   if (minimal.length + abridgedNote.length <= KNOWLEDGE_SUMMARY_MAX_CHARS) {
     return minimal + abridgedNote
   }
-  return (
-    minimal.slice(0, KNOWLEDGE_SUMMARY_MAX_CHARS - abridgedNote.length) +
-    abridgedNote
-  )
+  return minimal.slice(0, KNOWLEDGE_SUMMARY_MAX_CHARS - abridgedNote.length) + abridgedNote
 }
 
 /** Every structured column reference a record carries, in a stable order. */
@@ -669,9 +637,7 @@ function knowledgeHitSummary(rec: KnowledgeRecord): string {
     default:
       text = ''
   }
-  return text.length > KNOWLEDGE_HIT_MAX_CHARS
-    ? `${text.slice(0, KNOWLEDGE_HIT_MAX_CHARS)}…`
-    : text
+  return text.length > KNOWLEDGE_HIT_MAX_CHARS ? `${text.slice(0, KNOWLEDGE_HIT_MAX_CHARS)}…` : text
 }
 
 /**
@@ -721,10 +687,7 @@ export function searchKnowledgeRecords(
  * schema is given, spans all schemas. Returns null when nothing is recorded.
  * Exported for unit tests.
  */
-export function renderTableKnowledge(
-  records: KnowledgeRecord[],
-  name: string
-): string | null {
+export function renderTableKnowledge(records: KnowledgeRecord[], name: string): string | null {
   const parts = name.toLowerCase().split('.').filter(Boolean)
   if (parts.length === 0) return null
   const table = parts[parts.length - 1]
@@ -745,15 +708,11 @@ export function renderTableKnowledge(
         Object.values(r.targets ?? {}).some(matches))
   )
   if (annotations.length === 0 && relationships.length === 0) return null
-  const lines: string[] = [
-    'local knowledge (recorded in DB Desk, not from the database catalog):'
-  ]
+  const lines: string[] = ['local knowledge (recorded in DB Desk, not from the database catalog):']
   if (annotations.length > 0) {
     lines.push('annotations:')
     for (const a of annotations) {
-      lines.push(
-        `  ${refName(a.target)}: ${indentBlock(a.text, '    ')}${sourceTag(a)}${idTag(a)}`
-      )
+      lines.push(`  ${refName(a.target)}: ${indentBlock(a.text, '    ')}${sourceTag(a)}${idTag(a)}`)
     }
   }
   if (relationships.length > 0) {
@@ -786,8 +745,8 @@ export function buildSystemPrompt(
     '',
     'Rules:',
     '- Always put final, runnable SQL inside ```sql fenced code blocks; the user can insert those blocks into their editor with one click.',
-    '- When you have settled on the final query, call the write_to_editor tool once, at the end — never with intermediate or exploratory queries. Pass the complete contents the editor file should hold: if the editor is empty your SQL is applied directly, otherwise the user reviews a diff of the change and accepts or rejects it. When editing the user\'s existing query, pass the full edited version and preserve the parts of their file the request does not touch; never pass a fragment.',
-    '- Editor contents shown to you are a snapshot from when the user sent the message. If you have run several tools since, call read_editor to re-read the live buffer (and the user\'s current selection) before proposing an edit with write_to_editor.',
+    "- When you have settled on the final query, call the write_to_editor tool once, at the end — never with intermediate or exploratory queries. Pass the complete contents the editor file should hold: if the editor is empty your SQL is applied directly, otherwise the user reviews a diff of the change and accepts or rejects it. When editing the user's existing query, pass the full edited version and preserve the parts of their file the request does not touch; never pass a fragment.",
+    "- Editor contents shown to you are a snapshot from when the user sent the message. If you have run several tools since, call read_editor to re-read the live buffer (and the user's current selection) before proposing an edit with write_to_editor.",
     ...(req.intent === 'fix-query'
       ? [
           '- This is a Fix with AI request. The turn is not complete with an explanation or code block alone: fix the attached query error and call write_to_editor with the complete corrected active editor contents so the user receives an Accept/Reject diff.'
@@ -812,9 +771,7 @@ export function buildSystemPrompt(
       '- You are in Metadata Only mode: you cannot execute anything against the database. Work from the schema summary below and the objects the user attached. Do not claim to have run or validated anything; present SQL for the user to run.'
     )
   } else {
-    parts.push(
-      '- Query execution is disabled for this chat; do not claim to have run anything.'
-    )
+    parts.push('- Query execution is disabled for this chat; do not claim to have run anything.')
   }
   if (req.target) {
     parts.push(
@@ -846,10 +803,7 @@ export function buildSystemPrompt(
       `Connected target: connection "${req.target.connName}", ${dialect.databaseTerm} "${req.target.database}"${version ? ` (${dialect.engine} ${version})` : ` (${dialect.engine})`}.`
     )
   } else {
-    parts.push(
-      '',
-      'No database is connected; write SQL from the request alone.'
-    )
+    parts.push('', 'No database is connected; write SQL from the request alone.')
   }
   const dbObjects = req.context.filter(
     (item): item is AgentDbObjectItem =>
@@ -872,9 +826,7 @@ export function buildSystemPrompt(
     for (const item of dbObjects) {
       const qualified = item.schema ? `${item.schema}.${item.name}` : item.name
       const elsewhere =
-        !req.target ||
-        item.connId !== req.target.connId ||
-        item.database !== req.target.database
+        !req.target || item.connId !== req.target.connId || item.database !== req.target.database
           ? ` (in database "${item.database}", not the connected target)`
           : ''
       parts.push(`- ${item.kind} ${qualified}${elsewhere}`)
@@ -977,8 +929,7 @@ function runSqlTool(dialect: DialectInfo): Anthropic.Tool {
 }
 
 function explainQueryTool(dialect: DialectInfo): Anthropic.Tool {
-  const analyzeProps: Record<string, unknown> = dialect.agent
-    .supportsExplainAnalyze
+  const analyzeProps: Record<string, unknown> = dialect.agent.supportsExplainAnalyze
     ? {
         analyze: {
           type: 'boolean',
@@ -1055,8 +1006,7 @@ const SEARCH_KNOWLEDGE_TOOL: Anthropic.Tool = {
     properties: {
       query: {
         type: 'string',
-        description:
-          'Keywords to search for (all must match), e.g. "MRN" or "orders join".'
+        description: 'Keywords to search for (all must match), e.g. "MRN" or "orders join".'
       }
     },
     required: ['query']
@@ -1222,7 +1172,8 @@ const GREP_REPO_TOOL: Anthropic.Tool = {
     properties: {
       pattern: {
         type: 'string',
-        description: 'Regular expression to search for, e.g. "belongs_to|has_many" or "CREATE TABLE".'
+        description:
+          'Regular expression to search for, e.g. "belongs_to|has_many" or "CREATE TABLE".'
       },
       dir: {
         type: 'string',
@@ -1317,9 +1268,7 @@ function toolResultPayload(result: QueryResult): string {
   const build = (): string => {
     const notes: string[] = []
     if (result.rows.length > rows.length) {
-      notes.push(
-        `showing first ${rows.length} of ${result.rows.length} fetched rows`
-      )
+      notes.push(`showing first ${rows.length} of ${result.rows.length} fetched rows`)
     }
     if (result.limitApplied !== null) {
       notes.push(
@@ -1327,14 +1276,10 @@ function toolResultPayload(result: QueryResult): string {
       )
     }
     if (result.truncated) {
-      notes.push(
-        'rows beyond the fetch limit were discarded; the full result has more rows'
-      )
+      notes.push('rows beyond the fetch limit were discarded; the full result has more rows')
     }
     if (cellCap !== null) {
-      notes.push(
-        `long cell values truncated to ${cellCap} chars in this payload`
-      )
+      notes.push(`long cell values truncated to ${cellCap} chars in this payload`)
     }
     const cap = cellCap
     const outRows =
@@ -1342,9 +1287,7 @@ function toolResultPayload(result: QueryResult): string {
         ? rows
         : rows.map((row) =>
             row.map((cell) =>
-              typeof cell === 'string' && cell.length > cap
-                ? `${cell.slice(0, cap)}…`
-                : cell
+              typeof cell === 'string' && cell.length > cap ? `${cell.slice(0, cap)}…` : cell
             )
           )
     return JSON.stringify({
@@ -1417,14 +1360,7 @@ async function execRunSql(
   }
   const target = req.target
   if (!target) {
-    return toolError(
-      base,
-      req,
-      block.id,
-      send,
-      'no target',
-      'No database target is connected.'
-    )
+    return toolError(base, req, block.id, send, 'no target', 'No database target is connected.')
   }
   send({
     type: 'tool_start',
@@ -1434,18 +1370,12 @@ async function execRunSql(
     sql
   })
 
-  const res = await runAgentQuery(
-    target.connId,
-    target.database,
-    sql,
-    TOOL_RUN_LIMIT,
-    {
-      timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
-      onCancel: (cancel) => {
-        chat.cancelRunningQuery = cancel
-      }
+  const res = await runAgentQuery(target.connId, target.database, sql, TOOL_RUN_LIMIT, {
+    timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
+    onCancel: (cancel) => {
+      chat.cancelRunningQuery = cancel
     }
-  )
+  })
   chat.cancelRunningQuery = null
 
   // Blocked by the guard (Layer 2) or the server-side belt (Layer 3): same
@@ -1473,14 +1403,7 @@ async function execRunSql(
     error: res.ok ? null : res.error
   })
   if (!res.ok) {
-    return toolError(
-      base,
-      req,
-      block.id,
-      send,
-      res.error,
-      `Query failed: ${res.error}`
-    )
+    return toolError(base, req, block.id, send, res.error, `Query failed: ${res.error}`)
   }
   const summary =
     res.data.rowCount === null
@@ -1524,14 +1447,7 @@ async function execExplain(
   }
   const target = req.target
   if (!target) {
-    return toolError(
-      base,
-      req,
-      block.id,
-      send,
-      'no target',
-      'No database target is connected.'
-    )
+    return toolError(base, req, block.id, send, 'no target', 'No database target is connected.')
   }
   // Writes are not explained at all (with or without ANALYZE); refuse the
   // inner statement up front instead of relying on a downstream failure.
@@ -1553,28 +1469,15 @@ async function execExplain(
     name: block.name,
     sql: explainSql
   })
-  const res = await runAgentQuery(
-    target.connId,
-    target.database,
-    explainSql,
-    null,
-    {
-      timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
-      onCancel: (cancel) => {
-        chat.cancelRunningQuery = cancel
-      }
+  const res = await runAgentQuery(target.connId, target.database, explainSql, null, {
+    timeoutMs: AGENT_STATEMENT_TIMEOUT_MS,
+    onCancel: (cancel) => {
+      chat.cancelRunningQuery = cancel
     }
-  )
+  })
   chat.cancelRunningQuery = null
   if (!res.ok) {
-    return toolError(
-      base,
-      req,
-      block.id,
-      send,
-      res.error,
-      `EXPLAIN failed: ${res.error}`
-    )
+    return toolError(base, req, block.id, send, res.error, `EXPLAIN failed: ${res.error}`)
   }
   const plan = res.data.rows.map((row) => row[0]).join('\n')
   send({
@@ -1611,14 +1514,7 @@ async function execDescribeTable(
   }
   const target = req.target
   if (!target) {
-    return toolError(
-      base,
-      req,
-      block.id,
-      send,
-      'no target',
-      'No database target is connected.'
-    )
+    return toolError(base, req, block.id, send, 'no target', 'No database target is connected.')
   }
   send({
     type: 'tool_start',
@@ -1629,14 +1525,7 @@ async function execDescribeTable(
   })
   const res = await describeTable(target.connId, target.database, name)
   if (!res.ok) {
-    return toolError(
-      base,
-      req,
-      block.id,
-      send,
-      res.error,
-      `describe_table failed: ${res.error}`
-    )
+    return toolError(base, req, block.id, send, res.error, `describe_table failed: ${res.error}`)
   }
   send({
     type: 'tool_result',
@@ -1658,9 +1547,7 @@ async function execSearchSchema(
   block: Anthropic.ToolUseBlock,
   send: Sender
 ): Promise<Anthropic.ToolResultBlockParam> {
-  const pattern = String(
-    (block.input as { pattern?: unknown }).pattern ?? ''
-  ).trim()
+  const pattern = String((block.input as { pattern?: unknown }).pattern ?? '').trim()
   const base: Anthropic.ToolResultBlockParam = {
     type: 'tool_result',
     tool_use_id: block.id,
@@ -1678,14 +1565,7 @@ async function execSearchSchema(
   }
   const target = req.target
   if (!target) {
-    return toolError(
-      base,
-      req,
-      block.id,
-      send,
-      'no target',
-      'No database target is connected.'
-    )
+    return toolError(base, req, block.id, send, 'no target', 'No database target is connected.')
   }
   send({
     type: 'tool_start',
@@ -1696,18 +1576,9 @@ async function execSearchSchema(
   })
   const res = await searchSchema(target.connId, target.database, pattern)
   if (!res.ok) {
-    return toolError(
-      base,
-      req,
-      block.id,
-      send,
-      res.error,
-      `search_schema failed: ${res.error}`
-    )
+    return toolError(base, req, block.id, send, res.error, `search_schema failed: ${res.error}`)
   }
-  const matches = res.data.startsWith('No relations')
-    ? 'no matches'
-    : 'matches found'
+  const matches = res.data.startsWith('No relations') ? 'no matches' : 'matches found'
   send({
     type: 'tool_result',
     chatId: req.chatId,
@@ -1736,14 +1607,7 @@ export function execSearchKnowledge(
   }
   const target = req.target
   if (!target) {
-    return toolError(
-      base,
-      req,
-      block.id,
-      send,
-      'no target',
-      'No database target is connected.'
-    )
+    return toolError(base, req, block.id, send, 'no target', 'No database target is connected.')
   }
   send({
     type: 'tool_start',
@@ -1799,14 +1663,7 @@ export function execSaveKnowledge(
   }
   const target = req.target
   if (!target) {
-    return toolError(
-      base,
-      req,
-      block.id,
-      send,
-      'no target',
-      'No database target is connected.'
-    )
+    return toolError(base, req, block.id, send, 'no target', 'No database target is connected.')
   }
   const input = (block.input ?? {}) as Record<string, unknown>
   // Force source: the agent only ever writes agent-sourced records. Strip any
@@ -1845,8 +1702,7 @@ export function execSaveKnowledge(
       const schema =
         knowledgeRefs(draft as KnowledgeRecord).find(
           (ref) => typeof ref.schema === 'string' && ref.schema.trim() !== ''
-        )?.schema ??
-        dialectFor(getConnectionType(target.connId)).defaultSchema
+        )?.schema ?? dialectFor(getConnectionType(target.connId)).defaultSchema
       addLink({
         kbId: created.id,
         connId: target.connId,
@@ -1950,8 +1806,7 @@ const EDITOR_READ_TIMEOUT_MS = 1_500
  * agent:editor-read round-trip. Set in registerAgentHandlers; resolves null
  * (editor unavailable) until then — e.g. in unit tests — and on timeout.
  */
-let readEditorFromRenderer: () => Promise<AgentEditorReadPayload | null> =
-  async () => null
+let readEditorFromRenderer: () => Promise<AgentEditorReadPayload | null> = async () => null
 
 async function execReadEditor(
   req: AgentSendRequest,
@@ -1988,8 +1843,7 @@ async function execReadEditor(
     chatId: req.chatId,
     toolId: block.id,
     ok: true,
-    summary:
-      lines === 0 ? 'empty' : `${lines} line${lines === 1 ? '' : 's'}`
+    summary: lines === 0 ? 'empty' : `${lines} line${lines === 1 ? '' : 's'}`
   })
   return {
     ...base,
@@ -2152,9 +2006,7 @@ function execReadRepoFile(
         startLine: res.startLine,
         totalLines: res.totalLines,
         content: res.content,
-        note: res.truncated
-          ? 'truncated — use offset/limit to read further'
-          : undefined
+        note: res.truncated ? 'truncated — use offset/limit to read further' : undefined
       }),
       summary: `${res.totalLines.toLocaleString()} line${res.totalLines === 1 ? '' : 's'}${res.truncated ? ' (partial)' : ''}`
     }
@@ -2267,17 +2119,11 @@ export function shouldForceEditorProposal(
   reminderSent: boolean
 ): boolean {
   return (
-    req.intent === 'fix-query' &&
-    !editorProposalSent &&
-    !reminderSent &&
-    stopReason === 'end_turn'
+    req.intent === 'fix-query' && !editorProposalSent && !reminderSent && stopReason === 'end_turn'
   )
 }
 
-async function runAgentTurn(
-  req: AgentSendRequest,
-  send: Sender
-): Promise<void> {
+async function runAgentTurn(req: AgentSendRequest, send: Sender): Promise<void> {
   const { key } = loadApiKey()
   if (!key) {
     send({
@@ -2306,9 +2152,7 @@ async function runAgentTurn(
   const client = new Anthropic({ apiKey: key })
   // Dialect follows the target connection's engine; chats without a target
   // default to PostgreSQL guidance.
-  const dialect = dialectFor(
-    req.target ? getConnectionType(req.target.connId) : null
-  )
+  const dialect = dialectFor(req.target ? getConnectionType(req.target.connId) : null)
   const schemaSummary = req.target ? await schemaSummaryFor(req.target) : null
   // MCP tools are user-configured and mode-independent: the access mode
   // protects the connected database, while MCP servers act on external
@@ -2431,9 +2275,7 @@ async function runAgentTurn(
         // Web search executes server-side mid-stream; mirror it into the
         // transcript the same way client tools are shown.
         if (block.type === 'server_tool_use' && block.name === 'web_search') {
-          const query = String(
-            (block.input as { query?: unknown })?.query ?? ''
-          )
+          const query = String((block.input as { query?: unknown })?.query ?? '')
           send({
             type: 'tool_start',
             chatId: req.chatId,
@@ -2464,10 +2306,7 @@ async function runAgentTurn(
         }
       })
       stream.on('streamEvent', (evt) => {
-        if (
-          evt.type === 'content_block_start' &&
-          evt.content_block.type === 'thinking'
-        ) {
+        if (evt.type === 'content_block_start' && evt.content_block.type === 'thinking') {
           send({ type: 'thinking', chatId: req.chatId, active: true })
         }
       })
@@ -2498,9 +2337,7 @@ async function runAgentTurn(
           if (block.name === 'run_sql') {
             results.push(await execRunSql(req, chat, mode, block, send))
           } else if (block.name === 'explain_query') {
-            results.push(
-              await execExplain(req, chat, mode, block, send, dialect)
-            )
+            results.push(await execExplain(req, chat, mode, block, send, dialect))
           } else if (block.name === 'describe_table') {
             results.push(await execDescribeTable(req, mode, block, send))
           } else if (block.name === 'search_schema') {
@@ -2568,10 +2405,7 @@ async function runAgentTurn(
       return
     }
   } catch (err) {
-    if (
-      err instanceof Anthropic.APIUserAbortError ||
-      controller.signal.aborted
-    ) {
+    if (err instanceof Anthropic.APIUserAbortError || controller.signal.aborted) {
       send({
         type: 'done',
         chatId: req.chatId,
@@ -2596,10 +2430,7 @@ const COMPACT_PROMPT = [
 ].join(' ')
 
 /** Replace the chat history with a model-written summary of it (/compact). */
-async function compactChat(
-  chatId: string,
-  modelId: string
-): Promise<AgentCompactResult> {
+async function compactChat(chatId: string, modelId: string): Promise<AgentCompactResult> {
   const { key } = loadApiKey()
   if (!key) {
     return {
@@ -2688,9 +2519,7 @@ function stopChat(chatId: string): void {
   }
 }
 
-export function registerAgentHandlers(
-  getWindow: () => BrowserWindow | null
-): void {
+export function registerAgentHandlers(getWindow: () => BrowserWindow | null): void {
   const send: Sender = (evt) => {
     const win = getWindow()
     if (win && !win.isDestroyed()) win.webContents.send('agent:event', evt)
@@ -2714,10 +2543,7 @@ export function registerAgentHandlers(
   // so a hung or reloading renderer degrades to "editor unavailable" instead
   // of wedging the turn.
   let editorReadSeq = 0
-  const pendingEditorReads = new Map<
-    string,
-    (payload: AgentEditorReadPayload | null) => void
-  >()
+  const pendingEditorReads = new Map<string, (payload: AgentEditorReadPayload | null) => void>()
   ipcMain.on(
     'agent:editor-read-reply',
     (_event, requestId: string, payload: AgentEditorReadPayload) => {

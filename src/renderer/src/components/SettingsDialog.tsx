@@ -77,11 +77,7 @@ export function SettingsDialog({
     const result = await window.dbDesk.settings.chooseSqlDir()
     setDirBusy(false)
     if (result.status === 'moved') {
-      setDirMsg(
-        result.movedFiles === 1
-          ? 'Moved 1 file.'
-          : `Moved ${result.movedFiles} files.`
-      )
+      setDirMsg(result.movedFiles === 1 ? 'Moved 1 file.' : `Moved ${result.movedFiles} files.`)
     } else if (result.status === 'error') {
       setDirError(result.error)
     }
@@ -94,9 +90,7 @@ export function SettingsDialog({
     }
     setApiError(null)
     try {
-      setInfo(
-        await window.dbDesk.settings.setStoredApiKey(keyDraft, labelDraft)
-      )
+      setInfo(await window.dbDesk.settings.setStoredApiKey(keyDraft, labelDraft))
       setKeyDraft('')
       setLabelDraft('')
       setReplacingKey(false)
@@ -158,16 +152,9 @@ export function SettingsDialog({
           </span>
           <div className="dialog__titles">
             <div className="dialog__title">Settings</div>
-            <div className="dialog__subtitle">
-              Appearance, file storage, and API keys
-            </div>
+            <div className="dialog__subtitle">Appearance, file storage, and API keys</div>
           </div>
-          <button
-            className="dialog__close"
-            onClick={onClose}
-            title="Close"
-            type="button"
-          >
+          <button className="dialog__close" onClick={onClose} title="Close" type="button">
             <CloseIcon />
           </button>
         </div>
@@ -221,8 +208,8 @@ export function SettingsDialog({
                   )}
                 </div>
                 <div className="url-hint">
-                  Where your query files and their index live. Changing it
-                  moves the existing files to the new directory.
+                  Where your query files and their index live. Changing it moves the existing files
+                  to the new directory.
                 </div>
                 <div className="settings-actions">
                   <button
@@ -336,17 +323,15 @@ export function SettingsDialog({
                     spellCheck={false}
                   />
                   <div className="url-hint">
-                    Looked up in <span className="url-hint__mono">~/.zshrc</span>{' '}
-                    and the environment when no stored key is set.
+                    Looked up in <span className="url-hint__mono">~/.zshrc</span> and the
+                    environment when no stored key is set.
                   </div>
                   <div className="settings-actions">
                     <button
                       type="button"
                       className="btn-test"
                       onClick={() => void saveVarName()}
-                      disabled={
-                        info == null || varName.trim() === info.apiKey.varName
-                      }
+                      disabled={info == null || varName.trim() === info.apiKey.varName}
                     >
                       Save Name
                     </button>

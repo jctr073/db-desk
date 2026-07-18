@@ -146,10 +146,7 @@ function updateNode(
 }
 
 /** Drop every expansion entry at or below the given connection id. */
-function pruneExpansion(
-  expanded: Record<string, boolean>,
-  id: string
-): Record<string, boolean> {
+function pruneExpansion(expanded: Record<string, boolean>, id: string): Record<string, boolean> {
   const next: Record<string, boolean> = {}
   for (const key of Object.keys(expanded)) {
     if (key !== id && !key.startsWith(`${id}/`)) next[key] = expanded[key]
@@ -166,12 +163,8 @@ export function useConnectionState(): ConnectionState {
   const [filter, setFilter] = useState('')
   const [loadError, setLoadError] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<Record<string, SavedConnection>>({})
-  const [schemas, setSchemas] = useState<
-    Record<string, Record<string, DatabaseIntrospection>>
-  >({})
-  const [schemaRefresh, setSchemaRefresh] = useState<
-    Record<string, SchemaRefreshInfo>
-  >({})
+  const [schemas, setSchemas] = useState<Record<string, Record<string, DatabaseIntrospection>>>({})
+  const [schemaRefresh, setSchemaRefresh] = useState<Record<string, SchemaRefreshInfo>>({})
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogTab, setDialogTab] = useState<DialogTab>('params')
@@ -181,9 +174,7 @@ export function useConnectionState(): ConnectionState {
   const [connecting, setConnecting] = useState(false)
   const [form, setForm] = useState<ConnectionForm>(() => defaultForm())
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [manageDialog, setManageDialog] = useState<ManageDialogState | null>(
-    null
-  )
+  const [manageDialog, setManageDialog] = useState<ManageDialogState | null>(null)
 
   /** Bumped whenever an in-flight test's result should be discarded. */
   const testSeq = useRef(0)
@@ -201,15 +192,12 @@ export function useConnectionState(): ConnectionState {
   const manageDialogRef = useRef(manageDialog)
   manageDialogRef.current = manageDialog
 
-  const cacheSchema = useCallback(
-    (connId: string, db: DatabaseIntrospection) => {
-      setSchemas((prev) => ({
-        ...prev,
-        [connId]: { ...prev[connId], [db.name]: db }
-      }))
-    },
-    []
-  )
+  const cacheSchema = useCallback((connId: string, db: DatabaseIntrospection) => {
+    setSchemas((prev) => ({
+      ...prev,
+      [connId]: { ...prev[connId], [db.name]: db }
+    }))
+  }, [])
 
   const dropSchemas = useCallback((connId: string) => {
     setSchemas((prev) => {
@@ -239,8 +227,7 @@ export function useConnectionState(): ConnectionState {
         const res = await window.dbDesk.db.introspect(connId, database)
         // A needsSchemaSelection result is a prompt, not an introspection;
         // caching it would make the database look loaded-but-empty.
-        if (res.ok && !res.data.needsSchemaSelection)
-          cacheSchema(connId, res.data)
+        if (res.ok && !res.data.needsSchemaSelection) cacheSchema(connId, res.data)
       } finally {
         introspecting.current.delete(key)
       }
@@ -261,12 +248,7 @@ export function useConnectionState(): ConnectionState {
       const connType = profiles[connId]?.type
       setTree((prev) =>
         updateNode(prev, `${connId}/${data.name}`, (node) => {
-          if (
-            node.kind !== 'database' ||
-            node.lazy ||
-            node.loading ||
-            !node.children
-          ) {
+          if (node.kind !== 'database' || node.lazy || node.loading || !node.children) {
             return node
           }
           const counts = schemaCounts(data)
@@ -318,9 +300,7 @@ export function useConnectionState(): ConnectionState {
     let cancelled = false
     void window.dbDesk.store.list().then((saved) => {
       if (cancelled) return
-      setProfiles(
-        Object.fromEntries(saved.map((profile) => [profile.id, profile]))
-      )
+      setProfiles(Object.fromEntries(saved.map((profile) => [profile.id, profile])))
       setTree(saved.map(savedConnectionNode))
       // The active-context designation survives relaunch; the connection
       // itself comes back offline (nothing auto-connects).
@@ -358,9 +338,7 @@ export function useConnectionState(): ConnectionState {
         catalogs: null,
         config: null,
         schemaLists:
-          initialExpanded && availableSchemas
-            ? { [initialExpanded]: availableSchemas }
-            : {},
+          initialExpanded && availableSchemas ? { [initialExpanded]: availableSchemas } : {},
         schemaErrors: {},
         initialExpanded
       }
@@ -422,8 +400,7 @@ export function useConnectionState(): ConnectionState {
                 ...previous,
                 schemaErrors: {
                   ...previous.schemaErrors,
-                  [catalog]:
-                    cause instanceof Error ? cause.message : String(cause)
+                  [catalog]: cause instanceof Error ? cause.message : String(cause)
                 }
               }
             : previous
@@ -438,16 +415,12 @@ export function useConnectionState(): ConnectionState {
       const connId = dbNodeId.split('/')[0]
       const dbName = node.label
       const connType = profiles[connId]?.type
-      setTree((prev) =>
-        updateNode(prev, dbNodeId, (n) => ({ ...n, loading: true }))
-      )
+      setTree((prev) => updateNode(prev, dbNodeId, (n) => ({ ...n, loading: true })))
       const res = await window.dbDesk.db.introspect(connId, dbName)
       if (res.ok && res.data.needsSchemaSelection) {
         // Large catalog with no saved schema selection: leave the node lazy
         // and collapsed, and open the picker instead of loading everything.
-        setTree((prev) =>
-          updateNode(prev, dbNodeId, (n) => ({ ...n, loading: false }))
-        )
+        setTree((prev) => updateNode(prev, dbNodeId, (n) => ({ ...n, loading: false })))
         setExpanded((prev) => {
           const next = { ...prev }
           delete next[dbNodeId]
@@ -498,8 +471,7 @@ export function useConnectionState(): ConnectionState {
       })
       if (willExpand) {
         const node = findNode(id, tree)
-        if (node?.kind === 'database' && node.lazy && !node.loading)
-          void loadDatabase(node)
+        if (node?.kind === 'database' && node.lazy && !node.loading) void loadDatabase(node)
       }
     },
     [expanded, tree, loadDatabase]
@@ -547,9 +519,7 @@ export function useConnectionState(): ConnectionState {
       const keep = config.catalogs ? new Set(config.catalogs) : null
       const currentNames = (conn.children ?? []).map((child) => child.label)
       const allNames =
-        dialog.catalogs && dialog.catalogs.length > 0
-          ? dialog.catalogs
-          : currentNames
+        dialog.catalogs && dialog.catalogs.length > 0 ? dialog.catalogs : currentNames
       const nextNames = allNames.filter((name) => !keep || keep.has(name))
       const removed = currentNames.filter((name) => !nextNames.includes(name))
       const reload = (conn.children ?? []).filter(
@@ -565,11 +535,7 @@ export function useConnectionState(): ConnectionState {
           const next = { ...prev }
           const prefixes = removed.map((name) => `${dialog.connId}/${name}`)
           for (const key of Object.keys(next)) {
-            if (
-              prefixes.some(
-                (prefix) => key === prefix || key.startsWith(`${prefix}/`)
-              )
-            ) {
+            if (prefixes.some((prefix) => key === prefix || key.startsWith(`${prefix}/`))) {
               delete next[key]
             }
           }
@@ -579,9 +545,7 @@ export function useConnectionState(): ConnectionState {
       setTree((prev) =>
         prev.map((n) => {
           if (n.id !== dialog.connId) return n
-          const existing = new Map(
-            (n.children ?? []).map((child) => [child.label, child])
-          )
+          const existing = new Map((n.children ?? []).map((child) => [child.label, child]))
           const children = nextNames.map((name) => {
             const prevChild = existing.get(name)
             if (prevChild) {
@@ -633,9 +597,7 @@ export function useConnectionState(): ConnectionState {
       if (res.ok) {
         const connected = res.data.connectedDatabase
         const conn = connectionNodeFromResult(profile, res.data)
-        const connectedVisible = conn.children?.some(
-          (child) => child.label === connected.name
-        )
+        const connectedVisible = conn.children?.some((child) => child.label === connected.name)
         if (connectedVisible && !connected.needsSchemaSelection) {
           cacheSchema(id, connected)
         }
@@ -648,11 +610,7 @@ export function useConnectionState(): ConnectionState {
         // Connecting is activating: the connection becomes the app context.
         setActiveConnId(id)
         if (connectedVisible && connected.needsSchemaSelection) {
-          openManageCatalogs(
-            id,
-            connected.name,
-            connected.availableSchemas ?? []
-          )
+          openManageCatalogs(id, connected.name, connected.availableSchemas ?? [])
         }
         return
       }
@@ -686,15 +644,11 @@ export function useConnectionState(): ConnectionState {
         }))
       )
       setExpanded((prev) => pruneExpansion(prev, id))
-      setSelected((prev) =>
-        prev && (prev === id || prev.startsWith(`${id}/`)) ? id : prev
-      )
+      setSelected((prev) => (prev && (prev === id || prev.startsWith(`${id}/`)) ? id : prev))
       // The app context moves to another online connection, if there is one.
       setActiveConnId((act) => {
         if (act !== id) return act
-        const fallback = treeRef.current.find(
-          (node) => node.id !== id && node.status === 'online'
-        )
+        const fallback = treeRef.current.find((node) => node.id !== id && node.status === 'online')
         return fallback?.id ?? null
       })
     },
@@ -717,14 +671,10 @@ export function useConnectionState(): ConnectionState {
       })
       setExpanded((prev) => pruneExpansion(prev, id))
       setTree((prev) => prev.filter((conn) => conn.id !== id))
-      setSelected((prev) =>
-        prev && (prev === id || prev.startsWith(`${id}/`)) ? null : prev
-      )
+      setSelected((prev) => (prev && (prev === id || prev.startsWith(`${id}/`)) ? null : prev))
       setActiveConnId((act) => {
         if (act !== id) return act
-        const fallback = treeRef.current.find(
-          (node) => node.id !== id && node.status === 'online'
-        )
+        const fallback = treeRef.current.find((node) => node.id !== id && node.status === 'online')
         return fallback?.id ?? null
       })
     },
@@ -808,9 +758,7 @@ export function useConnectionState(): ConnectionState {
       if (prev.type === type) return prev
       const next = defaultForm(type)
       const prevDefaultName = defaultForm(prev.type).name
-      return prev.name && prev.name !== prevDefaultName
-        ? { ...next, name: prev.name }
-        : next
+      return prev.name && prev.name !== prevDefaultName ? { ...next, name: prev.name } : next
     })
   }, [])
 
@@ -836,14 +784,8 @@ export function useConnectionState(): ConnectionState {
     if (res.ok) {
       setTestState('ok')
       const engine = dialectFor(form.type).engine
-      const version = res.data.serverVersion
-        ? `${engine} ${res.data.serverVersion}`
-        : engine
-      setTestMsg(
-        `Connected · ${version} · ${res.data.latencyMs} ms${
-          res.data.ssl ? ' · SSL' : ''
-        }`
-      )
+      const version = res.data.serverVersion ? `${engine} ${res.data.serverVersion}` : engine
+      setTestMsg(`Connected · ${version} · ${res.data.latencyMs} ms${res.data.ssl ? ' · SSL' : ''}`)
     } else {
       setTestState('error')
       setTestMsg(res.error || 'Connection failed')
@@ -889,9 +831,7 @@ export function useConnectionState(): ConnectionState {
     const connected = res.data.connectedDatabase
 
     const conn = connectionNodeFromResult(saved, res.data)
-    const connectedVisible = conn.children?.some(
-      (child) => child.label === connected.name
-    )
+    const connectedVisible = conn.children?.some((child) => child.label === connected.name)
     if (connectedVisible && !connected.needsSchemaSelection) {
       cacheSchema(connId, connected)
     }
@@ -913,11 +853,7 @@ export function useConnectionState(): ConnectionState {
     setForm(defaultForm())
     setDialogTab('params')
     if (connectedVisible && connected.needsSchemaSelection) {
-      openManageCatalogs(
-        connId,
-        connected.name,
-        connected.availableSchemas ?? []
-      )
+      openManageCatalogs(connId, connected.name, connected.availableSchemas ?? [])
     }
   }, [form, dialogTab, connecting, editingId, cacheSchema, openManageCatalogs])
 

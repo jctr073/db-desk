@@ -13,11 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { normalizeColumnKey } from '../../src/shared/knowledge'
 import type { ColumnRef } from '../../src/shared/knowledge'
-import type {
-  DatabaseIntrospection,
-  RelationInfo,
-  SchemaIntrospection
-} from '../../src/shared/db'
+import type { DatabaseIntrospection, RelationInfo, SchemaIntrospection } from '../../src/shared/db'
 
 vi.mock('../../src/main/db', () => ({
   introspectDatabase: vi.fn()
@@ -114,7 +110,7 @@ describe('matchReferencesInSql', () => {
 
   it('ignores identifiers inside string literals and comments', () => {
     const refs = matchReferencesInSql(
-      "SELECT total FROM orders -- claims.svc_dt\nWHERE total > 0 /* members */",
+      'SELECT total FROM orders -- claims.svc_dt\nWHERE total > 0 /* members */',
       INTRO
     )
     const k = keys(refs)

@@ -79,12 +79,7 @@ export function BaseNameDialog({
     // No click-to-close on the overlay: a stray click must not discard a
     // half-filled form (same rule as the other dialogs).
     <div className="dialog-overlay">
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
+      <div className="dialog" role="dialog" aria-modal="true" aria-label={title}>
         <div className="dialog__header">
           <span className="dialog__icon">
             <BookIcon size={16} />
@@ -150,8 +145,7 @@ export function BaseNameDialog({
                 />
               )}
               <div className="url-hint">
-                Knowledge bases link at the schema level; the new base is
-                linked to this schema.
+                Knowledge bases link at the schema level; the new base is linked to this schema.
               </div>
             </div>
           )}
@@ -160,12 +154,7 @@ export function BaseNameDialog({
 
         <div className="dialog__footer">
           <div className="test-msg" />
-          <button
-            className="btn-cancel"
-            onClick={onClose}
-            type="button"
-            disabled={saving}
-          >
+          <button className="btn-cancel" onClick={onClose} type="button" disabled={saving}>
             Cancel
           </button>
           <button

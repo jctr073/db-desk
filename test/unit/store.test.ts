@@ -115,7 +115,18 @@ describe('fresh-start reset from a legacy bare-array file', () => {
   it('is idempotent: a second load does not re-wipe or error', async () => {
     writeFileSync(
       storePath(),
-      JSON.stringify([{ id: 'c-1', name: 'old', host: 'h', port: '5432', database: 'd', user: 'u', url: '', useUrl: false }]),
+      JSON.stringify([
+        {
+          id: 'c-1',
+          name: 'old',
+          host: 'h',
+          port: '5432',
+          database: 'd',
+          user: 'u',
+          url: '',
+          useUrl: false
+        }
+      ]),
       'utf8'
     )
     expect(store.listSaved()).toEqual([])

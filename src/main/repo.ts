@@ -116,11 +116,9 @@ export function clearRepoRoot(kbId: string): void {
 /** Short SHA of HEAD for provenance strings, or null outside a git checkout. */
 export async function getRepoCommit(root: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-C', root, 'rev-parse', '--short', 'HEAD'],
-      { timeout: GIT_TIMEOUT_MS }
-    )
+    const { stdout } = await execFileAsync('git', ['-C', root, 'rev-parse', '--short', 'HEAD'], {
+      timeout: GIT_TIMEOUT_MS
+    })
     const sha = stdout.trim()
     return /^[0-9a-f]{4,40}$/.test(sha) ? sha : null
   } catch {
@@ -298,12 +296,7 @@ export async function listRepoFiles(
   dir?: string,
   glob?: string
 ): Promise<RepoListResult> {
-  const outcome = await walkFiles(
-    root,
-    dir ?? '.',
-    makeMatcher(glob),
-    LIST_MAX_RESULTS
-  )
+  const outcome = await walkFiles(root, dir ?? '.', makeMatcher(glob), LIST_MAX_RESULTS)
   return { files: outcome.files, truncated: outcome.truncated }
 }
 
@@ -463,10 +456,7 @@ let monorepoPick: MonorepoPick | null = null
 export async function listMonorepoFolders(root: string): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true })
   return entries
-    .filter(
-      (e) =>
-        e.isDirectory() && !e.name.startsWith('.') && !IGNORED_DIRS.has(e.name)
-    )
+    .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !IGNORED_DIRS.has(e.name))
     .map((e) => e.name)
     .sort((a, b) => a.localeCompare(b))
 }
@@ -476,10 +466,7 @@ export async function listMonorepoFolders(root: string): Promise<string[]> {
  * (IPC handler) and the mapping-creation state, exported so tests can seed a
  * pick without a dialog.
  */
-export function registerMonorepoPick(
-  root: string,
-  folders: string[]
-): MonorepoPick {
+export function registerMonorepoPick(root: string, folders: string[]): MonorepoPick {
   monorepoPick = {
     pickId: `mp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     root,
@@ -496,9 +483,7 @@ export function registerMonorepoPick(
  * links — so a failed batch (e.g. one invalid schema name) is safely
  * re-runnable rather than pre-validated to death here.
  */
-export function createMonorepoMappings(
-  input: MonorepoCreateInput
-): MonorepoCreateResult {
+export function createMonorepoMappings(input: MonorepoCreateInput): MonorepoCreateResult {
   if (!input || typeof input !== 'object' || !Array.isArray(input.mappings)) {
     throw new Error('Invalid monorepo mapping request.')
   }
@@ -508,9 +493,7 @@ export function createMonorepoMappings(
   }
   for (const m of input.mappings) {
     if (!m || typeof m !== 'object' || !pick.folders.includes(m.folder)) {
-      throw new Error(
-        `Not a folder of the picked root: ${JSON.stringify(m?.folder)}`
-      )
+      throw new Error(`Not a folder of the picked root: ${JSON.stringify(m?.folder)}`)
     }
   }
   /** folder → kbId for this root, seeded from disk, grown as we create. */

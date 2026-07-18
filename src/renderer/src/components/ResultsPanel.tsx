@@ -20,15 +20,8 @@ import {
   RowsIcon,
   SparkleIcon
 } from './icons'
-import {
-  exportNeedsFullQuery,
-  selectedResultRows,
-  serializeResult
-} from './resultExport'
-import {
-  selectGridHeaders,
-  type GridSelectionModifiers
-} from './resultGridSelection'
+import { exportNeedsFullQuery, selectedResultRows, serializeResult } from './resultExport'
+import { selectGridHeaders, type GridSelectionModifiers } from './resultGridSelection'
 import type { ResultTab } from './useQueryRunner'
 
 interface ResultsPanelProps {
@@ -90,17 +83,12 @@ function statusLine(tab: ResultTab): string {
   if (!result) return ''
   const parts: string[] = []
   if (result.fields.length > 0) {
-    parts.push(
-      `${result.rows.length} row${result.rows.length === 1 ? '' : 's'}`
-    )
+    parts.push(`${result.rows.length} row${result.rows.length === 1 ? '' : 's'}`)
   } else {
-    parts.push(
-      `${result.rowCount ?? 0} row${(result.rowCount ?? 0) === 1 ? '' : 's'} affected`
-    )
+    parts.push(`${result.rowCount ?? 0} row${(result.rowCount ?? 0) === 1 ? '' : 's'} affected`)
   }
   parts.push(`${result.durationMs} ms`)
-  if (result.limitApplied !== null)
-    parts.push(`LIMIT ${result.limitApplied} applied`)
+  if (result.limitApplied !== null) parts.push(`LIMIT ${result.limitApplied} applied`)
   if (result.truncated) parts.push('output truncated')
   return `${result.command || 'OK'} · ${parts.join(' · ')}`
 }
@@ -120,9 +108,7 @@ function ResultGrid({
   onGridContextMenu
 }: ResultGridProps): ReactElement {
   const [selectedRows, setSelectedRows] = useState<Set<number>>(() => new Set())
-  const [selectedColumns, setSelectedColumns] = useState<Set<number>>(
-    () => new Set()
-  )
+  const [selectedColumns, setSelectedColumns] = useState<Set<number>>(() => new Set())
   const [columnWidths, setColumnWidths] = useState<Record<number, number>>({})
   const rowSelectionAnchorRef = useRef<number | null>(null)
   const columnSelectionAnchorRef = useRef<number | null>(null)
@@ -143,18 +129,10 @@ function ResultGrid({
     onSelectedColumnsChange(new Set())
   }, [result, onSelectedRowsChange, onSelectedColumnsChange])
 
-  useEffect(
-    () => () => document.body.classList.remove('is-grid-col-resizing'),
-    []
-  )
+  useEffect(() => () => document.body.classList.remove('is-grid-col-resizing'), [])
 
   const selectRow = (row: number, modifiers: GridSelectionModifiers): void => {
-    const next = selectGridHeaders(
-      selectedRows,
-      row,
-      rowSelectionAnchorRef.current,
-      modifiers
-    )
+    const next = selectGridHeaders(selectedRows, row, rowSelectionAnchorRef.current, modifiers)
     setSelectedRows(next)
     onSelectedRowsChange(next)
     if (next.size === 0) {
@@ -167,10 +145,7 @@ function ResultGrid({
     columnSelectionAnchorRef.current = null
   }
 
-  const selectColumn = (
-    column: number,
-    modifiers: GridSelectionModifiers
-  ): void => {
+  const selectColumn = (column: number, modifiers: GridSelectionModifiers): void => {
     const next = selectGridHeaders(
       selectedColumns,
       column,
@@ -181,10 +156,7 @@ function ResultGrid({
     onSelectedColumnsChange(next)
     if (next.size === 0) {
       columnSelectionAnchorRef.current = null
-    } else if (
-      !modifiers.shiftKey ||
-      columnSelectionAnchorRef.current === null
-    ) {
+    } else if (!modifiers.shiftKey || columnSelectionAnchorRef.current === null) {
       columnSelectionAnchorRef.current = column
     }
     const noRows = new Set<number>()
@@ -220,18 +192,14 @@ function ResultGrid({
     }))
   }
 
-  const startColumnResize = (
-    event: PointerEvent<HTMLSpanElement>,
-    column: number
-  ): void => {
+  const startColumnResize = (event: PointerEvent<HTMLSpanElement>, column: number): void => {
     event.preventDefault()
     event.stopPropagation()
     resizeRef.current = {
       column,
       pointerId: event.pointerId,
       startX: event.clientX,
-      startWidth:
-        event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0
+      startWidth: event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0
     }
     event.currentTarget.setPointerCapture(event.pointerId)
     document.body.classList.add('is-grid-col-resizing')
@@ -240,10 +208,7 @@ function ResultGrid({
   const continueColumnResize = (event: PointerEvent<HTMLSpanElement>): void => {
     const resize = resizeRef.current
     if (!resize || resize.pointerId !== event.pointerId) return
-    resizeColumn(
-      resize.column,
-      resize.startWidth + event.clientX - resize.startX
-    )
+    resizeColumn(resize.column, resize.startWidth + event.clientX - resize.startX)
   }
 
   const finishColumnResize = (event: PointerEvent<HTMLSpanElement>): void => {
@@ -317,9 +282,7 @@ function ResultGrid({
                 tabIndex={0}
                 onClick={(event: ReactMouseEvent) => selectColumn(i, event)}
                 onKeyDown={(event) =>
-                  activateWithKeyboard(event, (modifiers) =>
-                    selectColumn(i, modifiers)
-                  )
+                  activateWithKeyboard(event, (modifiers) => selectColumn(i, modifiers))
                 }
               >
                 <span className="result-grid__heading">
@@ -356,9 +319,7 @@ function ResultGrid({
                 tabIndex={0}
                 onClick={(event: ReactMouseEvent) => selectRow(r, event)}
                 onKeyDown={(event) =>
-                  activateWithKeyboard(event, (modifiers) =>
-                    selectRow(r, modifiers)
-                  )
+                  activateWithKeyboard(event, (modifiers) => selectRow(r, modifiers))
                 }
               >
                 {r + 1}
@@ -387,9 +348,7 @@ function ResultGrid({
           ))}
         </tbody>
       </table>
-      {result.rows.length === 0 && (
-        <div className="grid-empty">No rows returned</div>
-      )}
+      {result.rows.length === 0 && <div className="grid-empty">No rows returned</div>}
     </div>
   )
 }
@@ -477,15 +436,10 @@ export function ResultsPanel({
   const [menuOpen, setMenuOpen] = useState(false)
   const [limitOpen, setLimitOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
-  const [exportingFormat, setExportingFormat] =
-    useState<DataExportFormat | null>(null)
+  const [exportingFormat, setExportingFormat] = useState<DataExportFormat | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
-  const [selectedRowIndexes, setSelectedRowIndexes] = useState<Set<number>>(
-    () => new Set()
-  )
-  const [selectedColumnIndexes, setSelectedColumnIndexes] = useState<
-    Set<number>
-  >(() => new Set())
+  const [selectedRowIndexes, setSelectedRowIndexes] = useState<Set<number>>(() => new Set())
+  const [selectedColumnIndexes, setSelectedColumnIndexes] = useState<Set<number>>(() => new Set())
   const [resultCtxMenu, setResultCtxMenu] = useState<{
     x: number
     y: number
@@ -503,8 +457,7 @@ export function ResultsPanel({
   )
 
   const onSelectedColumnsChange = useCallback(
-    (columns: ReadonlySet<number>): void =>
-      setSelectedColumnIndexes(new Set(columns)),
+    (columns: ReadonlySet<number>): void => setSelectedColumnIndexes(new Set(columns)),
     []
   )
 
@@ -545,12 +498,7 @@ export function ResultsPanel({
     const bar = barRef.current
     if (!bar) return
     const observer = new ResizeObserver(() => {
-      setMaxVisible(
-        Math.max(
-          2,
-          Math.floor((bar.clientWidth - BAR_RESERVED_PX) / TAB_SLOT_PX)
-        )
-      )
+      setMaxVisible(Math.max(2, Math.floor((bar.clientWidth - BAR_RESERVED_PX) / TAB_SLOT_PX)))
     })
     observer.observe(bar)
     return () => observer.disconnect()
@@ -588,20 +536,12 @@ export function ResultsPanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [menuOpen, limitOpen, exportOpen, resultCtxMenu])
 
-  const menuRect = menuOpen
-    ? overflowBtnRef.current?.getBoundingClientRect()
-    : undefined
-  const limitRect = limitOpen
-    ? limitBtnRef.current?.getBoundingClientRect()
-    : undefined
-  const exportRect = exportOpen
-    ? exportBtnRef.current?.getBoundingClientRect()
-    : undefined
+  const menuRect = menuOpen ? overflowBtnRef.current?.getBoundingClientRect() : undefined
+  const limitRect = limitOpen ? limitBtnRef.current?.getBoundingClientRect() : undefined
+  const exportRect = exportOpen ? exportBtnRef.current?.getBoundingClientRect() : undefined
 
   const activeResult = active?.result ?? null
-  const canExport = Boolean(
-    activeResult && activeResult.fields.length > 0 && !active?.running
-  )
+  const canExport = Boolean(activeResult && activeResult.fields.length > 0 && !active?.running)
   const selectedRowCount = selectedRowIndexes.size
 
   const hasSelection = selectedRowIndexes.size > 0 || selectedColumnIndexes.size > 0
@@ -625,8 +565,7 @@ export function ResultsPanel({
   }
 
   const onGridContextMenu = onAddAgentContext
-    ? (event: ReactMouseEvent): void =>
-        setResultCtxMenu({ x: event.clientX, y: event.clientY })
+    ? (event: ReactMouseEvent): void => setResultCtxMenu({ x: event.clientX, y: event.clientY })
     : undefined
 
   const onFixWithAi =
@@ -653,8 +592,7 @@ export function ResultsPanel({
     const displayedResult: QueryResult = active.result
     const selectedRows = new Set(selectedRowIndexes)
     const extension =
-      EXPORT_FORMATS.find((candidate) => candidate.format === format)
-        ?.extension ?? `.${format}`
+      EXPORT_FORMATS.find((candidate) => candidate.format === format)?.extension ?? `.${format}`
 
     setExportOpen(false)
     setExportError(null)
@@ -715,11 +653,7 @@ export function ResultsPanel({
       disabled={exportingFormat !== null}
       onClick={() => setExportOpen((open) => !open)}
     >
-      {exportingFormat ? (
-        <span className="spinner spinner--xs" />
-      ) : (
-        <ExportIcon size={12} />
-      )}
+      {exportingFormat ? <span className="spinner spinner--xs" /> : <ExportIcon size={12} />}
       <span>{exportingFormat ? 'Exporting' : 'Export'}</span>
       {!exportingFormat && <ChevronDownIcon size={10} />}
     </button>
@@ -807,9 +741,7 @@ export function ResultsPanel({
   if (contentOnly) {
     return (
       <div className="results-panel">
-        {exportButton && (
-          <div className="results-content-actions">{exportButton}</div>
-        )}
+        {exportButton && <div className="results-content-actions">{exportButton}</div>}
         {exportError && (
           <div className="result-export-error" role="alert">
             <span>{exportError}</span>
@@ -933,9 +865,7 @@ export function ResultsPanel({
               <RowsIcon />
             </span>
             <span className="limit-pill__word">limit</span>
-            <span className="limit-pill__value">
-              {limit === null ? 'none' : limit}
-            </span>
+            <span className="limit-pill__value">{limit === null ? 'none' : limit}</span>
             <span className="pill-chev">
               <ChevronDownIcon size={10} />
             </span>
@@ -969,11 +899,7 @@ export function ResultsPanel({
             <button
               key={tab.id}
               className={`ai-run${tab.id === activeTabId ? ' is-active' : ''}${tab.final ? ' is-final' : ''}`}
-              title={
-                tab.final
-                  ? `Final result of the agent turn\n${tab.sql}`
-                  : tab.sql
-              }
+              title={tab.final ? `Final result of the agent turn\n${tab.sql}` : tab.sql}
               type="button"
               onClick={() => onSelect(tab.id)}
             >
@@ -1054,9 +980,7 @@ export function ResultsPanel({
                     <PinIcon size={11} />
                   </span>
                 )}
-                <span className="results-overflow-menu__title">
-                  {tab.title}
-                </span>
+                <span className="results-overflow-menu__title">{tab.title}</span>
                 {tab.running ? (
                   <span className="spinner spinner--xs" />
                 ) : (

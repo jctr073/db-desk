@@ -47,9 +47,7 @@ describe('BUILTIN_SKILLS', () => {
     // Substituting a focus must reproduce the original prompt exactly, so
     // the skill and the pre-skills scan flow can never drift.
     const focus = 'Re-read app/services/billing and capture proration rules.'
-    expect(applySkillArgs(targeted!.prompt, focus)).toBe(
-      repoTargetedScanPrompt(focus)
-    )
+    expect(applySkillArgs(targeted!.prompt, focus)).toBe(repoTargetedScanPrompt(focus))
   })
 
   it('has unique ids that isBuiltinSkillId recognizes', () => {
@@ -67,9 +65,7 @@ describe('applySkillArgs', () => {
   })
 
   it('appends non-empty input when the prompt has no placeholder', () => {
-    expect(applySkillArgs('Do it.', 'with feeling')).toBe(
-      'Do it.\n\nwith feeling'
-    )
+    expect(applySkillArgs('Do it.', 'with feeling')).toBe('Do it.\n\nwith feeling')
   })
 
   it('leaves a placeholder-free prompt alone on empty input', () => {
@@ -94,9 +90,7 @@ describe('resolveSkills', () => {
       name: 'Scan codebase',
       prompt: 'My own scan instructions.'
     })
-    const scan = resolveSkills([override]).find(
-      (s) => s.id === SCAN_CODEBASE_SKILL_ID
-    )
+    const scan = resolveSkills([override]).find((s) => s.id === SCAN_CODEBASE_SKILL_ID)
     expect(scan?.prompt).toBe('My own scan instructions.')
     expect(scan?.builtin).toBe(true)
     expect(scan?.edited).toBe(true)
@@ -110,9 +104,7 @@ describe('resolveSkills', () => {
     const customs = skills.filter((s) => !s.builtin)
     expect(customs.map((s) => s.name)).toEqual(['Alpha', 'Zeta'])
     expect(customs[1].connId).toBe('c-1')
-    expect(skills.slice(0, BUILTIN_SKILLS.length).every((s) => s.builtin)).toBe(
-      true
-    )
+    expect(skills.slice(0, BUILTIN_SKILLS.length).every((s) => s.builtin)).toBe(true)
   })
 })
 

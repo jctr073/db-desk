@@ -36,9 +36,7 @@ export function fileKindFromName(name: string): FileKind {
 export function supportedExtension(name: string): string | null {
   const lower = name.toLocaleLowerCase()
   for (const kind of FILE_KINDS) {
-    const extension = EXTENSIONS[kind].find((candidate) =>
-      lower.endsWith(candidate)
-    )
+    const extension = EXTENSIONS[kind].find((candidate) => lower.endsWith(candidate))
     if (extension) return extension
   }
   return null

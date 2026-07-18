@@ -31,12 +31,7 @@ import type {
   TestResult
 } from '../../shared/db'
 import { applyAutoLimit, classifyStatement, splitStatements } from '../../shared/sql'
-import type {
-  ConnectOptions,
-  Driver,
-  IntrospectOptions,
-  RunQueryOptions
-} from './types'
+import type { ConnectOptions, Driver, IntrospectOptions, RunQueryOptions } from './types'
 import { WRITE_REQUIRED_CODE } from './types'
 
 const CONNECT_TIMEOUT_MS = 15_000
@@ -146,20 +141,14 @@ async function exec(
 }
 
 /** First column of the first row, as a string; null when absent. */
-async function scalar(
-  session: IDBSQLSession,
-  sql: string
-): Promise<string | null> {
+async function scalar(session: IDBSQLSession, sql: string): Promise<string | null> {
   const { rows } = await exec(session, sql)
   if (rows.length === 0) return null
   const value = Object.values(rows[0])[0]
   return value === null || value === undefined ? null : String(value)
 }
 
-async function sessionFor(
-  managed: ManagedConnection,
-  catalog: string
-): Promise<IDBSQLSession> {
+async function sessionFor(managed: ManagedConnection, catalog: string): Promise<IDBSQLSession> {
   let pending = managed.sessions.get(catalog)
   if (!pending) {
     pending = managed.client.openSession({ initialCatalog: catalog })
@@ -209,21 +198,16 @@ function fieldsFrom(result: ExecResult): QueryField[] {
       const typeId = col.typeDesc?.types?.[0]?.primitiveEntry?.type
       return {
         name: col.columnName,
-        dataType:
-          typeId !== undefined ? (TYPE_ID_NAMES[typeId] ?? 'unknown') : 'unknown'
+        dataType: typeId !== undefined ? (TYPE_ID_NAMES[typeId] ?? 'unknown') : 'unknown'
       }
     })
   }
   const first = result.rows[0]
-  return first
-    ? Object.keys(first).map((name) => ({ name, dataType: 'unknown' }))
-    : []
+  return first ? Object.keys(first).map((name) => ({ name, dataType: 'unknown' })) : []
 }
 
 function truncateCell(value: string): string {
-  return value.length > MAX_CELL_CHARS
-    ? `${value.slice(0, MAX_CELL_CHARS)}…`
-    : value
+  return value.length > MAX_CELL_CHARS ? `${value.slice(0, MAX_CELL_CHARS)}…` : value
 }
 
 function serializeCell(value: unknown): CellValue {
@@ -239,9 +223,7 @@ function serializeCell(value: unknown): CellValue {
       return value.toString()
     default:
       if (value instanceof Date) {
-        return Number.isNaN(value.getTime())
-          ? String(value)
-          : value.toISOString()
+        return Number.isNaN(value.getTime()) ? String(value) : value.toISOString()
       }
       if (Buffer.isBuffer(value)) {
         return truncateCell(`\\x${value.toString('hex')}`)
@@ -255,9 +237,7 @@ function serializeCell(value: unknown): CellValue {
 }
 
 function toGridRows(result: ExecResult, fields: QueryField[]): CellValue[][] {
-  return result.rows.map((row) =>
-    fields.map((field) => serializeCell(row[field.name]))
-  )
+  return result.rows.map((row) => fields.map((field) => serializeCell(row[field.name])))
 }
 
 /** First keyword of the statement, uppercased, as the command tag. */
@@ -475,13 +455,8 @@ async function introspectViaShow(
   catalog: string,
   options: IntrospectOptions = {}
 ): Promise<DatabaseIntrospection> {
-  const showSchemas = await exec(
-    session,
-    `SHOW SCHEMAS IN ${quoteIdent(catalog)}`
-  )
-  const names = firstColumnValues(showSchemas.rows).filter(
-    (name) => name !== 'information_schema'
-  )
+  const showSchemas = await exec(session, `SHOW SCHEMAS IN ${quoteIdent(catalog)}`)
+  const names = firstColumnValues(showSchemas.rows).filter((name) => name !== 'information_schema')
   const listing = resolveSchemaListing(
     names,
     options.allowedSchemas ?? null,
@@ -523,9 +498,7 @@ async function introspectViaShow(
   return {
     name: catalog,
     schemas,
-    ...(options.allowedSchemas != null
-      ? { availableSchemaCount: listing.availableCount }
-      : {})
+    ...(options.allowedSchemas != null ? { availableSchemaCount: listing.availableCount } : {})
   }
 }
 
@@ -547,10 +520,7 @@ async function introspectCatalog(
 
 async function fetchServerVersion(session: IDBSQLSession): Promise<string> {
   try {
-    const version = await scalar(
-      session,
-      'SELECT current_version().dbsql_version'
-    )
+    const version = await scalar(session, 'SELECT current_version().dbsql_version')
     if (version && version !== 'null') return version
   } catch {
     // not a SQL warehouse — try the Spark version below
@@ -569,9 +539,7 @@ async function test(params: ConnectParams): Promise<DbResult<TestResult>> {
   try {
     client = await connectClient(params)
     const session = await client.openSession(
-      params.database.trim()
-        ? { initialCatalog: params.database.trim() }
-        : {}
+      params.database.trim() ? { initialCatalog: params.database.trim() } : {}
     )
     const serverVersion = await fetchServerVersion(session)
     return {
@@ -601,13 +569,8 @@ async function connect(
   try {
     client = await connectClient(params)
     const requested = params.database.trim()
-    const session = await client.openSession(
-      requested ? { initialCatalog: requested } : {}
-    )
-    const catalog =
-      (await scalar(session, 'SELECT current_catalog()')) ||
-      requested ||
-      'main'
+    const session = await client.openSession(requested ? { initialCatalog: requested } : {})
+    const catalog = (await scalar(session, 'SELECT current_catalog()')) || requested || 'main'
     const serverVersion = await fetchServerVersion(session)
 
     let catalogs: string[] = [catalog]
@@ -676,10 +639,7 @@ async function introspectDatabase(
 }
 
 /** Schema names of one catalog, cheaply (no tables/columns). */
-async function listSchemas(
-  connId: string,
-  database: string
-): Promise<DbResult<string[]>> {
+async function listSchemas(connId: string, database: string): Promise<DbResult<string[]>> {
   const managed = connections.get(connId)
   if (!managed) return { ok: false, error: 'Connection no longer exists' }
   try {
@@ -697,9 +657,7 @@ async function listSchemas(
       const res = await exec(session, `SHOW SCHEMAS IN ${quoteIdent(database)}`)
       return {
         ok: true,
-        data: firstColumnValues(res.rows).filter(
-          (name) => name !== 'information_schema'
-        )
+        data: firstColumnValues(res.rows).filter((name) => name !== 'information_schema')
       }
     }
   } catch (err) {
@@ -735,14 +693,11 @@ async function runQuery(
     return { ok: false, error: 'No statement to execute' }
   }
   if (options.readOnly) {
-    const write = statements.find(
-      (span) => classifyStatement(span.text) !== 'read'
-    )
+    const write = statements.find((span) => classifyStatement(span.text) !== 'read')
     if (write) {
       return {
         ok: false,
-        error:
-          'This statement modifies data or schema, which is blocked in read-only mode.',
+        error: 'This statement modifies data or schema, which is blocked in read-only mode.',
         code: WRITE_REQUIRED_CODE
       }
     }
@@ -751,9 +706,7 @@ async function runQuery(
   // Auto-LIMIT mirrors the Postgres driver: applied to a lone bare query;
   // multi-statement scripts run as written and get sliced afterwards.
   const prepared =
-    statements.length === 1 && limit !== null
-      ? applyAutoLimit(statements[0].text, limit)
-      : null
+    statements.length === 1 && limit !== null ? applyAutoLimit(statements[0].text, limit) : null
 
   try {
     const session = await sessionFor(managed, database)
@@ -907,13 +860,9 @@ async function searchSchema(
 ): Promise<DbResult<string>> {
   const managed = connections.get(connId)
   if (!managed) return { ok: false, error: 'Connection no longer exists' }
-  const like = quoteLiteral(
-    `%${pattern.toLowerCase().replace(/([%_\\])/g, '\\$1')}%`
-  )
+  const like = quoteLiteral(`%${pattern.toLowerCase().replace(/([%_\\])/g, '\\$1')}%`)
   const info = `${quoteIdent(database)}.information_schema`
-  const relFilter = allowedSchemas
-    ? schemaInFilter('table_schema', allowedSchemas)
-    : ''
+  const relFilter = allowedSchemas ? schemaInFilter('table_schema', allowedSchemas) : ''
   try {
     const session = await sessionFor(managed, database)
     const relRes = await exec(
@@ -939,9 +888,7 @@ async function searchSchema(
         session,
         `SELECT routine_schema, routine_name FROM ${info}.routines
           WHERE lower(routine_name) LIKE ${like}${
-            allowedSchemas
-              ? schemaInFilter('routine_schema', allowedSchemas)
-              : ''
+            allowedSchemas ? schemaInFilter('routine_schema', allowedSchemas) : ''
           }
           ORDER BY routine_schema, routine_name
           LIMIT ${SEARCH_RESULT_LIMIT + 1}`
@@ -970,19 +917,16 @@ async function searchSchema(
         'relations',
         relRes.rows,
         (r) =>
-          `${String(r.table_type ?? 'TABLE').toLowerCase().replaceAll('_', ' ')} ${r.table_schema}.${r.table_name}`
+          `${String(r.table_type ?? 'TABLE')
+            .toLowerCase()
+            .replaceAll('_', ' ')} ${r.table_schema}.${r.table_name}`
       ),
       ...section(
         'columns',
         colRes.rows,
-        (c) =>
-          `${c.table_schema}.${c.table_name}.${c.column_name} ${c.full_data_type ?? ''}`
+        (c) => `${c.table_schema}.${c.table_name}.${c.column_name} ${c.full_data_type ?? ''}`
       ),
-      ...section(
-        'functions',
-        procRows,
-        (p) => `${p.routine_schema}.${p.routine_name}`
-      )
+      ...section('functions', procRows, (p) => `${p.routine_schema}.${p.routine_name}`)
     ]
     return {
       ok: true,

@@ -10,12 +10,7 @@ import { join, resolve } from 'node:path'
 
 import { assertSafeId } from './safeId'
 import { writeJsonAtomic } from './atomicJson'
-import {
-  defaultExtension,
-  fileKindFromName,
-  FILE_KINDS,
-  supportedExtension
-} from '../shared/files'
+import { defaultExtension, fileKindFromName, FILE_KINDS, supportedExtension } from '../shared/files'
 import type { FileKind } from '../shared/files'
 import { setSqlFilesDir, sqlFilesDir } from './settings'
 
@@ -111,10 +106,7 @@ export function createQuery(
   return file
 }
 
-export function getNextQueryName(
-  connId: string | null,
-  database: string | null
-): string {
+export function getNextQueryName(connId: string | null, database: string | null): string {
   return getNextFileName(connId, database, 'sql')
 }
 
@@ -196,11 +188,7 @@ export function updateQueryMetadata(
  * Move a file to a (connection, database). Names are only unique per group, so
  * a collision in the destination renames the incoming file rather than failing.
  */
-export function reassignQuery(
-  id: string,
-  connId: string,
-  database: string | null
-): QueryFile {
+export function reassignQuery(id: string, connId: string, database: string | null): QueryFile {
   const metadata = loadMetadata()
   const file = metadata.find((candidate) => candidate.id === id)
   if (!file) throw new Error(`Query file not found: ${id}`)
@@ -212,9 +200,7 @@ export function reassignQuery(
       candidate.database === database &&
       candidate.name.toLocaleLowerCase() === file.name.toLocaleLowerCase()
   )
-  const name = taken
-    ? getNextFileName(connId, database, fileKindFromName(file.name))
-    : file.name
+  const name = taken ? getNextFileName(connId, database, fileKindFromName(file.name)) : file.name
   return updateQueryMetadata(id, name, connId, database)
 }
 
@@ -222,12 +208,7 @@ export function renameQuery(id: string, requestedName: string): QueryFile {
   const name = requestedName.trim()
   if (!name) throw new Error('File name cannot be empty')
   const hasControlCharacter = [...name].some((char) => char.charCodeAt(0) < 32)
-  if (
-    name === '.' ||
-    name === '..' ||
-    /[\\/]/.test(name) ||
-    hasControlCharacter
-  ) {
+  if (name === '.' || name === '..' || /[\\/]/.test(name) || hasControlCharacter) {
     throw new Error('File name cannot contain slashes or control characters')
   }
 
@@ -255,9 +236,7 @@ export function renameQuery(id: string, requestedName: string): QueryFile {
       candidate.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase()
   )
   if (duplicate) {
-    throw new Error(
-      `A file named ${normalizedName} already exists in this tab group`
-    )
+    throw new Error(`A file named ${normalizedName} already exists in this tab group`)
   }
 
   return updateQueryMetadata(id, normalizedName)
@@ -320,9 +299,7 @@ export function moveQueryStorage(newDir: string): number {
 
 export function deleteQueriesForConnection(connId: string): void {
   const metadata = loadMetadata()
-  const toDelete = metadata
-    .filter((f) => f.connId === connId)
-    .map((f) => f.id)
+  const toDelete = metadata.filter((f) => f.connId === connId).map((f) => f.id)
   for (const id of toDelete) {
     deleteQuery(id)
   }

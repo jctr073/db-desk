@@ -1,10 +1,7 @@
 import type { CellValue, QueryField } from '../../../shared/db'
 import type { DataExportFormat } from '../../../shared/export'
 
-export function exportNeedsFullQuery(
-  format: DataExportFormat,
-  selectedRowCount: number
-): boolean {
+export function exportNeedsFullQuery(format: DataExportFormat, selectedRowCount: number): boolean {
   return selectedRowCount === 0 && format !== 'json'
 }
 
@@ -32,17 +29,11 @@ function delimitedCell(value: CellValue, delimiter: string): string {
   return text
 }
 
-function serializeDelimited(
-  fields: QueryField[],
-  rows: CellValue[][],
-  delimiter: string
-): string {
+function serializeDelimited(fields: QueryField[], rows: CellValue[][], delimiter: string): string {
   const lines = [
     fields.map((field) => delimitedCell(field.name, delimiter)).join(delimiter),
     ...rows.map((row) =>
-      fields
-        .map((_, index) => delimitedCell(row[index] ?? null, delimiter))
-        .join(delimiter)
+      fields.map((_, index) => delimitedCell(row[index] ?? null, delimiter)).join(delimiter)
     )
   ]
   return `${lines.join('\n')}\n`
@@ -69,9 +60,7 @@ export function serializeResult(
 
   const keys = uniqueJsonKeys(fields)
   const objects = rows.map((row) =>
-    Object.fromEntries(
-      keys.map((key, index) => [key, row[index] ?? null] as const)
-    )
+    Object.fromEntries(keys.map((key, index) => [key, row[index] ?? null] as const))
   )
   return `${JSON.stringify(objects, null, 2)}\n`
 }

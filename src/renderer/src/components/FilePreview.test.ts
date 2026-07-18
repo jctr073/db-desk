@@ -19,9 +19,7 @@ describe('formatJsonPreview', () => {
 
 describe('parseMarkdownPreview', () => {
   it('separates fenced code from rendered prose', () => {
-    expect(
-      parseMarkdownPreview('# Example\n\n```sql\nSELECT 1;\n```\nDone')
-    ).toEqual([
+    expect(parseMarkdownPreview('# Example\n\n```sql\nSELECT 1;\n```\nDone')).toEqual([
       { type: 'markdown', content: '# Example\n' },
       { type: 'code', content: 'SELECT 1;', language: 'sql' },
       { type: 'markdown', content: 'Done' }
