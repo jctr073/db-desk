@@ -251,8 +251,18 @@ function persistLinks(links: KnowledgeLink[]): void {
   writeJsonAtomic(linksPath(), file)
 }
 
+/**
+ * Monotonic tail: ids minted in the same millisecond must still sort in
+ * creation order, because listBases/linksForTarget order by createdAt with
+ * the id as tiebreaker — a purely random suffix made that order (and the
+ * default-link pick) nondeterministic for same-ms creations, e.g. the
+ * monorepo wizard loop.
+ */
+let idSeq = 0
+
 function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  const seq = (idSeq++).toString(36).padStart(4, '0')
+  return `${prefix}-${Date.now()}-${seq}${Math.random().toString(36).slice(2, 7)}`
 }
 
 // --- Validation ------------------------------------------------------------
