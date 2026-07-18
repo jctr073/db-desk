@@ -35,7 +35,7 @@ import {
   rmSync,
   writeFileSync
 } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import { pickDefaultLink } from '../shared/knowledge'
 import type {
@@ -172,6 +172,7 @@ function isBaseMeta(value: unknown): value is KnowledgeBase {
     typeof b.id === 'string' &&
     typeof b.name === 'string' &&
     (b.repoRoot === null || typeof b.repoRoot === 'string') &&
+    (b.subPath === undefined || b.subPath === null || typeof b.subPath === 'string') &&
     typeof b.createdAt === 'number' &&
     typeof b.updatedAt === 'number'
   )
@@ -495,29 +496,66 @@ export function deleteBase(kbId: string): void {
   }
 }
 
+/** True when `child` is `parent` itself or lexically inside it. Duplicated
+ * from repo.ts, which imports this module — the other direction would cycle. */
+function isWithinDir(parent: string, child: string): boolean {
+  const rel = relative(parent, child)
+  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
+}
+
 /**
  * Set or clear the base's codebase attachment. Only ever called with a path
  * from the main-process directory picker (repo.ts) or the v1 migration —
- * never with a renderer-supplied path.
+ * never with a renderer-supplied path. `subPath` scopes a monorepo base to
+ * one service folder inside the root (see monorepo setup in repo.ts); it must
+ * be a plain relative path that stays inside the root. Omitting it clears any
+ * previous folder scope — re-picking a directory always resets to whole-repo.
  */
-export function setBaseRepoRoot(kbId: string, root: string | null): KnowledgeBase {
+export function setBaseRepoRoot(
+  kbId: string,
+  root: string | null,
+  subPath: string | null = null
+): KnowledgeBase {
   const loaded = loadBase(kbId)
   if (!loaded) throw new Error(`Unknown knowledge base: ${kbId}`)
+  if (subPath !== null) {
+    if (root === null) throw new Error('A folder scope requires a repo root')
+    if (
+      typeof subPath !== 'string' ||
+      subPath === '' ||
+      CONTROL_CHARS.test(subPath) ||
+      isAbsolute(subPath) ||
+      /^[A-Za-z]:[\\/]/.test(subPath) ||
+      subPath.startsWith('~') ||
+      !isWithinDir(root, resolve(root, subPath))
+    ) {
+      throw new Error(`Invalid monorepo folder: ${JSON.stringify(subPath)}`)
+    }
+  }
   const base: KnowledgeBase = {
     ...loaded.base,
     repoRoot: root,
+    subPath,
     updatedAt: Date.now()
   }
   persistBase({ base, records: loaded.records })
   return base
 }
 
-/** The base's repo root, or null. A root that vanished (unmounted volume,
- * deleted checkout) reads as detached rather than surfacing ENOENT tool
- * errors mid-conversation. */
+/** The base's effective codebase root — `repoRoot/subPath` for a monorepo
+ * base — or null. A root that vanished (unmounted volume, deleted checkout)
+ * reads as detached rather than surfacing ENOENT tool errors
+ * mid-conversation; so does a hand-edited subPath that escapes the root. */
 export function getBaseRepoRoot(kbId: string): string | null {
-  const root = loadBase(kbId)?.base.repoRoot ?? null
-  return root && existsSync(root) ? root : null
+  const base = loadBase(kbId)?.base
+  if (!base?.repoRoot) return null
+  let root = base.repoRoot
+  if (base.subPath) {
+    const joined = resolve(base.repoRoot, base.subPath)
+    if (!isWithinDir(base.repoRoot, joined)) return null
+    root = joined
+  }
+  return existsSync(root) ? root : null
 }
 
 // --- Links -------------------------------------------------------------------

@@ -32,7 +32,12 @@ import type {
 } from '../shared/knowledge'
 import type { Skill, SkillSaveInput } from '../shared/skills'
 import type { FileKind } from '../shared/files'
-import type { RepoStatus } from '../shared/repo'
+import type {
+  MonorepoCreateInput,
+  MonorepoCreateResult,
+  MonorepoPick,
+  RepoStatus
+} from '../shared/repo'
 import type {
   ChooseExportResult,
   DataExportFormat,
@@ -351,7 +356,12 @@ const api = Object.freeze({
     choose: (kbId: string): Promise<RepoStatus> =>
       ipcRenderer.invoke('repo:choose', kbId),
     clear: (kbId: string): Promise<RepoStatus> =>
-      ipcRenderer.invoke('repo:clear', kbId)
+      ipcRenderer.invoke('repo:clear', kbId),
+    /** Opens the monorepo-root picker; null when the user cancels. */
+    monorepoPick: (): Promise<MonorepoPick | null> =>
+      ipcRenderer.invoke('repo:monorepoPick'),
+    monorepoCreate: (input: MonorepoCreateInput): Promise<MonorepoCreateResult> =>
+      ipcRenderer.invoke('repo:monorepoCreate', input)
   }),
   agent: Object.freeze({
     keyStatus: (): Promise<AgentKeyStatus> =>
