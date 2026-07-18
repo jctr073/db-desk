@@ -8,6 +8,8 @@ import { dialectFor } from '../shared/dialect'
 import type { ConnectionType } from '../shared/dialect'
 import { CONNECTION_ENVIRONMENTS } from '../shared/db'
 import type {
+  AgentCapability,
+  ConnectionEnvironment,
   ConnectParams,
   ConnectResult,
   DatabaseIntrospection,
@@ -18,6 +20,7 @@ import type {
 } from '../shared/db'
 import { LARGE_CATALOG_SCHEMA_THRESHOLD } from '../shared/schemaSelection'
 import { guardAgentStatement } from '../shared/sql'
+import { checkPgWriteCapability } from './pgPrivileges'
 import { databricksDriver } from './drivers/databricks'
 import { postgresDriver, PG_READ_ONLY_VIOLATION_CODES } from './drivers/postgres'
 import type { Driver, RunQueryOptions } from './drivers/types'
@@ -65,6 +68,56 @@ export function setSchemaEventSink(sink: SchemaEventSink): void {
  * without asking the driver.
  */
 const connDatabases = new Map<string, string>()
+
+/**
+ * Live connId → what the agent may do there, decided exactly once per
+ * connection in connect(). This map — not the renderer's copy on
+ * ConnectResult — is what the enforcement points read (runAgentTurn's mode
+ * clamp and runAgentQuery's belt), so a tampered renderer changes nothing.
+ */
+const agentCapabilities = new Map<string, AgentCapability>()
+
+const AGENT_UNRESTRICTED: AgentCapability = { readOnlyAvailable: true, reason: null }
+
+/** Agent capability of a live connection; null when the connection is gone. */
+export function agentCapabilityFor(connId: string): AgentCapability | null {
+  return agentCapabilities.get(connId) ?? null
+}
+
+/**
+ * Decide the agent capability for a connection that just came up. dev and
+ * stage are always unrestricted — the constant is returned without running
+ * anything, so non-prod connects are byte-identical to before this feature.
+ * Everything else (prod, or an environment this code no longer recognizes)
+ * takes the restrictive path: Postgres earns Read-Only mode by proving the
+ * role cannot write; Databricks is clamped unconditionally until its
+ * privilege check (Unity Catalog effective permissions over REST) ships.
+ */
+async function computeAgentCapability(
+  connId: string,
+  type: ConnectionType,
+  environment: ConnectionEnvironment | null,
+  database: string
+): Promise<AgentCapability> {
+  if (environment === 'dev' || environment === 'stage') return AGENT_UNRESTRICTED
+  if (type !== 'postgres') {
+    return {
+      readOnlyAvailable: false,
+      reason: 'Production Databricks connections are metadata-only for the agent in this version.'
+    }
+  }
+  const verdict = await checkPgWriteCapability((sql) =>
+    DRIVERS.postgres.runQuery(connId, database, sql, null, { readOnly: true, timeoutMs: 5000 })
+  )
+  if (verdict === 'readonly') return AGENT_UNRESTRICTED
+  return {
+    readOnlyAvailable: false,
+    reason:
+      verdict === 'writable'
+        ? 'The connecting role can write to this production database. Connect with a read-only role to enable agent Read-Only mode.'
+        : 'Could not verify this role’s privileges on this production database; the agent is metadata-only. Connect with a read-only role to enable Read-Only mode.'
+  }
+}
 
 function driverFor(connId: string): Driver {
   return DRIVERS[connTypes.get(connId) ?? 'postgres']
@@ -164,53 +217,62 @@ export async function connect(
       : {}),
     skipIntrospection: !!cached
   })
-  if (res.ok) {
-    connTypes.set(connId, type)
-    connDatabases.set(connId, res.data.connectedDatabase.name)
-    connIdentities.set(connId, identity)
-    const connectedName = res.data.connectedDatabase.name
-    if (cached) {
-      const selection = type === 'databricks' ? schemaSelectionFor(connId, connectedName) : null
-      const entry = cachedIntrospection(connId, identity, connectedName, selection)
-      if (cached.databases.length > 0 && dialectFor(type).multiDatabase) {
-        res.data.databases = cached.databases
-      }
-      if (entry) {
-        res.data.connectedDatabase = entry
-        queueRevalidate(connId, connectedName)
-      } else {
-        // Cache exists but has nothing usable for the connected database
-        // (name changed, pinning changed): fall back to a foreground
-        // introspection so the result is as complete as a fresh connect.
-        const intro = await introspectDatabase(connId, connectedName)
-        if (!intro.ok) {
-          await disconnect(connId)
-          return intro
-        }
-        res.data.connectedDatabase = intro.data
-      }
-    } else {
-      // Fresh full introspection: seed the cache for the next connect.
-      saveDatabases(connId, identity, res.data.databases)
-      if (!res.data.connectedDatabase.needsSchemaSelection) {
-        saveIntrospection(
-          connId,
-          identity,
-          connectedName,
-          type === 'databricks' ? schemaSelectionFor(connId, connectedName) : null,
-          res.data.connectedDatabase
-        )
-      }
+  if (!res.ok) return res
+  connTypes.set(connId, type)
+  connDatabases.set(connId, res.data.connectedDatabase.name)
+  connIdentities.set(connId, identity)
+  const connectedName = res.data.connectedDatabase.name
+  if (cached) {
+    const selection = type === 'databricks' ? schemaSelectionFor(connId, connectedName) : null
+    const entry = cachedIntrospection(connId, identity, connectedName, selection)
+    if (cached.databases.length > 0 && dialectFor(type).multiDatabase) {
+      res.data.databases = cached.databases
     }
-    if (type === 'databricks') {
-      const pinnedCatalogs = catalogSelectionFor(connId)
-      if (pinnedCatalogs) {
-        const keep = new Set(pinnedCatalogs)
-        res.data.databases = res.data.databases.filter((name) => keep.has(name))
+    if (entry) {
+      res.data.connectedDatabase = entry
+      queueRevalidate(connId, connectedName)
+    } else {
+      // Cache exists but has nothing usable for the connected database
+      // (name changed, pinning changed): fall back to a foreground
+      // introspection so the result is as complete as a fresh connect.
+      const intro = await introspectDatabase(connId, connectedName)
+      if (!intro.ok) {
+        await disconnect(connId)
+        return intro
       }
+      res.data.connectedDatabase = intro.data
+    }
+  } else {
+    // Fresh full introspection: seed the cache for the next connect.
+    saveDatabases(connId, identity, res.data.databases)
+    if (!res.data.connectedDatabase.needsSchemaSelection) {
+      saveIntrospection(
+        connId,
+        identity,
+        connectedName,
+        type === 'databricks' ? schemaSelectionFor(connId, connectedName) : null,
+        res.data.connectedDatabase
+      )
     }
   }
-  return res
+  if (type === 'databricks') {
+    const pinnedCatalogs = catalogSelectionFor(connId)
+    if (pinnedCatalogs) {
+      const keep = new Set(pinnedCatalogs)
+      res.data.databases = res.data.databases.filter((name) => keep.has(name))
+    }
+  }
+  // Last step so the prod privilege probe runs on the fully-established
+  // connection. DriverConnectResult is completed into a ConnectResult only
+  // here — the facade is the sole author of agentCapability.
+  const agentCapability = await computeAgentCapability(
+    connId,
+    type,
+    params.environment,
+    res.data.connectedDatabase.name
+  )
+  agentCapabilities.set(connId, agentCapability)
+  return { ok: true, data: { ...res.data, agentCapability } }
 }
 
 export async function disconnect(connId: string): Promise<DbResult<null>> {
@@ -218,6 +280,7 @@ export async function disconnect(connId: string): Promise<DbResult<null>> {
   connTypes.delete(connId)
   connDatabases.delete(connId)
   connIdentities.delete(connId)
+  agentCapabilities.delete(connId)
   return driver.disconnect(connId)
 }
 
@@ -225,6 +288,7 @@ export async function disconnectAll(): Promise<void> {
   connTypes.clear()
   connDatabases.clear()
   connIdentities.clear()
+  agentCapabilities.clear()
   await Promise.allSettled(Object.values(DRIVERS).map((driver) => driver.disconnectAll()))
 }
 
@@ -426,6 +490,22 @@ export async function runAgentQuery(
 ): Promise<DbResult<QueryResult>> {
   const blocked = guardDatabase(connId, database)
   if (blocked) return blocked
+  // Capability belt: on a clamped connection (prod whose role can write, or
+  // couldn't be verified) no agent statement runs, whatever the turn loop
+  // thought its mode was. A live connection with no recorded capability
+  // should be impossible — treat it as clamped rather than assume.
+  if (connTypes.has(connId)) {
+    const capability = agentCapabilities.get(connId)
+    if (!capability || !capability.readOnlyAvailable) {
+      return {
+        ok: false,
+        error:
+          capability?.reason ??
+          'The agent cannot execute queries on this connection; it is metadata-only.',
+        code: AGENT_BLOCKED_CODE
+      }
+    }
+  }
   const guard = guardAgentStatement(sql)
   if (!guard.ok) {
     return { ok: false, error: guard.reason, code: AGENT_BLOCKED_CODE }

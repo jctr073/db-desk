@@ -105,6 +105,21 @@ export interface TestResult {
   ssl: boolean
 }
 
+/**
+ * What the agent is allowed to do on a live connection, decided once in the
+ * main process when the connection is established. Non-prod environments are
+ * always unrestricted; prod restricts Read-Only mode to credentials that
+ * provably cannot write (Postgres privilege check; Databricks pending its
+ * own check and clamped unconditionally until then). The renderer copy is
+ * display-only — enforcement reads the main-process map.
+ */
+export interface AgentCapability {
+  /** False = agent clamped to Metadata Only; Read-Only mode unavailable. */
+  readOnlyAvailable: boolean
+  /** User-facing explanation when unavailable; null otherwise. */
+  reason: string | null
+}
+
 export interface ConnectResult {
   serverVersion: string
   /** Database the connection was opened against (fully introspected). */
@@ -115,6 +130,8 @@ export interface ConnectResult {
    * the one they connected to, so this is exactly [connectedDatabase.name].
    */
   databases: string[]
+  /** Agent access decided for this connection; see AgentCapability. */
+  agentCapability: AgentCapability
 }
 
 export type SchemaRefreshState = 'validating' | 'ok' | 'error'

@@ -64,13 +64,20 @@ export interface ConnectOptions {
   skipIntrospection?: boolean
 }
 
+/**
+ * What a driver's connect() resolves to. agentCapability is deliberately
+ * omitted: the facade (../db.ts) is the only place allowed to decide it, and
+ * this type is what makes a driver that tries to set one fail to compile.
+ */
+export type DriverConnectResult = Omit<ConnectResult, 'agentCapability'>
+
 export interface Driver {
   test(params: ConnectParams): Promise<DbResult<TestResult>>
   connect(
     connId: string,
     params: ConnectParams,
     options?: ConnectOptions
-  ): Promise<DbResult<ConnectResult>>
+  ): Promise<DbResult<DriverConnectResult>>
   disconnect(connId: string): Promise<DbResult<null>>
   disconnectAll(): Promise<void>
   /** Server version captured at connect time; null when the connection is gone. */
