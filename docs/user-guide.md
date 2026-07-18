@@ -372,6 +372,25 @@ from the dialog's Codebase section, pinned to the selected base.
 > every connection it is linked to. The confirmation dialog describes the
 > affected base before continuing.
 
+## Map a monorepo to its schemas
+
+When one repository holds several deployable services — each owning a schema
+of a shared database (or a Databricks catalog) — use **Set up monorepo…** in
+the Manage Knowledge Bases dialog instead of attaching the whole repo to one
+base. Pick the directory whose child folders are the services; each folder
+appears beside a schema dropdown, prefilled where the names match
+(`billing-service` matches `billing`), and every suggestion is overridable.
+Check only the pairs you care about — unchecked folders and schemas are left
+alone, and the setup can be reopened later to map more.
+
+Each checked pair becomes its own knowledge base scoped to that folder: repo
+tools, scans, and the agent's knowledge for that schema read only the
+service's code. Bases from one repo cluster under a shared repo header in the
+dialog's list, and the detail pane names the base's folder. Re-running the
+setup recognizes already-mapped folders and reuses their bases instead of
+creating duplicates — including against another connection's target, so the
+prod and dev copies of a service's schema share one base.
+
 ## Create and run skills
 
 The **Skills** tab stores reusable agent prompts. A custom skill has a name,
