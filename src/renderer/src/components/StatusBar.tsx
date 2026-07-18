@@ -10,13 +10,22 @@ interface StatusBarProps {
   queryText: string
   /** Target of the active query, e.g. "wcap_dev / wcap". */
   queryTarget: string
+  /** Background schema-sync summary, e.g. "Validating schema…"; '' hides it. */
+  schemaText?: string
+  /** Drives the sync segment's styling. */
+  schemaState?: 'validating' | 'ok' | 'error'
+  /** Tooltip for the sync segment (e.g. the validation error). */
+  schemaTitle?: string
 }
 
 export function StatusBar({
   onOpenSettings,
   connText,
   queryText,
-  queryTarget
+  queryTarget,
+  schemaText = '',
+  schemaState,
+  schemaTitle
 }: StatusBarProps): ReactElement {
   return (
     <div className="statusbar">
@@ -35,6 +44,19 @@ export function StatusBar({
         <span className="statusbar__divider" aria-hidden="true" />
       )}
       {queryText && <span className="statusbar__query">{queryText}</span>}
+      {(connText || queryText) && schemaText && (
+        <span className="statusbar__divider" aria-hidden="true" />
+      )}
+      {schemaText && (
+        <span
+          className={`statusbar__schema${
+            schemaState ? ` is-${schemaState}` : ''
+          }`}
+          title={schemaTitle}
+        >
+          {schemaText}
+        </span>
+      )}
       <span className="statusbar__spacer" />
       {queryTarget && <span className="statusbar__target">{queryTarget}</span>}
     </div>

@@ -88,6 +88,14 @@ Right-click a connection to:
 > skills. Disconnect it instead when you only want to close the live database
 > session.
 
+Reconnecting a profile that was loaded before serves its cached schema tree
+immediately instead of re-introspecting from scratch — useful on large
+Databricks warehouses and databases. DB Desk then revalidates that metadata in
+the background: the status bar shows "Validating schema…" next to the active
+connection, followed by "Schema up to date" once it's confirmed (or a
+validation error, in which case the cached tree stays in use). Running DDL
+through the app triggers the same background revalidation automatically.
+
 ## Browse the schema
 
 Expand the tree to browse databases or catalogs, schemas, tables, views,

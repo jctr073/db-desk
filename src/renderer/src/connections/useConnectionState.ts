@@ -4,7 +4,8 @@ import { parseConnectionUrl } from '../../../shared/connectionUrl'
 import type {
   ConnectParams,
   DatabaseIntrospection,
-  SavedConnection
+  SavedConnection,
+  SchemaRefreshState
 } from '../../../shared/db'
 import { dialectFor } from '../../../shared/dialect'
 import type { ConnectionType } from '../../../shared/dialect'
@@ -24,6 +25,12 @@ import type { ConnectionForm, TreeMode, TreeNode } from './types'
 
 export type TestState = 'idle' | 'testing' | 'ok' | 'error'
 export type DialogTab = 'params' | 'url'
+
+/** Latest background-revalidation status of one (connection, database). */
+export interface SchemaRefreshInfo {
+  state: SchemaRefreshState
+  error?: string
+}
 
 /** The unified hierarchical catalog/schema picker (Databricks). */
 export interface ManageDialogState {
@@ -54,6 +61,9 @@ export interface ConnectionState {
   schemas: Record<string, Record<string, DatabaseIntrospection>>
   /** Introspect and cache a database if it isn't cached already. */
   ensureSchema: (connId: string, database: string) => void
+
+  /** Background revalidation status, keyed by connId + '/' + database. */
+  schemaRefresh: Record<string, SchemaRefreshInfo>
 
   /** Hierarchical catalog/schema picker (Databricks); null when closed. */
   manageDialog: ManageDialogState | null
@@ -159,6 +169,9 @@ export function useConnectionState(): ConnectionState {
   const [schemas, setSchemas] = useState<
     Record<string, Record<string, DatabaseIntrospection>>
   >({})
+  const [schemaRefresh, setSchemaRefresh] = useState<
+    Record<string, SchemaRefreshInfo>
+  >({})
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogTab, setDialogTab] = useState<DialogTab>('params')
@@ -234,6 +247,71 @@ export function useConnectionState(): ConnectionState {
     },
     [cacheSchema]
   )
+
+  /**
+   * Reconcile a background-revalidated introspection into renderer state:
+   * refresh the raw schema cache and rebuild that database's subtree in
+   * place. Node ids are path-based, so expansion and selection survive for
+   * everything that still exists. Lazy/loading nodes are left alone — they
+   * pick up the fresh data through their own load path.
+   */
+  const applyIntrospection = useCallback(
+    (connId: string, data: DatabaseIntrospection) => {
+      cacheSchema(connId, data)
+      const connType = profiles[connId]?.type
+      setTree((prev) =>
+        updateNode(prev, `${connId}/${data.name}`, (node) => {
+          if (
+            node.kind !== 'database' ||
+            node.lazy ||
+            node.loading ||
+            !node.children
+          ) {
+            return node
+          }
+          const counts = schemaCounts(data)
+          const next: TreeNode = {
+            ...node,
+            pinnedSchemaCount: counts.pinnedSchemaCount,
+            totalSchemaCount: counts.totalSchemaCount,
+            children: databaseChildren(data, connType)
+          }
+          next.children!.forEach((child) => assignIds(child, next.id))
+          return next
+        })
+      )
+    },
+    [cacheSchema, profiles]
+  )
+
+  // Background schema revalidation (main process) → status map + tree.
+  useEffect(() => {
+    return window.dbDesk.db.onSchemaRefresh((evt) => {
+      setSchemaRefresh((prev) => ({
+        ...prev,
+        [`${evt.connId}/${evt.database}`]: {
+          state: evt.state,
+          error: evt.error
+        }
+      }))
+      if (evt.state === 'ok' && evt.introspection) {
+        applyIntrospection(evt.connId, evt.introspection)
+      }
+    })
+  }, [applyIntrospection])
+
+  /** Forget revalidation statuses of a connection that went away. */
+  const pruneSchemaRefresh = useCallback((connId: string) => {
+    setSchemaRefresh((prev) => {
+      const next: Record<string, SchemaRefreshInfo> = {}
+      let dropped = false
+      for (const [key, value] of Object.entries(prev)) {
+        if (key.startsWith(`${connId}/`)) dropped = true
+        else next[key] = value
+      }
+      return dropped ? next : prev
+    })
+  }, [])
 
   // Saved connections appear on launch as offline nodes; nothing auto-connects.
   useEffect(() => {
@@ -598,6 +676,7 @@ export function useConnectionState(): ConnectionState {
     (id: string) => {
       void window.dbDesk.db.disconnect(id)
       dropSchemas(id)
+      pruneSchemaRefresh(id)
       setTree((prev) =>
         updateNode(prev, id, (n) => ({
           ...n,
@@ -619,7 +698,7 @@ export function useConnectionState(): ConnectionState {
         return fallback?.id ?? null
       })
     },
-    [dropSchemas]
+    [dropSchemas, pruneSchemaRefresh]
   )
 
   const removeConnection = useCallback(
@@ -630,6 +709,7 @@ export function useConnectionState(): ConnectionState {
       void window.dbDesk.store.delete(id)
       void window.dbDesk.files.deleteForConnection(id)
       dropSchemas(id)
+      pruneSchemaRefresh(id)
       setProfiles((prev) => {
         const next = { ...prev }
         delete next[id]
@@ -648,7 +728,7 @@ export function useConnectionState(): ConnectionState {
         return fallback?.id ?? null
       })
     },
-    [dropSchemas]
+    [dropSchemas, pruneSchemaRefresh]
   )
 
   const removeSelected = useCallback(() => {
@@ -857,6 +937,7 @@ export function useConnectionState(): ConnectionState {
     loadError,
     schemas,
     ensureSchema,
+    schemaRefresh,
     manageDialog,
     openManageCatalogs,
     loadManageCatalogSchemas,

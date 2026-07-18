@@ -11,8 +11,10 @@ import {
   listCatalogs,
   listSchemas,
   runQuery,
+  setSchemaEventSink,
   testConnection
 } from './db'
+import { deleteCacheFor, dropIntrospection } from './schemaCache'
 import { invalidateAgentSchemaCache, registerAgentHandlers } from './agent'
 import { registerMcpHandlers, stopAllMcpServers } from './mcp'
 import { registerRepoHandlers } from './repo'
@@ -215,6 +217,9 @@ function registerDbHandlers(): void {
     (_event, id: string, catalog: string, schemas: string[] | null) => {
       setSchemaSelection(id, catalog, schemas)
       invalidateAgentSchemaCache(id, catalog)
+      // The persisted introspection was taken under the old pinning; the
+      // selection stamp would reject it anyway, dropping keeps the file lean.
+      dropIntrospection(id, catalog)
     }
   )
   ipcMain.handle('store:delete', (_event, id: string) => {
@@ -223,6 +228,7 @@ function registerDbHandlers(): void {
     // dev), and an orphaned one can be relinked or deleted from the UI.
     deleteLinksForConnection(id)
     deleteSkillsForConnection(id)
+    deleteCacheFor(id)
     return deleteSaved(id)
   })
 }
@@ -483,6 +489,13 @@ app.whenReady().then(() => {
   // The exemplar extractor keeps no Electron imports (unit-testability), so
   // hand it the settings-backed key resolver instead of letting it import one.
   setExemplarApiKeyLoader(() => loadApiKey().key)
+
+  // Background schema revalidation progress → renderer status/tree updates.
+  setSchemaEventSink((evt) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('db:schema-refresh', evt)
+    }
+  })
 
   registerDbHandlers()
   registerSettingsHandlers()

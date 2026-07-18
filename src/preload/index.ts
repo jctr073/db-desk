@@ -15,6 +15,7 @@ import type {
   DbResult,
   QueryResult,
   SavedConnection,
+  SchemaRefreshEvent,
   TestResult
 } from '../shared/db'
 import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
@@ -78,7 +79,23 @@ const api = Object.freeze({
       ipcRenderer.invoke('db:listSchemas', connId, database),
     /** All catalogs reachable from a connection, unfiltered. */
     listCatalogs: (connId: string): Promise<DbResult<string[]>> =>
-      ipcRenderer.invoke('db:listCatalogs', connId)
+      ipcRenderer.invoke('db:listCatalogs', connId),
+    /**
+     * Subscribe to background schema-revalidation pushes (validating/ok/
+     * error per database); returns an unsubscribe function.
+     */
+    onSchemaRefresh: (
+      callback: (evt: SchemaRefreshEvent) => void
+    ): (() => void) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        evt: SchemaRefreshEvent
+      ): void => callback(evt)
+      ipcRenderer.on('db:schema-refresh', listener)
+      return () => {
+        ipcRenderer.removeListener('db:schema-refresh', listener)
+      }
+    }
   }),
   exportFile: Object.freeze({
     choose: (

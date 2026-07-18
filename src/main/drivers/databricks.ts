@@ -610,18 +610,20 @@ async function connect(
       'main'
     const serverVersion = await fetchServerVersion(session)
 
-    let catalogs: string[] = []
-    try {
-      const res = await exec(session, 'SHOW CATALOGS')
-      catalogs = firstColumnValues(res.rows)
-    } catch {
-      catalogs = [catalog]
+    let catalogs: string[] = [catalog]
+    let connectedDatabase: DatabaseIntrospection = { name: catalog, schemas: [] }
+    if (!options.skipIntrospection) {
+      try {
+        const res = await exec(session, 'SHOW CATALOGS')
+        catalogs = firstColumnValues(res.rows)
+      } catch {
+        catalogs = [catalog]
+      }
+      connectedDatabase = await introspectCatalog(session, catalog, {
+        allowedSchemas: options.schemaSelectionFor?.(catalog) ?? null,
+        maxUnpinnedSchemas: options.maxUnpinnedSchemas
+      })
     }
-
-    const connectedDatabase = await introspectCatalog(session, catalog, {
-      allowedSchemas: options.schemaSelectionFor?.(catalog) ?? null,
-      maxUnpinnedSchemas: options.maxUnpinnedSchemas
-    })
     connections.set(connId, {
       params,
       client,
