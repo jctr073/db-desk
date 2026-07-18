@@ -25,6 +25,7 @@ import {
   summarizeUsage
 } from './format'
 import { RecordEditor } from './RecordEditor'
+import { useEscapeKey } from '../useEscapeKey'
 import type { KnowledgeNav, KnowledgeState } from './useKnowledgeState'
 import { knowledgeTargetKeyOf } from './useKnowledgeState'
 
@@ -150,14 +151,7 @@ export function KnowledgePanel({
     onNewConsumed()
   }, [newSeq, onNewConsumed])
 
-  useEffect(() => {
-    if (!newMenu) return
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setNewMenu(null)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [newMenu])
+  useEscapeKey(!!newMenu, () => setNewMenu(null))
 
   const intro = state.connId && state.database ? schemas[state.connId]?.[state.database] : undefined
   const validKeys = useMemo(() => (intro ? buildRefKeySet(intro) : null), [intro])

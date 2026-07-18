@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
@@ -23,6 +23,7 @@ import {
 import { exportNeedsFullQuery, selectedResultRows, serializeResult } from './resultExport'
 import { selectGridHeaders, type GridSelectionModifiers } from './resultGridSelection'
 import type { ResultTab } from './useQueryRunner'
+import { useEscapeKey } from '../useEscapeKey'
 
 interface ResultsPanelProps {
   tabs: ResultTab[]
@@ -93,6 +94,66 @@ function statusLine(tab: ResultTab): string {
   return `${result.command || 'OK'} · ${parts.join(' · ')}`
 }
 
+function activateWithKeyboard(
+  event: ReactKeyboardEvent,
+  activate: (modifiers: GridSelectionModifiers) => void
+): void {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  activate(event)
+}
+
+interface GridRowProps {
+  row: QueryResult['rows'][number]
+  rowIndex: number
+  selected: boolean
+  /** Column indexes rendered with the selected-column background. */
+  selectedColumns: ReadonlySet<number>
+  onSelectRow: (row: number, modifiers: GridSelectionModifiers) => void
+}
+
+/**
+ * One result row, memoized so column resizes (applied via per-column CSS, not
+ * per-cell styles) and selection changes on other rows never re-render it.
+ * All props are identity-stable across those renders: `row` comes straight
+ * from `result.rows`, `selected` is a primitive, `selectedColumns` keeps its
+ * identity while column selection is unchanged, and `onSelectRow` is stable.
+ */
+const GridRow = memo(function GridRow({
+  row,
+  rowIndex,
+  selected,
+  selectedColumns,
+  onSelectRow
+}: GridRowProps): ReactElement {
+  return (
+    <tr className={selected ? 'is-selected' : undefined} aria-selected={selected}>
+      <td
+        className="result-grid__rownum"
+        role="rowheader"
+        tabIndex={0}
+        onClick={(event: ReactMouseEvent) => onSelectRow(rowIndex, event)}
+        onKeyDown={(event) =>
+          activateWithKeyboard(event, (modifiers) => onSelectRow(rowIndex, modifiers))
+        }
+      >
+        {rowIndex + 1}
+      </td>
+      {row.map((cell, c) => (
+        <td
+          key={c}
+          className={
+            `${cell === null ? 'is-null' : ''}${selectedColumns.has(c) ? ' is-selected-column' : ''}`.trim() ||
+            undefined
+          }
+        >
+          {cell === null ? 'NULL' : String(cell)}
+        </td>
+      ))}
+    </tr>
+  )
+})
+
 interface ResultGridProps {
   result: QueryResult
   onSelectedRowsChange: (rows: ReadonlySet<number>) => void
@@ -110,6 +171,10 @@ function ResultGrid({
   const [selectedRows, setSelectedRows] = useState<Set<number>>(() => new Set())
   const [selectedColumns, setSelectedColumns] = useState<Set<number>>(() => new Set())
   const [columnWidths, setColumnWidths] = useState<Record<number, number>>({})
+  // The current selections mirrored into refs, so the row-level selection
+  // callbacks stay identity-stable (memoized GridRows depend on that).
+  const selectedRowsRef = useRef(selectedRows)
+  const selectedColumnsRef = useRef(selectedColumns)
   const rowSelectionAnchorRef = useRef<number | null>(null)
   const columnSelectionAnchorRef = useRef<number | null>(null)
   const resizeRef = useRef<{
@@ -119,70 +184,82 @@ function ResultGrid({
     startWidth: number
   } | null>(null)
 
+  const applyRowSelection = useCallback(
+    (next: Set<number>): void => {
+      selectedRowsRef.current = next
+      setSelectedRows(next)
+      onSelectedRowsChange(next)
+    },
+    [onSelectedRowsChange]
+  )
+
+  const applyColumnSelection = useCallback(
+    (next: Set<number>): void => {
+      selectedColumnsRef.current = next
+      setSelectedColumns(next)
+      onSelectedColumnsChange(next)
+    },
+    [onSelectedColumnsChange]
+  )
+
   useEffect(() => {
-    setSelectedRows(new Set())
-    setSelectedColumns(new Set())
     setColumnWidths({})
     rowSelectionAnchorRef.current = null
     columnSelectionAnchorRef.current = null
-    onSelectedRowsChange(new Set())
-    onSelectedColumnsChange(new Set())
-  }, [result, onSelectedRowsChange, onSelectedColumnsChange])
+    applyRowSelection(new Set())
+    applyColumnSelection(new Set())
+  }, [result, applyRowSelection, applyColumnSelection])
 
   useEffect(() => () => document.body.classList.remove('is-grid-col-resizing'), [])
 
-  const selectRow = (row: number, modifiers: GridSelectionModifiers): void => {
-    const next = selectGridHeaders(selectedRows, row, rowSelectionAnchorRef.current, modifiers)
-    setSelectedRows(next)
-    onSelectedRowsChange(next)
-    if (next.size === 0) {
-      rowSelectionAnchorRef.current = null
-    } else if (!modifiers.shiftKey || rowSelectionAnchorRef.current === null) {
-      rowSelectionAnchorRef.current = row
-    }
-    setSelectedColumns(new Set())
-    onSelectedColumnsChange(new Set())
-    columnSelectionAnchorRef.current = null
-  }
-
-  const selectColumn = (column: number, modifiers: GridSelectionModifiers): void => {
-    const next = selectGridHeaders(
-      selectedColumns,
-      column,
-      columnSelectionAnchorRef.current,
-      modifiers
-    )
-    setSelectedColumns(next)
-    onSelectedColumnsChange(next)
-    if (next.size === 0) {
+  const selectRow = useCallback(
+    (row: number, modifiers: GridSelectionModifiers): void => {
+      const next = selectGridHeaders(
+        selectedRowsRef.current,
+        row,
+        rowSelectionAnchorRef.current,
+        modifiers
+      )
+      applyRowSelection(next)
+      if (next.size === 0) {
+        rowSelectionAnchorRef.current = null
+      } else if (!modifiers.shiftKey || rowSelectionAnchorRef.current === null) {
+        rowSelectionAnchorRef.current = row
+      }
+      // Keep the empty set's identity so memoized rows see unchanged props.
+      if (selectedColumnsRef.current.size > 0) applyColumnSelection(new Set())
       columnSelectionAnchorRef.current = null
-    } else if (!modifiers.shiftKey || columnSelectionAnchorRef.current === null) {
-      columnSelectionAnchorRef.current = column
-    }
-    const noRows = new Set<number>()
-    setSelectedRows(noRows)
-    onSelectedRowsChange(noRows)
-    rowSelectionAnchorRef.current = null
-  }
+    },
+    [applyRowSelection, applyColumnSelection]
+  )
+
+  const selectColumn = useCallback(
+    (column: number, modifiers: GridSelectionModifiers): void => {
+      const next = selectGridHeaders(
+        selectedColumnsRef.current,
+        column,
+        columnSelectionAnchorRef.current,
+        modifiers
+      )
+      applyColumnSelection(next)
+      if (next.size === 0) {
+        columnSelectionAnchorRef.current = null
+      } else if (!modifiers.shiftKey || columnSelectionAnchorRef.current === null) {
+        columnSelectionAnchorRef.current = column
+      }
+      if (selectedRowsRef.current.size > 0) applyRowSelection(new Set())
+      rowSelectionAnchorRef.current = null
+    },
+    [applyRowSelection, applyColumnSelection]
+  )
 
   const selectAll = (): void => {
     const allRows = new Set(result.rows.map((_, index) => index))
     const allColumns = new Set(result.fields.map((_, index) => index))
-    setSelectedRows(allRows)
-    setSelectedColumns(allColumns)
-    onSelectedRowsChange(allRows)
-    onSelectedColumnsChange(allColumns)
+    applyRowSelection(allRows)
+    applyColumnSelection(allColumns)
     rowSelectionAnchorRef.current = null
     columnSelectionAnchorRef.current = null
-  }
-
-  const activateWithKeyboard = (
-    event: ReactKeyboardEvent,
-    activate: (modifiers: GridSelectionModifiers) => void
-  ): void => {
-    if (event.key !== 'Enter' && event.key !== ' ') return
-    event.preventDefault()
-    activate(event)
   }
 
   const resizeColumn = (column: number, width: number): void => {
@@ -240,10 +317,37 @@ function ResultGrid({
     selectedRows.size === result.rows.length &&
     selectedColumns.size === result.fields.length
 
+  // Resized column widths as per-column CSS rules scoped to this grid
+  // instance, so a resize re-renders only this <style> element — never the
+  // rows. The declarations match the previous per-cell inline styles exactly
+  // (width + min/max on every th/td of the column) and outrank the
+  // stylesheet's `.result-grid td { max-width: 420px }`, keeping resize
+  // behavior pixel-identical. (A <colgroup> cannot express this: in auto
+  // table layout a <col> width never shrinks a column below its cells'
+  // min-content width, so narrowing a wide column would stop working.)
+  const gridId = useId()
+  const columnWidthCss = useMemo(
+    () =>
+      Object.entries(columnWidths)
+        .map(([column, width]) => {
+          // Field i renders as the (i + 2)th cell: the rownum cell is first.
+          const cell = Number(column) + 2
+          return (
+            `table[data-grid-id="${gridId}"] tr > th:nth-child(${cell}),\n` +
+            `table[data-grid-id="${gridId}"] tr > td:nth-child(${cell}) {\n` +
+            `  width: ${width}px;\n  min-width: ${width}px;\n  max-width: ${width}px;\n}`
+          )
+        })
+        .join('\n'),
+    [columnWidths, gridId]
+  )
+
   return (
     <div className="grid-scroll">
+      {columnWidthCss && <style>{columnWidthCss}</style>}
       <table
         className="result-grid"
+        data-grid-id={gridId}
         role="grid"
         aria-multiselectable="true"
         onContextMenu={
@@ -269,15 +373,6 @@ function ResultGrid({
               <th
                 key={i}
                 className={selectedColumns.has(i) ? 'is-selected' : undefined}
-                style={
-                  columnWidths[i] === undefined
-                    ? undefined
-                    : {
-                        width: columnWidths[i],
-                        minWidth: columnWidths[i],
-                        maxWidth: columnWidths[i]
-                      }
-                }
                 aria-selected={selectedColumns.has(i)}
                 tabIndex={0}
                 onClick={(event: ReactMouseEvent) => selectColumn(i, event)}
@@ -308,43 +403,14 @@ function ResultGrid({
         </thead>
         <tbody>
           {result.rows.map((row, r) => (
-            <tr
+            <GridRow
               key={r}
-              className={selectedRows.has(r) ? 'is-selected' : undefined}
-              aria-selected={selectedRows.has(r)}
-            >
-              <td
-                className="result-grid__rownum"
-                role="rowheader"
-                tabIndex={0}
-                onClick={(event: ReactMouseEvent) => selectRow(r, event)}
-                onKeyDown={(event) =>
-                  activateWithKeyboard(event, (modifiers) => selectRow(r, modifiers))
-                }
-              >
-                {r + 1}
-              </td>
-              {row.map((cell, c) => (
-                <td
-                  key={c}
-                  className={
-                    `${cell === null ? 'is-null' : ''}${selectedColumns.has(c) ? ' is-selected-column' : ''}`.trim() ||
-                    undefined
-                  }
-                  style={
-                    columnWidths[c] === undefined
-                      ? undefined
-                      : {
-                          width: columnWidths[c],
-                          minWidth: columnWidths[c],
-                          maxWidth: columnWidths[c]
-                        }
-                  }
-                >
-                  {cell === null ? 'NULL' : String(cell)}
-                </td>
-              ))}
-            </tr>
+              row={row}
+              rowIndex={r}
+              selected={selectedRows.has(r)}
+              selectedColumns={selectedColumns}
+              onSelectRow={selectRow}
+            />
           ))}
         </tbody>
       </table>
@@ -522,19 +588,12 @@ export function ResultsPanel({
     if (overflowTabs.length === 0) setMenuOpen(false)
   }, [overflowTabs.length])
 
-  useEffect(() => {
-    if (!menuOpen && !limitOpen && !exportOpen && !resultCtxMenu) return
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        setMenuOpen(false)
-        setLimitOpen(false)
-        setExportOpen(false)
-        setResultCtxMenu(null)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [menuOpen, limitOpen, exportOpen, resultCtxMenu])
+  useEscapeKey(menuOpen || limitOpen || exportOpen || !!resultCtxMenu, () => {
+    setMenuOpen(false)
+    setLimitOpen(false)
+    setExportOpen(false)
+    setResultCtxMenu(null)
+  })
 
   const menuRect = menuOpen ? overflowBtnRef.current?.getBoundingClientRect() : undefined
   const limitRect = limitOpen ? limitBtnRef.current?.getBoundingClientRect() : undefined

@@ -16,6 +16,11 @@ interface ConnectionTreeProps {
   onRowContextMenu: (node: TreeNode, event: MouseEvent<HTMLDivElement>) => void
 }
 
+/**
+ * The callbacks are handed to each memoized TreeRow as-is (rows call them
+ * with their own node/id), so keeping them identity-stable in the parent
+ * keeps unaffected rows from re-rendering.
+ */
 export function ConnectionTree({
   rows,
   selected,
@@ -41,9 +46,9 @@ export function ConnectionTree({
           rowHeight={rowHeight}
           showStatusDots={showStatusDots}
           hasKnowledge={knowledgeIds?.has(row.node.id) ?? false}
-          onClick={() => onRowClick(row.node.id, row.expandable)}
-          onDoubleClick={() => onRowDoubleClick?.(row.node)}
-          onContextMenu={(event) => onRowContextMenu(row.node, event)}
+          onRowClick={onRowClick}
+          onRowDoubleClick={onRowDoubleClick}
+          onRowContextMenu={onRowContextMenu}
         />
       ))}
     </div>

@@ -29,6 +29,7 @@ import type { FileState } from '../files/useFileState'
 import { ChatTranscript } from './agent/ChatTranscript'
 import { ChatSessionBar, Composer, ModeControl } from './agent/Composer'
 import { MODE_STORAGE_KEY, useChatSession } from './agent/useChatSession'
+import { useEscapeKey } from '../useEscapeKey'
 import { useRepoLinks } from './agent/useRepoLinks'
 import type { EditorBridge } from './editorBridge'
 import { ManageKnowledgeDialog } from './ManageKnowledgeDialog'
@@ -292,19 +293,12 @@ export function AgentPanel({
   }, [activeTab])
 
   // Escape dismisses whichever popover is open.
-  useEffect(() => {
-    if (!modelOpen && !pickerOpen && !modeOpen && !historyOpen) return
-    const onKey = (e: globalThis.KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        setModelOpen(false)
-        setPickerOpen(false)
-        setModeOpen(false)
-        setHistoryOpen(false)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [modelOpen, pickerOpen, modeOpen, historyOpen, setHistoryOpen])
+  useEscapeKey(modelOpen || pickerOpen || modeOpen || historyOpen, () => {
+    setModelOpen(false)
+    setPickerOpen(false)
+    setModeOpen(false)
+    setHistoryOpen(false)
+  })
 
   const openPicker = useCallback(() => {
     setPickerFilter('')

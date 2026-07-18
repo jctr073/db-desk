@@ -1,8 +1,8 @@
-import { useEffect } from 'react'
 import type { ReactElement } from 'react'
 
 import type { QueryFile } from '../../files/useFileState'
 import { SaveIcon } from '../icons'
+import { useEscapeKey } from '../../useEscapeKey'
 
 /** A close request that may need a save prompt before it completes. */
 export interface PendingClose {
@@ -30,14 +30,7 @@ export function SaveChangesDialog({
   onDiscard,
   onCancel
 }: SaveChangesDialogProps): ReactElement {
-  useEffect(() => {
-    if (saving) return
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onCancel()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [saving, onCancel])
+  useEscapeKey(!saving, onCancel)
 
   return (
     <div className="dialog-overlay">
