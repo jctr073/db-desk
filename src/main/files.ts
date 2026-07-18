@@ -11,17 +11,8 @@ import { join, resolve } from 'node:path'
 import { assertSafeId } from './safeId'
 import { writeJsonAtomic } from './atomicJson'
 import { defaultExtension, fileKindFromName, FILE_KINDS, supportedExtension } from '../shared/files'
-import type { FileKind } from '../shared/files'
+import type { FileKind, QueryFile } from '../shared/files'
 import { setSqlFilesDir, sqlFilesDir } from './settings'
-
-export interface QueryFile {
-  id: string
-  name: string
-  connId: string | null
-  database: string | null
-  createdAt: number
-  updatedAt: number
-}
 
 interface StoredQueryMetadata {
   id: string

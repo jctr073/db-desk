@@ -99,6 +99,17 @@ export function pickDefaultLink(links: KnowledgeLink[]): KnowledgeLink | null {
   return sorted[0] ?? null
 }
 
+/**
+ * Payload of the `knowledge:changed` push, fired after a record save/delete
+ * (UI path and agent save_knowledge path alike): the base that changed plus
+ * every (connection, database) target linked to it, so target-keyed views
+ * can match without knowing the link table.
+ */
+export interface KnowledgeChangeEvent {
+  kbId: string
+  targets: Array<{ connId: string; database: string }>
+}
+
 export type KnowledgeSource = 'human' | 'agent'
 
 export interface ColumnRef {

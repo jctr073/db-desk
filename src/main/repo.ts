@@ -24,8 +24,10 @@ import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
-import { dialog, ipcMain } from 'electron'
+import { dialog } from 'electron'
 import type { BrowserWindow } from 'electron'
+
+import { typedHandle, typedSend } from './ipc'
 
 import { addLink, createBase, getBaseRepoRoot, listBases, setBaseRepoRoot } from './knowledge'
 import type {
@@ -538,11 +540,11 @@ async function statusFor(kbId: string): Promise<RepoStatus> {
 }
 
 export function registerRepoHandlers(getWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('repo:get', (_event, kbId: string) => statusFor(kbId))
+  typedHandle('repo:get', (_event, kbId) => statusFor(kbId))
 
   // The path enters the system here and only here: a native directory picker
   // owned by the main process.
-  ipcMain.handle('repo:choose', async (_event, kbId: string) => {
+  typedHandle('repo:choose', async (_event, kbId) => {
     const win = getWindow()
     const result = win
       ? await dialog.showOpenDialog(win, {
@@ -556,14 +558,14 @@ export function registerRepoHandlers(getWindow: () => BrowserWindow | null): voi
     return statusFor(kbId)
   })
 
-  ipcMain.handle('repo:clear', (_event, kbId: string) => {
+  typedHandle('repo:clear', (_event, kbId) => {
     clearRepoRoot(kbId)
     return statusFor(kbId)
   })
 
   // Monorepo setup: the root path enters (and stays in) the main process
   // here; the renderer gets the folder list plus a pickId to refer back to.
-  ipcMain.handle('repo:monorepoPick', async (): Promise<MonorepoPick | null> => {
+  typedHandle('repo:monorepoPick', async (): Promise<MonorepoPick | null> => {
     const win = getWindow()
     const result = win
       ? await dialog.showOpenDialog(win, {
@@ -577,14 +579,11 @@ export function registerRepoHandlers(getWindow: () => BrowserWindow | null): voi
     return registerMonorepoPick(picked, await listMonorepoFolders(picked))
   })
 
-  ipcMain.handle('repo:monorepoCreate', (_event, input: MonorepoCreateInput) => {
+  typedHandle('repo:monorepoCreate', (_event, input) => {
     const result = createMonorepoMappings(input)
     // Bases and links changed shape outside registerKnowledgeHandlers, so
     // push the same coarse structure signal it would have sent.
-    const win = getWindow()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('knowledge:structureChanged')
-    }
+    typedSend(getWindow(), 'knowledge:structureChanged')
     return result
   })
 }

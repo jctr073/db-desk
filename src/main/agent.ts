@@ -19,9 +19,9 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import { ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 
+import { typedHandle, typedOn, typedSend } from './ipc'
 import { getConnectionType, introspectDatabase } from './db'
 import type {
   AgentCompactResult,
@@ -37,6 +37,7 @@ import type { McpAgentTool } from './mcp'
 import { getRepoCommit, getRepoRoot } from './repo'
 import { targetsForBase } from './knowledge'
 import { normalizeColumnKey, tableNameAliases } from '../shared/knowledge'
+import type { KnowledgeChangeEvent } from '../shared/knowledge'
 import type { DatabaseIntrospection } from '../shared/db'
 import { dialectFor } from '../shared/dialect'
 
@@ -646,21 +647,15 @@ function stopChat(chatId: string): void {
 
 export function registerAgentHandlers(getWindow: () => BrowserWindow | null): void {
   const send: Sender = (evt) => {
-    const win = getWindow()
-    if (win && !win.isDestroyed()) win.webContents.send('agent:event', evt)
+    typedSend(getWindow(), 'agent:event', evt)
   }
   // Mirror the UI save path's push so the save_knowledge tool refreshes any
   // open renderer knowledge views. The event names the base plus every
   // (connection, database) target linked to it, so views keyed by target can
   // match without knowing the link table.
   setBroadcastKnowledgeChanged((kbId) => {
-    const win = getWindow()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('knowledge:changed', {
-        kbId,
-        targets: targetsForBase(kbId)
-      })
-    }
+    const change: KnowledgeChangeEvent = { kbId, targets: targetsForBase(kbId) }
+    typedSend(getWindow(), 'knowledge:changed', change)
   })
 
   // read_editor round-trip: main pushes a request id, the renderer replies on
@@ -669,16 +664,13 @@ export function registerAgentHandlers(getWindow: () => BrowserWindow | null): vo
   // of wedging the turn.
   let editorReadSeq = 0
   const pendingEditorReads = new Map<string, (payload: AgentEditorReadPayload | null) => void>()
-  ipcMain.on(
-    'agent:editor-read-reply',
-    (_event, requestId: string, payload: AgentEditorReadPayload) => {
-      const resolve = pendingEditorReads.get(requestId)
-      if (resolve) {
-        pendingEditorReads.delete(requestId)
-        resolve(payload)
-      }
+  typedOn('agent:editor-read-reply', (_event, requestId, payload) => {
+    const resolve = pendingEditorReads.get(requestId)
+    if (resolve) {
+      pendingEditorReads.delete(requestId)
+      resolve(payload)
     }
-  )
+  })
   setReadEditorFromRenderer(() => {
     const win = getWindow()
     if (!win || win.isDestroyed()) return Promise.resolve(null)
@@ -692,30 +684,28 @@ export function registerAgentHandlers(getWindow: () => BrowserWindow | null): vo
         clearTimeout(timer)
         resolve(payload)
       })
-      win.webContents.send('agent:editor-read', requestId)
+      typedSend(win, 'agent:editor-read', requestId)
     })
   })
 
-  ipcMain.handle('agent:keyStatus', (): AgentKeyStatus => {
+  typedHandle('agent:keyStatus', (): AgentKeyStatus => {
     const { key, source } = loadApiKey()
     return { found: key !== null, source, varName: apiKeyVarName() }
   })
 
-  ipcMain.handle('agent:send', async (_event, req: AgentSendRequest) => {
+  typedHandle('agent:send', async (_event, req) => {
     await runAgentTurn(req, send)
   })
 
-  ipcMain.handle('agent:stop', (_event, chatId: string) => {
+  typedHandle('agent:stop', (_event, chatId) => {
     stopChat(chatId)
   })
 
-  ipcMain.handle(
-    'agent:compact',
-    (_event, chatId: string, model: string): Promise<AgentCompactResult> =>
-      compactChat(chatId, model)
+  typedHandle('agent:compact', (_event, chatId, model): Promise<AgentCompactResult> =>
+    compactChat(chatId, model)
   )
 
-  ipcMain.handle('agent:reset', (_event, chatId: string) => {
+  typedHandle('agent:reset', (_event, chatId) => {
     stopChat(chatId)
     chats.delete(chatId)
     // Schema may have changed since it was cached; a fresh chat re-introspects.

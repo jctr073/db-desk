@@ -16,8 +16,10 @@ import { join } from 'node:path'
 
 import { writeJsonAtomic } from './atomicJson'
 
-import { app, ipcMain } from 'electron'
+import { app } from 'electron'
 import type { BrowserWindow } from 'electron'
+
+import { typedHandle, typedSend } from './ipc'
 
 import { builtinSkillById, isBuiltinSkillId, matchesBuiltin, resolveSkills } from '../shared/skills'
 import type { Skill, SkillSaveInput, StoredSkill } from '../shared/skills'
@@ -240,12 +242,9 @@ export function deleteSkillsForConnection(connId: string): void {
 
 export function registerSkillHandlers(getWindow: () => BrowserWindow | null): void {
   notifyChanged = () => {
-    const win = getWindow()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('skills:changed')
-    }
+    typedSend(getWindow(), 'skills:changed')
   }
-  ipcMain.handle('skills:list', () => listSkills())
-  ipcMain.handle('skills:save', (_event, input: SkillSaveInput) => saveSkill(input))
-  ipcMain.handle('skills:delete', (_event, id: string) => removeSkill(id))
+  typedHandle('skills:list', () => listSkills())
+  typedHandle('skills:save', (_event, input) => saveSkill(input))
+  typedHandle('skills:delete', (_event, id) => removeSkill(id))
 }
