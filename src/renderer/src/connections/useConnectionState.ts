@@ -598,11 +598,14 @@ export function useConnectionState(): ConnectionState {
    * Actually connect a saved (offline) connection; on failure, reopen the
    * dialog to fix credentials. Split out from `connectSaved` so the
    * legacy-environment prompt can run its pre-flight check first and resume
-   * this once the user has picked one.
+   * this once the user has picked one. That resume passes `profileOverride`:
+   * the setProfiles() it just issued hasn't re-rendered this callback yet,
+   * so reading `profiles[id]` here would still see the pre-choice profile
+   * (no environment) and build the tree node without one.
    */
   const doConnectSaved = useCallback(
-    async (id: string) => {
-      const profile = profiles[id]
+    async (id: string, profileOverride?: SavedConnection) => {
+      const profile = profileOverride ?? profiles[id]
       if (!profile) return
       const node = findNode(id, tree)
       if (!node || node.status === 'online' || node.loading) return
@@ -673,15 +676,16 @@ export function useConnectionState(): ConnectionState {
       setEnvPrompt(null)
       void (async () => {
         await window.dbDesk.store.setEnvironment(id, environment)
+        const patched = profiles[id] ? { ...profiles[id], environment } : undefined
         setProfiles((prev) => {
           const profile = prev[id]
           if (!profile) return prev
           return { ...prev, [id]: { ...profile, environment } }
         })
-        await doConnectSaved(id)
+        await doConnectSaved(id, patched)
       })()
     },
-    [envPrompt, doConnectSaved]
+    [envPrompt, profiles, doConnectSaved]
   )
 
   const dismissEnvPrompt = useCallback(() => setEnvPrompt(null), [])
