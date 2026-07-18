@@ -76,9 +76,7 @@ export function ManageObjectsDialog({
   onClose
 }: ManageObjectsDialogProps): ReactElement {
   const [enabledCatalogs, setEnabledCatalogs] = useState<Set<string>>(new Set())
-  const [schemaSelections, setSchemaSelections] = useState<
-    Record<string, string[] | null>
-  >({})
+  const [schemaSelections, setSchemaSelections] = useState<Record<string, string[] | null>>({})
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(initialExpanded ? [initialExpanded] : [])
   )
@@ -96,9 +94,7 @@ export function ManageObjectsDialog({
       Object.fromEntries(
         catalogs.map((catalog) => [
           catalog,
-          initialConfig.schemas[catalog]
-            ? [...initialConfig.schemas[catalog]]
-            : null
+          initialConfig.schemas[catalog] ? [...initialConfig.schemas[catalog]] : null
         ])
       )
     )
@@ -123,9 +119,7 @@ export function ManageObjectsDialog({
     return catalogs.filter(
       (catalog) =>
         catalog.toLowerCase().includes(needle) ||
-        schemaLists[catalog]?.some((schema) =>
-          schema.toLowerCase().includes(needle)
-        )
+        schemaLists[catalog]?.some((schema) => schema.toLowerCase().includes(needle))
     )
   }, [catalogs, filter, schemaLists])
 
@@ -148,10 +142,7 @@ export function ManageObjectsDialog({
       else next.add(catalog)
       return next
     })
-    if (
-      !enabledCatalogs.has(catalog) &&
-      schemaSelections[catalog]?.length === 0
-    ) {
+    if (!enabledCatalogs.has(catalog) && schemaSelections[catalog]?.length === 0) {
       setSchemaSelections((previous) => ({ ...previous, [catalog]: null }))
     }
   }
@@ -199,9 +190,7 @@ export function ManageObjectsDialog({
     setSubmitError(null)
     setSaving(true)
     try {
-      const selectedCatalogs = catalogs.filter((catalog) =>
-        enabledCatalogs.has(catalog)
-      )
+      const selectedCatalogs = catalogs.filter((catalog) => enabledCatalogs.has(catalog))
       const schemas: Record<string, string[]> = {}
       for (const catalog of catalogs) {
         const selected = schemaSelections[catalog]
@@ -226,8 +215,7 @@ export function ManageObjectsDialog({
         }
       }
       await onSubmit({
-        catalogs:
-          selectedCatalogs.length === catalogs.length ? null : selectedCatalogs,
+        catalogs: selectedCatalogs.length === catalogs.length ? null : selectedCatalogs,
         schemas
       })
     } catch (cause) {
@@ -277,18 +265,10 @@ export function ManageObjectsDialog({
                 autoFocus
               />
             </div>
-            <button
-              type="button"
-              className="manage-objects-link"
-              onClick={() => setVisible(true)}
-            >
+            <button type="button" className="manage-objects-link" onClick={() => setVisible(true)}>
               Select all
             </button>
-            <button
-              type="button"
-              className="manage-objects-link"
-              onClick={() => setVisible(false)}
-            >
+            <button type="button" className="manage-objects-link" onClick={() => setVisible(false)}>
               Select none
             </button>
           </div>
@@ -297,46 +277,33 @@ export function ManageObjectsDialog({
             <div className="mcp-form-error">{error}</div>
           ) : (
             <div className="manage-objects-tree" role="tree">
-              {!catalogs && (
-                <div className="manage-objects-empty">Loading catalogs…</div>
-              )}
+              {!catalogs && <div className="manage-objects-empty">Loading catalogs…</div>}
               {catalogs && catalogs.length === 0 && (
                 <div className="manage-objects-empty">No catalogs found.</div>
               )}
-              {catalogs &&
-                catalogs.length > 0 &&
-                visibleCatalogs.length === 0 && (
-                  <div className="manage-objects-empty">
-                    No catalogs or loaded schemas match the filter.
-                  </div>
-                )}
+              {catalogs && catalogs.length > 0 && visibleCatalogs.length === 0 && (
+                <div className="manage-objects-empty">
+                  No catalogs or loaded schemas match the filter.
+                </div>
+              )}
               {visibleCatalogs.map((catalog) => {
                 const schemas = schemaLists[catalog]
                 const selected = schemaSelections[catalog]
                 const enabled = enabledCatalogs.has(catalog)
                 const catalogMatches = catalog.toLowerCase().includes(needle)
                 const schemaMatches =
-                  !!needle &&
-                  !!schemas?.some((schema) =>
-                    schema.toLowerCase().includes(needle)
-                  )
+                  !!needle && !!schemas?.some((schema) => schema.toLowerCase().includes(needle))
                 const isExpanded = expanded.has(catalog) || schemaMatches
                 const visibleSchemas = schemas?.filter(
-                  (schema) =>
-                    !needle ||
-                    catalogMatches ||
-                    schema.toLowerCase().includes(needle)
+                  (schema) => !needle || catalogMatches || schema.toLowerCase().includes(needle)
                 )
                 const selectedCount = selected
                   ? schemas
-                    ? schemas.filter((schema) => selected.includes(schema))
-                        .length
+                    ? schemas.filter((schema) => selected.includes(schema)).length
                     : selected.length
                   : schemas?.length
                 const partial =
-                  enabled &&
-                  selected !== null &&
-                  (!schemas || selectedCount !== schemas.length)
+                  enabled && selected !== null && (!schemas || selectedCount !== schemas.length)
                 return (
                   <div
                     key={catalog}
@@ -385,42 +352,30 @@ export function ManageObjectsDialog({
                     {isExpanded && (
                       <div role="group" className="manage-objects-schemas">
                         {!schemas && !schemaErrors[catalog] && (
-                          <div className="manage-objects-child-status">
-                            Loading schemas…
-                          </div>
+                          <div className="manage-objects-child-status">Loading schemas…</div>
                         )}
                         {schemaErrors[catalog] && (
-                          <div className="manage-objects-child-error">
-                            {schemaErrors[catalog]}
-                          </div>
+                          <div className="manage-objects-child-error">{schemaErrors[catalog]}</div>
                         )}
                         {schemas && schemas.length === 0 && (
-                          <div className="manage-objects-child-status">
-                            No schemas found.
-                          </div>
+                          <div className="manage-objects-child-status">No schemas found.</div>
                         )}
                         {visibleSchemas?.map((schema) => {
                           const checked =
-                            enabled &&
-                            (selected === null || selected.includes(schema))
+                            enabled && (selected === null || selected.includes(schema))
                           return (
                             <label
                               key={schema}
                               className={`manage-objects-row manage-objects-row--schema${enabled ? '' : ' is-disabled'}`}
                             >
-                              <span
-                                className="manage-objects-branch"
-                                aria-hidden="true"
-                              />
+                              <span className="manage-objects-branch" aria-hidden="true" />
                               <HierarchyCheckbox
                                 checked={checked}
                                 disabled={!enabled}
                                 label={`${checked ? 'Disable' : 'Enable'} schema ${schema}`}
                                 onChange={() => toggleSchema(catalog, schema)}
                               />
-                              <span className="manage-objects-schema-name">
-                                {schema}
-                              </span>
+                              <span className="manage-objects-schema-name">{schema}</span>
                             </label>
                           )
                         })}
@@ -436,16 +391,9 @@ export function ManageObjectsDialog({
 
         <div className="dialog__footer">
           <div className="test-msg">
-            {catalogs
-              ? `${enabledCatalogs.size} of ${catalogs.length} catalogs enabled`
-              : ''}
+            {catalogs ? `${enabledCatalogs.size} of ${catalogs.length} catalogs enabled` : ''}
           </div>
-          <button
-            className="btn-cancel"
-            onClick={onClose}
-            type="button"
-            disabled={saving}
-          >
+          <button className="btn-cancel" onClick={onClose} type="button" disabled={saving}>
             Cancel
           </button>
           <button

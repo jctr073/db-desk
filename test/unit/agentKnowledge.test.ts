@@ -136,6 +136,7 @@ function makeReq(overrides: Partial<AgentSendRequest> = {}): AgentSendRequest {
   return {
     chatId: 'chat-1',
     prompt: 'hello',
+    intent: 'chat',
     model: 'claude-opus-4-8',
     effort: null,
     mode: 'metadata',
@@ -280,7 +281,9 @@ describe('summarizeKnowledge', () => {
       source: 'agent',
       confidence: 'medium'
     }
-    expect(agent.summarizeKnowledge(oneGroup([rec]))).toContain('[agent-recorded, medium confidence]')
+    expect(agent.summarizeKnowledge(oneGroup([rec]))).toContain(
+      '[agent-recorded, medium confidence]'
+    )
   })
 
   it('drops note bodies first when over budget, keeping titles', () => {
@@ -335,8 +338,16 @@ describe('summarizeKnowledge', () => {
 describe('summarizeKnowledge with multiple groups', () => {
   it('renders each non-empty group as its own "### Knowledge base:" section, in group order', () => {
     const text = agent.summarizeKnowledge([
-      { name: 'App repo', schemas: [], records: [annotation(ref('public', 'users', 'id'), 'primary key')] },
-      { name: 'Billing repo', schemas: [], records: [note('Billing quirks', 'Amounts are in cents.')] }
+      {
+        name: 'App repo',
+        schemas: [],
+        records: [annotation(ref('public', 'users', 'id'), 'primary key')]
+      },
+      {
+        name: 'Billing repo',
+        schemas: [],
+        records: [note('Billing quirks', 'Amounts are in cents.')]
+      }
     ])
     expect(text).toContain('### Knowledge base: App repo')
     expect(text).toContain('### Knowledge base: Billing repo')
@@ -424,7 +435,13 @@ describe('buildSystemPrompt local-knowledge section', () => {
   const dialect = dialectFor('postgres')
 
   it('omits the section when the store is empty', () => {
-    const prompt = agent.buildSystemPrompt(makeReq(), 'metadata', 'Database: analytics', dialect, [])
+    const prompt = agent.buildSystemPrompt(
+      makeReq(),
+      'metadata',
+      'Database: analytics',
+      dialect,
+      []
+    )
     expect(prompt).not.toContain('## Local knowledge')
   })
 
@@ -473,7 +490,13 @@ describe('buildSystemPrompt local-knowledge section', () => {
   it('mentions search_knowledge in the rules only when a target is connected', () => {
     const withTarget = agent.buildSystemPrompt(makeReq(), 'metadata', null, dialect, [])
     expect(withTarget).toContain('search_knowledge')
-    const noTarget = agent.buildSystemPrompt(makeReq({ target: null }), 'metadata', null, dialect, [])
+    const noTarget = agent.buildSystemPrompt(
+      makeReq({ target: null }),
+      'metadata',
+      null,
+      dialect,
+      []
+    )
     expect(noTarget).not.toContain('search_knowledge')
     expect(noTarget).not.toContain('## Local knowledge')
   })
@@ -482,7 +505,13 @@ describe('buildSystemPrompt local-knowledge section', () => {
     const withTarget = agent.buildSystemPrompt(makeReq(), 'metadata', null, dialect, [])
     expect(withTarget).toContain('[kb:')
     expect(withTarget).toContain('never invent an id')
-    const noTarget = agent.buildSystemPrompt(makeReq({ target: null }), 'metadata', null, dialect, [])
+    const noTarget = agent.buildSystemPrompt(
+      makeReq({ target: null }),
+      'metadata',
+      null,
+      dialect,
+      []
+    )
     expect(noTarget).not.toContain('[kb:')
   })
 
@@ -692,10 +721,7 @@ describe('prompt-injection containment (single-line fields)', () => {
   })
 
   it('collapses newlines in exemplar questions and note titles', () => {
-    const lines = renderedLines([
-      exemplar(payload, 'SELECT 1'),
-      note(payload, 'body', [])
-    ])
+    const lines = renderedLines([exemplar(payload, 'SELECT 1'), note(payload, 'body', [])])
     expect(lines.filter((l) => l.startsWith('## '))).toEqual(['## Local knowledge'])
   })
 

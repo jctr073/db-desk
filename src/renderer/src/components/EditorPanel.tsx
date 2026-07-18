@@ -9,10 +9,7 @@ import type {
   ReactElement
 } from 'react'
 
-import type {
-  AgentEditorSelectionItem,
-  AgentResultItem
-} from '../../../shared/agent'
+import type { AgentEditorSelectionItem, AgentResultItem } from '../../../shared/agent'
 import type { DatabaseIntrospection } from '../../../shared/db'
 import {
   fileKindFromName,
@@ -124,10 +121,7 @@ function groupKeyOf(connId: string, database: string | null): string {
  * connection level (no database) fall back to that connection's primary
  * database; with no group open at all, to the app's primary target.
  */
-function resolveTarget(
-  group: FileGroup | null,
-  targets: QueryTarget[]
-): QueryTarget | null {
+function resolveTarget(group: FileGroup | null, targets: QueryTarget[]): QueryTarget | null {
   const fallback = targets.find((t) => t.primary) ?? targets[0] ?? null
   if (!group) return fallback
   const conn = targets.filter((t) => t.connId === group.connId)
@@ -236,10 +230,8 @@ export function EditorPanel({
     return [...map.values()]
   }, [files.files, files.openFileIds, runner.tabs, activeConnId])
 
-  const activeResultTab =
-    runner.tabs.find((tab) => tab.id === runner.activeTabId) ?? null
-  const activePreview =
-    activeResultTab?.source === 'preview' ? activeResultTab : null
+  const activeResultTab = runner.tabs.find((tab) => tab.id === runner.activeTabId) ?? null
+  const activePreview = activeResultTab?.source === 'preview' ? activeResultTab : null
   const activePreviewGroup = activePreview
     ? groups.find(
         (group) =>
@@ -261,8 +253,7 @@ export function EditorPanel({
     ? files.files.find((f) => f.id === files.selectedFileId)
     : null
   // A stale selection from another connection never reaches Monaco.
-  const activeFile =
-    selectedFile && selectedFile.connId === activeConnId ? selectedFile : null
+  const activeFile = selectedFile && selectedFile.connId === activeConnId ? selectedFile : null
   const activeFileId = activeFile?.id ?? null
   activeFileIdRef.current = activeFileId
   const activeFileKind = fileKindFromName(activeFile?.name ?? 'query.sql')
@@ -270,9 +261,7 @@ export function EditorPanel({
   const isSqlFile = activeFileKind === 'sql'
   const canPreview = !!activeFile && isPreviewableFile(activeFile.name)
   const isFilePreview = canPreview && previewingFileId === files.selectedFileId
-  const activeContent = activeFile
-    ? (buffersRef.current.get(activeFile.id) ?? '')
-    : ''
+  const activeContent = activeFile ? (buffersRef.current.get(activeFile.id) ?? '') : ''
 
   const queryTabs = runner.tabs.filter(
     (tab) => tab.source !== 'preview' && tab.target.connId === activeConnId
@@ -289,7 +278,7 @@ export function EditorPanel({
       files.selectFile(id)
       leavePreview()
     },
-    [files.selectFile, leavePreview]
+    [files, leavePreview]
   )
 
   // A stale file selection from another connection is never left standing:
@@ -301,7 +290,7 @@ export function EditorPanel({
     if (!selected || selected.connId === activeConnId) return
     const firstVisible = groups[0]?.files[0]
     if (firstVisible) files.selectFile(firstVisible.id)
-  }, [files.selectedFileId, files.files, activeConnId, groups, files.selectFile])
+  }, [files, activeConnId, groups])
 
   const activeFileNameRef = useRef<string | null>(null)
   activeFileNameRef.current = activeFile?.name ?? null
@@ -331,12 +320,7 @@ export function EditorPanel({
   const applyProposal = useCallback((fileId: string, text: string) => {
     const ed = editorRef.current
     const model = ed?.getModel()
-    if (
-      activeFileIdRef.current === fileId &&
-      ed &&
-      model &&
-      !model.isDisposed()
-    ) {
+    if (activeFileIdRef.current === fileId && ed && model && !model.isDisposed()) {
       ed.executeEdits('ai-agent', [
         { range: model.getFullModelRange(), text, forceMoveMarkers: true }
       ])
@@ -507,9 +491,7 @@ export function EditorPanel({
   // Completion reads the active target's schema through this ref so the
   // provider (registered once) always sees the latest introspection.
   const activeSchema =
-    target && isSqlFile
-      ? (schemas[target.connId]?.[target.database] ?? null)
-      : null
+    target && isSqlFile ? (schemas[target.connId]?.[target.database] ?? null) : null
   const schemaRef = useRef<DatabaseIntrospection | null>(null)
   schemaRef.current = activeSchema
 
@@ -574,7 +556,7 @@ export function EditorPanel({
       })
       return true
     },
-    [files.saveFile]
+    [files]
   )
 
   // Cmd+S is registered once on mount; route it through a ref so it always
@@ -641,12 +623,8 @@ export function EditorPanel({
 
   const handleMount = useCallback<OnMount>((ed, monaco) => {
     editorRef.current = ed
-    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () =>
-      runRef.current()
-    )
-    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () =>
-      saveRef.current()
-    )
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runRef.current())
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRef.current())
     ed.addAction({
       id: 'db-desk.add-selection-to-agent',
       label: 'Add Selection to AI Chat',
@@ -694,26 +672,17 @@ export function EditorPanel({
         return next
       })
       // A pending proposal for a closing file has nothing left to apply to.
-      setProposal((prev) =>
-        prev && closing.fileIds.includes(prev.fileId) ? null : prev
-      )
+      setProposal((prev) => (prev && closing.fileIds.includes(prev.fileId) ? null : prev))
       files.closeFiles(closing.fileIds)
       runner.closeTabs(closing.resultTabIds)
-      setTabMenu((menu) =>
-        menu && closing.fileIds.includes(menu.fileId) ? null : menu
-      )
+      setTabMenu((menu) => (menu && closing.fileIds.includes(menu.fileId) ? null : menu))
       setPendingClose(null)
     },
-    [files.closeFiles, runner]
+    [files, runner]
   )
 
   const requestClose = useCallback(
-    (
-      fileIds: string[],
-      resultTabIds: string[],
-      label: string,
-      groupKey: string | null = null
-    ) => {
+    (fileIds: string[], resultTabIds: string[], label: string, groupKey: string | null = null) => {
       const closingIds = new Set(fileIds)
       const dirtyFiles = files.files.filter(
         (file) => closingIds.has(file.id) && dirtyIds.has(file.id)
@@ -775,7 +744,7 @@ export function EditorPanel({
     const name = renameDraft
     setRenamingFileId(null)
     void files.renameFile(id, name)
-  }, [files.renameFile, renameDraft, renamingFileId])
+  }, [files, renameDraft, renamingFileId])
 
   const createFile = useCallback(
     (kind: FileKind) => {
@@ -787,14 +756,7 @@ export function EditorPanel({
       setNewFileMenuOpen(false)
       leavePreview()
     },
-    [
-      activeGroup?.connId,
-      activeGroup?.database,
-      target?.connId,
-      target?.database,
-      files.createFile,
-      leavePreview
-    ]
+    [activeGroup, target, files, leavePreview]
   )
 
   const startResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -816,10 +778,7 @@ export function EditorPanel({
 
   /** The diff review renders only over the file it targets. */
   const showProposal =
-    proposal !== null &&
-    !activePreview &&
-    isSqlFile &&
-    activeFileId === proposal.fileId
+    proposal !== null && !activePreview && isSqlFile && activeFileId === proposal.fileId
 
   useEffect(() => {
     if (!showProposal) return
@@ -835,13 +794,10 @@ export function EditorPanel({
   // the models alone; we capture them at mount and dispose them ourselves
   // once the overlay is gone.
   const diffModelsRef = useRef<editor.ITextModel[]>([])
-  const handleDiffMount = useCallback(
-    (diffEditor: editor.IStandaloneDiffEditor): void => {
-      const m = diffEditor.getModel()
-      diffModelsRef.current = m ? [m.original, m.modified] : []
-    },
-    []
-  )
+  const handleDiffMount = useCallback((diffEditor: editor.IStandaloneDiffEditor): void => {
+    const m = diffEditor.getModel()
+    diffModelsRef.current = m ? [m.original, m.modified] : []
+  }, [])
   useEffect(() => {
     if (showProposal) return
     const models = diffModelsRef.current
@@ -863,19 +819,14 @@ export function EditorPanel({
   /** Nothing open: show the default screen instead of a blank Monaco surface. */
   const isEmpty = groups.length === 0
   const closedFiles = useMemo(
-    () =>
-      isEmpty ? files.files.filter((f) => !files.openFileIds.has(f.id)) : [],
+    () => (isEmpty ? files.files.filter((f) => !files.openFileIds.has(f.id)) : []),
     [isEmpty, files.files, files.openFileIds]
   )
 
   return (
     <section className="editor-panel">
       <div className="editor-tabbar">
-        <div
-          className="editor-tabbar__files"
-          role="tablist"
-          aria-label="Open files"
-        >
+        <div className="editor-tabbar__files" role="tablist" aria-label="Open files">
           {groups.flatMap((group) =>
             group.files.map((file) => (
               <div
@@ -956,11 +907,7 @@ export function EditorPanel({
           <button
             ref={newFileBtnRef}
             className="icon-btn icon-btn--sm editor-tabbar__new"
-            title={
-              activeGroup || target
-                ? 'New file'
-                : 'Connect to a database to add a file'
-            }
+            title={activeGroup || target ? 'New file' : 'Connect to a database to add a file'}
             aria-label="New file"
             aria-expanded={newFileMenuOpen}
             disabled={!activeGroup && !target}
@@ -1073,14 +1020,14 @@ export function EditorPanel({
             <div className="dialog__body close-queries-dialog__body">
               {pendingClose.dirtyFiles.length === 1 ? (
                 <p>
-                  <strong>{pendingClose.dirtyFiles[0].name}</strong> has unsaved
-                  changes. Save them before closing?
+                  <strong>{pendingClose.dirtyFiles[0].name}</strong> has unsaved changes. Save them
+                  before closing?
                 </p>
               ) : (
                 <>
                   <p>
-                    {pendingClose.dirtyFiles.length} query tabs have unsaved
-                    changes. Save them before closing?
+                    {pendingClose.dirtyFiles.length} query tabs have unsaved changes. Save them
+                    before closing?
                   </p>
                   <ul className="close-queries-dialog__files">
                     {pendingClose.dirtyFiles.map((file) => (
@@ -1146,9 +1093,7 @@ export function EditorPanel({
               type="button"
               role="menuitem"
               onClick={() => {
-                const file = files.files.find(
-                  (candidate) => candidate.id === tabMenu.fileId
-                )
+                const file = files.files.find((candidate) => candidate.id === tabMenu.fileId)
                 if (file) startRename(file)
               }}
             >
@@ -1159,10 +1104,7 @@ export function EditorPanel({
       )}
       {newFileMenuOpen && newFileBtnRef.current && (
         <>
-          <div
-            className="ctx-overlay"
-            onClick={() => setNewFileMenuOpen(false)}
-          />
+          <div className="ctx-overlay" onClick={() => setNewFileMenuOpen(false)} />
           <div
             className="ctx-menu new-file-menu"
             style={menuPosition(newFileBtnRef.current)}
@@ -1279,11 +1221,7 @@ export function EditorPanel({
       ) : (
         <div className="editor-split" ref={splitRef}>
           <div className="editor-host">
-            <SqlEditor
-              theme={theme}
-              language={activeLanguage}
-              onMount={handleMount}
-            />
+            <SqlEditor theme={theme} language={activeLanguage} onMount={handleMount} />
             {isFilePreview && activeFileKind !== 'sql' && (
               <FilePreview kind={activeFileKind} content={activeContent} />
             )}
@@ -1346,9 +1284,7 @@ export function EditorPanel({
                     className="btn-primary"
                     type="button"
                     disabled={!target}
-                    title={
-                      target ? undefined : 'Connect to a database to add a query'
-                    }
+                    title={target ? undefined : 'Connect to a database to add a query'}
                     onClick={() => {
                       if (!target) return
                       files.createFile(target.connId, target.database)
@@ -1359,9 +1295,7 @@ export function EditorPanel({
                   </button>
                   {closedFiles.length > 0 && (
                     <div className="editor-empty__recent">
-                      <div className="editor-empty__recent-title">
-                        Saved files
-                      </div>
+                      <div className="editor-empty__recent-title">Saved files</div>
                       {closedFiles.map((file) => {
                         // Names are only unique per (connection, database), so
                         // the origin is what disambiguates rows here.
@@ -1379,12 +1313,8 @@ export function EditorPanel({
                             onClick={() => selectFile(file.id)}
                           >
                             <SqlFileIcon size={13} />
-                            <span className="editor-empty__file-name">
-                              {file.name}
-                            </span>
-                            <span className="editor-empty__file-origin">
-                              {origin}
-                            </span>
+                            <span className="editor-empty__file-name">{file.name}</span>
+                            <span className="editor-empty__file-origin">{origin}</span>
                           </button>
                         )
                       })}
@@ -1396,15 +1326,8 @@ export function EditorPanel({
           </div>
           {isSqlFile && queryTabs.length > 0 && (
             <>
-              <div
-                className="split-divider"
-                onPointerDown={startResize}
-                role="separator"
-              />
-              <div
-                className="results-host"
-                style={{ flex: `0 0 ${resultsPct}%` }}
-              >
+              <div className="split-divider" onPointerDown={startResize} role="separator" />
+              <div className="results-host" style={{ flex: `0 0 ${resultsPct}%` }}>
                 <ResultsPanel
                   tabs={queryTabs}
                   activeTabId={runner.activeTabId}
@@ -1413,9 +1336,7 @@ export function EditorPanel({
                   onSelect={runner.setActiveTab}
                   onClose={runner.closeTab}
                   onCloseMany={runner.closeTabs}
-                  onCloseAll={() =>
-                    runner.closeTabs(queryTabs.map((tab) => tab.id))
-                  }
+                  onCloseAll={() => runner.closeTabs(queryTabs.map((tab) => tab.id))}
                   onPin={runner.pin}
                   onRerun={(id) => runner.rerun(id, limit)}
                   onStatus={onQueryStatus}

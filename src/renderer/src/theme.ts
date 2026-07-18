@@ -19,9 +19,7 @@ function readInitialPreference(): ThemePreference {
 }
 
 function systemTheme(): Theme {
-  return window.matchMedia?.('(prefers-color-scheme: light)').matches
-    ? 'light'
-    : 'dark'
+  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
 }
 
 export interface ThemeController {
@@ -37,9 +35,7 @@ export interface ThemeController {
  * the user's choice.
  */
 export function useTheme(): ThemeController {
-  const [preference, setStoredPreference] = useState<ThemePreference>(
-    readInitialPreference
-  )
+  const [preference, setStoredPreference] = useState<ThemePreference>(readInitialPreference)
   const [osTheme, setOsTheme] = useState<Theme>(systemTheme)
 
   // Follow live OS appearance changes while the preference is 'system'.

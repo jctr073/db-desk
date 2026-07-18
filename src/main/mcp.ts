@@ -23,12 +23,7 @@ import {
 import { app, ipcMain, safeStorage } from 'electron'
 import type { BrowserWindow } from 'electron'
 
-import type {
-  McpServerConfig,
-  McpServerState,
-  McpServerStatus,
-  McpToolInfo
-} from '../shared/mcp'
+import type { McpServerConfig, McpServerState, McpServerStatus, McpToolInfo } from '../shared/mcp'
 
 /** Ceiling on one MCP tool call; slow servers should not wedge a turn. */
 const MCP_CALL_TIMEOUT_MS = 60_000
@@ -143,10 +138,7 @@ function getRuntime(id: string): Runtime {
 
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`${what} timed out after ${ms / 1000}s`)),
-      ms
-    )
+    const timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000}s`)), ms)
     promise.then(
       (value) => {
         clearTimeout(timer)
@@ -311,10 +303,7 @@ export function mcpToolsForTurn(): McpAgentTool[] {
     const rt = runtimes.get(record.id)
     if (!rt || rt.state !== 'running') continue
     for (const tool of rt.tools) {
-      let name = `mcp__${sanitizeName(record.name)}__${sanitizeName(tool.name)}`.slice(
-        0,
-        64
-      )
+      let name = `mcp__${sanitizeName(record.name)}__${sanitizeName(tool.name)}`.slice(0, 64)
       // Same-named servers/tools are legal in config; tool names must not be.
       let n = 2
       while (taken.has(name)) name = `${name.slice(0, 60)}_${n++}`
@@ -349,11 +338,9 @@ export async function callMcpTool(
     return { ok: false, text: 'The MCP server for this tool is not running.' }
   }
   try {
-    const result = await client.callTool(
-      { name: toolName, arguments: args },
-      undefined,
-      { timeout: MCP_CALL_TIMEOUT_MS }
-    )
+    const result = await client.callTool({ name: toolName, arguments: args }, undefined, {
+      timeout: MCP_CALL_TIMEOUT_MS
+    })
     const blocks = Array.isArray(result.content) ? result.content : []
     const parts: string[] = []
     for (const block of blocks) {

@@ -21,22 +21,16 @@ describe('selectGridHeaders', () => {
   })
 
   it('toggles one header on a Command-click', () => {
-    expect([...selectGridHeaders(new Set([0, 2]), 4, 2, command)]).toEqual([
-      0, 2, 4
-    ])
+    expect([...selectGridHeaders(new Set([0, 2]), 4, 2, command)]).toEqual([0, 2, 4])
     expect([...selectGridHeaders(new Set([0, 2]), 2, 0, command)]).toEqual([0])
   })
 
   it('replaces the selection with the anchor range on a Shift-click', () => {
-    expect([...selectGridHeaders(new Set([0, 6]), 4, 1, shift)]).toEqual([
-      1, 2, 3, 4
-    ])
+    expect([...selectGridHeaders(new Set([0, 6]), 4, 1, shift)]).toEqual([1, 2, 3, 4])
   })
 
   it('adds an anchor range on a Command-Shift-click', () => {
-    expect([...selectGridHeaders(new Set([0, 6]), 4, 2, commandShift)]).toEqual(
-      [0, 6, 2, 3, 4]
-    )
+    expect([...selectGridHeaders(new Set([0, 6]), 4, 2, commandShift)]).toEqual([0, 6, 2, 3, 4])
   })
 
   it('uses the clicked header as the range when there is no anchor', () => {

@@ -187,14 +187,14 @@ All application-managed state is below Electron's `app.getPath('userData')`.
 The main process owns these paths; the renderer works only with IDs and public
 metadata.
 
-| Data            | Location below `userData`              | Notes                                                                                 |
-| --------------- | --------------------------------------- | ------------------------------------------------------------------------------------- |
-| Connections     | `connections.json`                      | Versioned; mode `0600`; secrets encrypted with `safeStorage`; URL passwords redacted. |
-| Files           | `queries/` and `queries/metadata.json`  | File contents plus connection/database ownership and names.                           |
-| Knowledge bases | `knowledge/bases/<kbId>.json`           | Pretty-printed, versioned base metadata (name, codebase root) plus records; no secrets. |
-| Knowledge links | `knowledge/links.json`                  | Attaches bases to (connection, database) targets, optionally scoped to one schema.    |
-| Skills          | `skills.json`                           | Custom skills and edits to installed built-ins.                                       |
-| MCP servers     | `mcp-servers.json`                      | Mode `0600`; environment map encrypted when possible.                                 |
+| Data            | Location below `userData`              | Notes                                                                                   |
+| --------------- | -------------------------------------- | --------------------------------------------------------------------------------------- |
+| Connections     | `connections.json`                     | Versioned; mode `0600`; secrets encrypted with `safeStorage`; URL passwords redacted.   |
+| Files           | `queries/` and `queries/metadata.json` | File contents plus connection/database ownership and names.                             |
+| Knowledge bases | `knowledge/bases/<kbId>.json`          | Pretty-printed, versioned base metadata (name, codebase root) plus records; no secrets. |
+| Knowledge links | `knowledge/links.json`                 | Attaches bases to (connection, database) targets, optionally scoped to one schema.      |
+| Skills          | `skills.json`                          | Custom skills and edits to installed built-ins.                                         |
+| MCP servers     | `mcp-servers.json`                     | Mode `0600`; environment map encrypted when possible.                                   |
 
 Knowledge bases are free-standing: one base (typically per code repository,
 with the attached codebase root stored on the base itself) can be linked to
@@ -205,7 +205,7 @@ a single schema of a multi-schema catalog. A pre-existing v1 layout
 to bases and links once at startup, with originals preserved under
 `knowledge/legacy-v1/`.
 
-Connection removal cascades through files, knowledge *links*, and
+Connection removal cascades through files, knowledge _links_, and
 connection-scoped skills; knowledge bases themselves survive so shared and
 orphaned bases can be relinked or deleted explicitly. Built-in skill bodies
 live in source; only edited overrides are persisted, so an application update

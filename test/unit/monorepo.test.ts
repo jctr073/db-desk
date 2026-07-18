@@ -14,14 +14,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync
-} from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -62,9 +55,7 @@ describe('subPath on setBaseRepoRoot / getBaseRepoRoot', () => {
     mkdirSync(join(repoDir, 'services', 'billing'), { recursive: true })
     const base = knowledge.createBase('mono/billing')
     knowledge.setBaseRepoRoot(base.id, repoDir, join('services', 'billing'))
-    expect(knowledge.getBaseRepoRoot(base.id)).toBe(
-      join(repoDir, 'services', 'billing')
-    )
+    expect(knowledge.getBaseRepoRoot(base.id)).toBe(join(repoDir, 'services', 'billing'))
   })
 
   it('persists subPath on the base record', () => {
@@ -83,15 +74,12 @@ describe('subPath on setBaseRepoRoot / getBaseRepoRoot', () => {
     expect(knowledge.getBaseRepoRoot(base.id)).toBe(repoDir)
   })
 
-  it.each(['../outside', '/etc', '~x', ''])(
-    'rejects unsafe subPath %j',
-    (subPath) => {
-      const base = knowledge.createBase('bad')
-      expect(() =>
-        knowledge.setBaseRepoRoot(base.id, repoDir, subPath)
-      ).toThrow(/Invalid monorepo folder/)
-    }
-  )
+  it.each(['../outside', '/etc', '~x', ''])('rejects unsafe subPath %j', (subPath) => {
+    const base = knowledge.createBase('bad')
+    expect(() => knowledge.setBaseRepoRoot(base.id, repoDir, subPath)).toThrow(
+      /Invalid monorepo folder/
+    )
+  })
 
   it('rejects a subPath without a root', () => {
     const base = knowledge.createBase('bad')
@@ -131,10 +119,7 @@ describe('listMonorepoFolders', () => {
     mkdirSync(join(repoDir, 'node_modules'))
     writeFileSync(join(repoDir, 'README.md'), 'hi')
     symlinkSync(join(repoDir, 'billing'), join(repoDir, 'billing-link'))
-    await expect(repo.listMonorepoFolders(repoDir)).resolves.toEqual([
-      'billing',
-      'checkout'
-    ])
+    await expect(repo.listMonorepoFolders(repoDir)).resolves.toEqual(['billing', 'checkout'])
   })
 })
 
@@ -168,9 +153,7 @@ describe('createMonorepoMappings', () => {
       [result.kbIds[0], 'billing'],
       [result.kbIds[1], 'checkout']
     ])
-    expect(knowledge.getBaseRepoRoot(result.kbIds[0])).toBe(
-      join(repoDir, 'billing')
-    )
+    expect(knowledge.getBaseRepoRoot(result.kbIds[0])).toBe(join(repoDir, 'billing'))
   })
 
   it('reuses the existing base for an already-mapped folder', () => {
@@ -184,18 +167,13 @@ describe('createMonorepoMappings', () => {
     const again = repo.createMonorepoMappings({
       pickId: pick.pickId,
       ...target,
-      mappings: [
-        { folder: 'billing', schema: 'billing_stage', name: 'ignored' }
-      ]
+      mappings: [{ folder: 'billing', schema: 'billing_stage', name: 'ignored' }]
     })
     expect(again).toMatchObject({ created: 0, reused: 1 })
     expect(again.kbIds).toEqual(first.kbIds)
     expect(knowledge.listBases()).toHaveLength(1)
     const links = knowledge.linksForTarget(target.connId, target.database)
-    expect(links.map((l) => l.schema).sort()).toEqual([
-      'billing',
-      'billing_stage'
-    ])
+    expect(links.map((l) => l.schema).sort()).toEqual(['billing', 'billing_stage'])
   })
 
   it('does not duplicate a base when one batch names a folder twice', () => {

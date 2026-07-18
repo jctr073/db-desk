@@ -87,21 +87,17 @@ export function DetachCodebaseDialog({
           </button>
         </div>
 
-        <div
-          className="dialog__body detach-dialog__body"
-          id="detach-dialog-description"
-        >
+        <div className="dialog__body detach-dialog__body" id="detach-dialog-description">
           <p>
             <strong>Detach codebase</strong> clears{' '}
             <strong>{repoName ? `“${repoName}”` : 'the codebase'}</strong> from{' '}
-            <strong>{baseName ? `“${baseName}”` : 'this knowledge base'}</strong>
-            . The base and its knowledge records are kept.
+            <strong>{baseName ? `“${baseName}”` : 'this knowledge base'}</strong>. The base and its
+            knowledge records are kept.
           </p>
           <p>
-            <strong>Detach &amp; delete</strong> also permanently deletes the
-            base and everything in it — removing it from every database it is
-            linked to, not only <strong>{targetLabel}</strong>. This cannot be
-            undone.
+            <strong>Detach &amp; delete</strong> also permanently deletes the base and everything in
+            it — removing it from every database it is linked to, not only{' '}
+            <strong>{targetLabel}</strong>. This cannot be undone.
           </p>
           {error && (
             <div className="mcp-form-error" role="alert">
@@ -112,13 +108,7 @@ export function DetachCodebaseDialog({
 
         <div className="dialog__footer">
           <div className="test-msg" />
-          <button
-            className="btn-cancel"
-            onClick={onClose}
-            type="button"
-            disabled={busy}
-            autoFocus
-          >
+          <button className="btn-cancel" onClick={onClose} type="button" disabled={busy} autoFocus>
             Cancel
           </button>
           <button

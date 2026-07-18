@@ -62,9 +62,7 @@ describe('corpus vs. a real read-only session', () => {
         before.customers !== after.customers ||
         before.orders !== after.orders ||
         before.orderItems !== after.orderItems
-      expect(mutated, `mutation observation drifted for: ${c.sql}`).toBe(
-        c.mutates
-      )
+      expect(mutated, `mutation observation drifted for: ${c.sql}`).toBe(c.mutates)
     })
   }
 })
@@ -95,10 +93,9 @@ describe('why the client-side wall is load-bearing', () => {
       const res = await runAsAgent(connId, c.sql)
       const after = await rowCounts()
       expect(res.ok, `expected the belt to permit: ${c.sql}`).toBe(true)
-      expect(
-        after.orderItems,
-        `escape did not actually delete rows: ${c.sql}`
-      ).toBeLessThan(before.orderItems)
+      expect(after.orderItems, `escape did not actually delete rows: ${c.sql}`).toBeLessThan(
+        before.orderItems
+      )
     }
   })
 })

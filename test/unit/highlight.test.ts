@@ -38,16 +38,14 @@ describe('highlightSql', () => {
     expect(of(segs, 'str')).toEqual(["'hi'"])
     expect(of(segs, 'num')).toEqual(['42'])
     expect(of(segs, 'comment')).toEqual(['-- tail'])
-    expect(of(highlightSql('SELECT 1 /* two words */ + 2'), 'comment')).toEqual(
-      ['/* two words */']
-    )
+    expect(of(highlightSql('SELECT 1 /* two words */ + 2'), 'comment')).toEqual(['/* two words */'])
     expect(of(segs, 'op')).toEqual(['*', '=', '<'])
   })
 
   it('keeps LEFT/RIGHT as keywords in joins but functions before a paren', () => {
     const join = highlightSql('SELECT a FROM t LEFT JOIN u ON t.id = u.id')
     expect(of(join, 'kw')).toContain('LEFT')
-    const call = highlightSql("SELECT left(name, 3) FROM t")
+    const call = highlightSql('SELECT left(name, 3) FROM t')
     expect(of(call, 'fn')).toContain('left')
   })
 
@@ -65,9 +63,9 @@ describe('highlightSql', () => {
   })
 
   it('strips comments for one-line previews', () => {
-    expect(
-      stripSqlComments('-- top 3 per store\nSELECT * /* all */ FROM t')
-    ).toBe('\nSELECT *  FROM t')
+    expect(stripSqlComments('-- top 3 per store\nSELECT * /* all */ FROM t')).toBe(
+      '\nSELECT *  FROM t'
+    )
   })
 
   it('tolerates streaming-truncated input', () => {

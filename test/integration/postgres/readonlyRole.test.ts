@@ -10,7 +10,15 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { postgresDriver } from '../../../src/main/drivers/postgres'
-import { connectDriver, disconnectDriver, resetData, rowCounts, runAsEditor, startAdmin, stopAdmin } from '../support/db'
+import {
+  connectDriver,
+  disconnectDriver,
+  resetData,
+  rowCounts,
+  runAsEditor,
+  startAdmin,
+  stopAdmin
+} from '../support/db'
 
 let connId: string
 

@@ -23,7 +23,7 @@ import { join } from 'node:path'
 import type Anthropic from '@anthropic-ai/sdk'
 
 import type { AgentEvent, AgentSendRequest } from '../../src/shared/agent'
-import type { KnowledgeRecord } from '../../src/shared/knowledge'
+import type { AnnotationRecord, KnowledgeRecord } from '../../src/shared/knowledge'
 
 let userDataDir: string
 
@@ -68,6 +68,7 @@ function makeReq(overrides: Partial<AgentSendRequest> = {}): AgentSendRequest {
   return {
     chatId: 'chat-1',
     prompt: 'hello',
+    intent: 'chat',
     model: 'claude-opus-4-8',
     effort: null,
     mode: 'metadata',
@@ -256,11 +257,7 @@ describe('execSaveKnowledge', () => {
   // empty, database-named base and link behind.
   it('rejects a malformed record without creating the auto-base for a fresh target', () => {
     const { send } = collect()
-    agent.execSaveKnowledge(
-      makeReq(),
-      toolUse({ kind: 'annotation', text: 'orphan' }),
-      send
-    )
+    agent.execSaveKnowledge(makeReq(), toolUse({ kind: 'annotation', text: 'orphan' }), send)
     expect(knowledge.listBases()).toEqual([])
     expect(knowledge.listLinks()).toEqual([])
   })
@@ -383,7 +380,7 @@ describe('execSaveKnowledge write-target resolution', () => {
 
     const records = allRecords()
     expect(records).toHaveLength(1)
-    const updated = records[0] as typeof seeded
+    const updated = records[0] as AnnotationRecord
     expect(updated.text).toBe('admission date, not discharge')
     expect(updated.createdAt).toBe(originalCreatedAt)
     expect(updated.updatedAt).toBeGreaterThanOrEqual(originalCreatedAt)

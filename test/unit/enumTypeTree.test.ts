@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DatabaseIntrospection } from '../../src/shared/db'
-import {
-  assignIds,
-  databaseChildren
-} from '../../src/renderer/src/connections/treeData'
+import { assignIds, databaseChildren } from '../../src/renderer/src/connections/treeData'
 import type { TreeNode } from '../../src/renderer/src/connections/types'
 
 const intro: DatabaseIntrospection = {
@@ -37,9 +34,7 @@ function dataTypesNode(): TreeNode {
 
 describe('enum data types in the connection tree', () => {
   it('adds enum labels in database sort order as expandable children', () => {
-    const gameType = dataTypesNode().children?.find(
-      (node) => node.label === 'game_type'
-    )
+    const gameType = dataTypesNode().children?.find((node) => node.label === 'game_type')
 
     expect(gameType?.children).toEqual([
       expect.objectContaining({ kind: 'enumValue', label: 'single_player' }),
@@ -52,9 +47,7 @@ describe('enum data types in the connection tree', () => {
   })
 
   it('keeps non-enum data types as leaf rows', () => {
-    const account = dataTypesNode().children?.find(
-      (node) => node.label === 'account'
-    )
+    const account = dataTypesNode().children?.find((node) => node.label === 'account')
 
     expect(account?.children).toBeUndefined()
   })

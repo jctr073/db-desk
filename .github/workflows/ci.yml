@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # Nothing in CI launches Electron itself (unit tests mock it, integration
+  # tests talk straight to Postgres), so skip the ~100MB binary download.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+jobs:
+  checks:
+    name: Typecheck, lint, format, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npx prettier --check .
+      - run: npm run test:unit
+
+  integration:
+    name: Postgres integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # The vitest global setup starts and seeds the dockerized Postgres
+      # itself (test/docker-compose.yml); DOWN=1 tears it down after.
+      - run: npm run test:integration
+        env:
+          DBDESK_TEST_DOCKER_DOWN: '1'

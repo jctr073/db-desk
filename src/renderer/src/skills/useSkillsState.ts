@@ -33,9 +33,7 @@ export function useSkillsState(): SkillsState {
         if (!cancelled) setSkills(loaded)
       } catch (err) {
         if (!cancelled) {
-          setError(
-            `Failed to load skills: ${err instanceof Error ? err.message : String(err)}`
-          )
+          setError(`Failed to load skills: ${err instanceof Error ? err.message : String(err)}`)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -49,26 +47,21 @@ export function useSkillsState(): SkillsState {
     }
   }, [])
 
-  const save = useCallback(
-    async (input: SkillSaveInput): Promise<Skill | null> => {
-      try {
-        const saved = await window.dbDesk.skills.save(input)
-        // The change push reloads too; upsert now so the UI doesn't wait.
-        setSkills((prev) =>
-          prev.some((s) => s.id === saved.id)
-            ? prev.map((s) => (s.id === saved.id ? saved : s))
-            : [...prev, saved]
-        )
-        return saved
-      } catch (err) {
-        setError(
-          `Failed to save skill: ${err instanceof Error ? err.message : String(err)}`
-        )
-        return null
-      }
-    },
-    []
-  )
+  const save = useCallback(async (input: SkillSaveInput): Promise<Skill | null> => {
+    try {
+      const saved = await window.dbDesk.skills.save(input)
+      // The change push reloads too; upsert now so the UI doesn't wait.
+      setSkills((prev) =>
+        prev.some((s) => s.id === saved.id)
+          ? prev.map((s) => (s.id === saved.id ? saved : s))
+          : [...prev, saved]
+      )
+      return saved
+    } catch (err) {
+      setError(`Failed to save skill: ${err instanceof Error ? err.message : String(err)}`)
+      return null
+    }
+  }, [])
 
   const remove = useCallback(async (id: string): Promise<boolean> => {
     try {
@@ -78,9 +71,7 @@ export function useSkillsState(): SkillsState {
       setSkills((prev) => prev.filter((s) => s.id !== id || s.builtin))
       return true
     } catch (err) {
-      setError(
-        `Failed to delete skill: ${err instanceof Error ? err.message : String(err)}`
-      )
+      setError(`Failed to delete skill: ${err instanceof Error ? err.message : String(err)}`)
       return false
     }
   }, [])

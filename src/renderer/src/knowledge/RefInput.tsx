@@ -124,11 +124,7 @@ export function RefField({
         intro={intro}
         placeholder={placeholder ?? 'schema.table.column'}
       />
-      {hint && (
-        <div className={`ref-hint${hint.warn ? ' ref-hint--warn' : ''}`}>
-          {hint.text}
-        </div>
-      )}
+      {hint && <div className={`ref-hint${hint.warn ? ' ref-hint--warn' : ''}`}>{hint.text}</div>}
     </div>
   )
 }

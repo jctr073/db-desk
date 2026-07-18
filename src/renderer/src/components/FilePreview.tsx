@@ -25,12 +25,9 @@ interface FilePreviewProps {
 }
 
 export type MarkdownPreviewSection =
-  | { type: 'markdown'; content: string }
-  | { type: 'code'; content: string; language: string | null }
+  { type: 'markdown'; content: string } | { type: 'code'; content: string; language: string | null }
 
-export function parseMarkdownPreview(
-  content: string
-): MarkdownPreviewSection[] {
+export function parseMarkdownPreview(content: string): MarkdownPreviewSection[] {
   const sections: MarkdownPreviewSection[] = []
   let lines: string[] = []
   let codeLanguage: string | null = null
@@ -71,26 +68,18 @@ export function parseMarkdownPreview(
 }
 
 export function FilePreview({ kind, content }: FilePreviewProps): ReactElement {
-  const json = useMemo(
-    () => (kind === 'json' ? formatJsonPreview(content) : null),
-    [content, kind]
-  )
+  const json = useMemo(() => (kind === 'json' ? formatJsonPreview(content) : null), [content, kind])
 
   if (kind === 'markdown') {
     const sections = parseMarkdownPreview(content)
     return (
-      <div
-        className="file-preview file-preview--markdown"
-        aria-label="Markdown preview"
-      >
+      <div className="file-preview file-preview--markdown" aria-label="Markdown preview">
         {content.trim() ? (
           sections.map((section, index) =>
             section.type === 'code' ? (
               <div className="file-preview__code" key={index}>
                 {section.language && (
-                  <div className="file-preview__code-language">
-                    {section.language}
-                  </div>
+                  <div className="file-preview__code-language">{section.language}</div>
                 )}
                 <pre>{section.content}</pre>
               </div>
@@ -106,10 +95,7 @@ export function FilePreview({ kind, content }: FilePreviewProps): ReactElement {
   }
 
   return (
-    <div
-      className="file-preview"
-      aria-label={`${kind === 'json' ? 'JSON' : 'Text'} preview`}
-    >
+    <div className="file-preview" aria-label={`${kind === 'json' ? 'JSON' : 'Text'} preview`}>
       {json?.error && (
         <div className="file-preview__error" role="alert">
           Invalid JSON: {json.error}

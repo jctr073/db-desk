@@ -28,9 +28,7 @@ describe('statement corpus integrity', () => {
     // mutates may be `read`.
     for (const c of ALL_CASES) {
       if (c.mutates) {
-        expect(c.expected, `mutating case labelled read: ${c.name}`).not.toBe(
-          'read'
-        )
+        expect(c.expected, `mutating case labelled read: ${c.name}`).not.toBe('read')
       }
     }
   })

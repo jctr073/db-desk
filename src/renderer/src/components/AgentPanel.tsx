@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type {
-  KeyboardEvent,
-  MutableRefObject,
-  ReactElement,
-  ReactNode
-} from 'react'
+import type { KeyboardEvent, MutableRefObject, ReactElement, ReactNode } from 'react'
 
 import {
   AGENT_MODELS,
@@ -46,21 +41,11 @@ import { useSkillsState } from '../skills/useSkillsState'
 import { NodeIcon } from '../connections/NodeIcon'
 import { KIND_LABELS, isKnownKind, recordTitle } from '../knowledge/format'
 import { KnowledgePanel } from '../knowledge/KnowledgePanel'
-import {
-  knowledgeTargetKeyOf,
-  useKnowledgeState
-} from '../knowledge/useKnowledgeState'
-import type {
-  KnowledgeNav,
-  KnowledgeState
-} from '../knowledge/useKnowledgeState'
+import { knowledgeTargetKeyOf, useKnowledgeState } from '../knowledge/useKnowledgeState'
+import type { KnowledgeNav, KnowledgeState } from '../knowledge/useKnowledgeState'
 import { stripSqlComments } from '../sql/highlight'
 import type { FileState } from '../files/useFileState'
-import {
-  formatElapsed,
-  lastSqlFence,
-  splitFences
-} from './agentTurn'
+import { formatElapsed, lastSqlFence, splitFences } from './agentTurn'
 import type { TurnRecap } from './agentTurn'
 import type { EditorBridge } from './editorBridge'
 import { ManageKnowledgeDialog } from './ManageKnowledgeDialog'
@@ -128,11 +113,7 @@ interface AgentPanelProps {
   /** Clears the pending nav once KnowledgePanel has acted on it (one-shot). */
   onKnowledgeNavConsumed: () => void
   /** [kb:id] citation chip clicked: reveal that record in the knowledge tab. */
-  onOpenKnowledgeRecord: (
-    connId: string,
-    database: string,
-    recordId: string
-  ) => void
+  onOpenKnowledgeRecord: (connId: string, database: string, recordId: string) => void
   /**
    * One-shot composer prefill (e.g. "Fix with AI" from the results grid).
    * A new seq reveals the agent tab and replaces the draft; never replayed.
@@ -388,12 +369,7 @@ function ContextGauge({
       title={`Context: ${tokens.toLocaleString()} of ${windowSize.toLocaleString()} tokens (${percent}%)`}
     >
       <svg viewBox="0 0 26 26" width={26} height={26}>
-        <circle
-          className="context-gauge__track"
-          cx="13"
-          cy="13"
-          r={GAUGE_RADIUS}
-        />
+        <circle className="context-gauge__track" cx="13" cy="13" r={GAUGE_RADIUS} />
         <circle
           className="context-gauge__fill"
           cx="13"
@@ -430,9 +406,7 @@ export function AgentPanel({
   onOpenKnowledgeRecord,
   seed
 }: AgentPanelProps): ReactElement {
-  const [activeTab, setActiveTab] = useState<
-    'files' | 'agent' | 'knowledge' | 'skills'
-  >('agent')
+  const [activeTab, setActiveTab] = useState<'files' | 'agent' | 'knowledge' | 'skills'>('agent')
   const [knowledgeNewSeq, setKnowledgeNewSeq] = useState(0)
   const consumeKnowledgeNewSeq = useCallback(() => setKnowledgeNewSeq(0), [])
   const [skillsNewSeq, setSkillsNewSeq] = useState(0)
@@ -450,9 +424,7 @@ export function AgentPanel({
   const [contextTokens, setContextTokens] = useState(0)
   const [slashIndex, setSlashIndex] = useState(0)
   const [modelId, setModelId] = useState(DEFAULT_AGENT_MODEL.id)
-  const [effort, setEffort] = useState<AgentEffort | null>(
-    DEFAULT_AGENT_MODEL.defaultEffort
-  )
+  const [effort, setEffort] = useState<AgentEffort | null>(DEFAULT_AGENT_MODEL.defaultEffort)
   const [keyStatus, setKeyStatus] = useState<AgentKeyStatus | null>(null)
   const [input, setInput] = useState('')
   const [draftIntent, setDraftIntent] = useState<AgentPromptIntent>('chat')
@@ -476,9 +448,7 @@ export function AgentPanel({
   const [webSearch, setWebSearch] = useState(false)
   // Codebase attachment now lives on the knowledge base, so repo status is
   // keyed by kbId. A target's status is that of its default linked base.
-  const [repoStatuses, setRepoStatuses] = useState<Record<string, RepoStatus>>(
-    {}
-  )
+  const [repoStatuses, setRepoStatuses] = useState<Record<string, RepoStatus>>({})
   /** Every knowledge link, so any target's default base resolves in-process. */
   const [links, setLinks] = useState<KnowledgeLink[]>([])
   /** The knowledge tab's "Manage Knowledge Bases" dialog. */
@@ -507,29 +477,23 @@ export function AgentPanel({
     editorProposal: null as 'applied' | 'pending' | null
   })
 
-  const model =
-    AGENT_MODELS.find((m) => m.id === modelId) ?? DEFAULT_AGENT_MODEL
+  const model = AGENT_MODELS.find((m) => m.id === modelId) ?? DEFAULT_AGENT_MODEL
   const modeOption = AGENT_MODES.find((m) => m.id === mode) ?? AGENT_MODES[0]
   const target = activeTarget
   /** Where the files tab's "+" puts a new file: the chat's target, else primary. */
-  const fileHome =
-    target ?? targets.find((t) => t.primary) ?? targets[0] ?? null
+  const fileHome = target ?? targets.find((t) => t.primary) ?? targets[0] ?? null
   const knowledgeTarget =
-    targets.find(
-      (t) => knowledgeTargetKeyOf(t.connId, t.database) === knowledgeTargetKey
-    ) ?? null
+    targets.find((t) => knowledgeTargetKeyOf(t.connId, t.database) === knowledgeTargetKey) ?? null
 
   /**
    * A (connection, database) target's default knowledge base — the shared
    * pickDefaultLink rule over its links, so the composer, scans, and the agent
    * write path all agree on which base is "active" when none is named.
-  */
+   */
   const defaultBaseFor = useCallback(
     (connId: string | undefined, database: string | undefined): string | null => {
       if (!connId || !database) return null
-      const forTarget = links.filter(
-        (l) => l.connId === connId && l.database === database
-      )
+      const forTarget = links.filter((l) => l.connId === connId && l.database === database)
       return pickDefaultLink(forTarget)?.kbId ?? null
     },
     [links]
@@ -537,10 +501,7 @@ export function AgentPanel({
 
   /** The codebase status of a target's default base, or null when it has none. */
   const repoStatusFor = useCallback(
-    (
-      connId: string | undefined,
-      database: string | undefined
-    ): RepoStatus | null => {
+    (connId: string | undefined, database: string | undefined): RepoStatus | null => {
       const kbId = defaultBaseFor(connId, database)
       return kbId ? (repoStatuses[kbId] ?? null) : null
     },
@@ -558,17 +519,11 @@ export function AgentPanel({
   // Knowledge records for the CHAT target — the knowledge tab may be viewing
   // a different database — so [kb:id] citations in assistant prose resolve to
   // live records (and pick up renames/deletes via knowledge:changed pushes).
-  const chatKnowledge = useKnowledgeState(
-    target?.connId ?? null,
-    target?.database ?? null
-  )
+  const chatKnowledge = useKnowledgeState(target?.connId ?? null, target?.database ?? null)
   // A [kb:id] citation can name a record in any base linked to the chat target,
   // so resolve over the union of all its bases, not just the selected one.
   const chatRecordById = useMemo(
-    () =>
-      new Map(
-        chatKnowledge.groups.flatMap((g) => g.records).map((r) => [r.id, r])
-      ),
+    () => new Map(chatKnowledge.groups.flatMap((g) => g.records).map((r) => [r.id, r])),
     [chatKnowledge.groups]
   )
   const targetRef = useRef(target)
@@ -589,9 +544,7 @@ export function AgentPanel({
           </span>
         )
       }
-      const label = isKnownKind(record.kind)
-        ? KIND_LABELS[record.kind]
-        : 'Knowledge'
+      const label = isKnownKind(record.kind) ? KIND_LABELS[record.kind] : 'Knowledge'
       return (
         <button
           type="button"
@@ -735,8 +688,7 @@ export function AgentPanel({
           break
         }
         case 'editor_proposal': {
-          const outcome =
-            editorBridge.current?.proposeSql(evt.sql) ?? 'unavailable'
+          const outcome = editorBridge.current?.proposeSql(evt.sql) ?? 'unavailable'
           if (outcome === 'applied' || outcome === 'pending') {
             turnStats.current.editorProposal = outcome
           }
@@ -811,9 +763,7 @@ export function AgentPanel({
         case 'error': {
           setBusy(false)
           setThinking(false)
-          setMessages((prev) =>
-            appendPart(prev, { kind: 'error', text: evt.message })
-          )
+          setMessages((prev) => appendPart(prev, { kind: 'error', text: evt.message }))
           // Only recap turns that got somewhere; an immediate failure (e.g.
           // missing API key) is fully told by the error box alone.
           const stats = turnStats.current
@@ -835,7 +785,7 @@ export function AgentPanel({
       }
     })
     return unsubscribe
-  }, [])
+  }, [editorBridge])
 
   // Follow the stream: keep the transcript pinned to the bottom.
   useEffect(() => {
@@ -899,9 +849,7 @@ export function AgentPanel({
 
   const pickModel = useCallback((next: AgentModelOption) => {
     setModelId(next.id)
-    setEffort((cur) =>
-      cur && next.efforts.includes(cur) ? cur : next.defaultEffort
-    )
+    setEffort((cur) => (cur && next.efforts.includes(cur) ? cur : next.defaultEffort))
     setModelOpen(false)
   }, [])
 
@@ -932,12 +880,9 @@ export function AgentPanel({
     for (const s of intro.schemas) {
       const base = { database: target.database, connId: target.connId }
       push({ kind: 'schema', name: s.name, schema: null, ...base })
-      for (const t of s.tables)
-        push({ kind: 'table', name: t.name, schema: s.name, ...base })
-      for (const v of s.views)
-        push({ kind: 'view', name: v.name, schema: s.name, ...base })
-      for (const m of s.matviews)
-        push({ kind: 'matview', name: m.name, schema: s.name, ...base })
+      for (const t of s.tables) push({ kind: 'table', name: t.name, schema: s.name, ...base })
+      for (const v of s.views) push({ kind: 'view', name: v.name, schema: s.name, ...base })
+      for (const m of s.matviews) push({ kind: 'matview', name: m.name, schema: s.name, ...base })
     }
     return out.slice(0, 200)
   }, [intro, target, pickerFilter, context])
@@ -957,8 +902,7 @@ export function AgentPanel({
   const loadFinalSql = useCallback(
     (recap: TurnRecap) => {
       if (!recap.finalSql) return
-      const outcome =
-        editorBridge.current?.proposeSql(recap.finalSql) ?? 'unavailable'
+      const outcome = editorBridge.current?.proposeSql(recap.finalSql) ?? 'unavailable'
       if (outcome === 'unavailable') return
       setMessages((prev) =>
         prev.map((msg) => ({
@@ -1077,10 +1021,7 @@ export function AgentPanel({
     async (kbId: string): Promise<void> => {
       const status = await window.dbDesk.repo.choose(kbId)
       rememberRepoStatus(status)
-      if (
-        status.root &&
-        kbId === defaultBaseFor(target?.connId, target?.database)
-      ) {
+      if (status.root && kbId === defaultBaseFor(target?.connId, target?.database)) {
         setRepoEnabled(true)
       }
     },
@@ -1108,10 +1049,7 @@ export function AgentPanel({
 
   // The scan actions send the (possibly user-edited) skill prompt; the
   // shipped constants remain only as a fallback while skills are loading.
-  const skillById = useMemo(
-    () => new Map(skills.skills.map((s) => [s.id, s])),
-    [skills.skills]
-  )
+  const skillById = useMemo(() => new Map(skills.skills.map((s) => [s.id, s])), [skills.skills])
 
   const scanBase = useCallback(
     (kbId: string) => {
@@ -1121,19 +1059,12 @@ export function AgentPanel({
       setManageKnowledgeOpen(false)
       setRepoEnabled(true)
       setActiveTab('agent')
-      const prompt =
-        skillById.get(SCAN_CODEBASE_SKILL_ID)?.prompt ?? REPO_SCAN_PROMPT
+      const prompt = skillById.get(SCAN_CODEBASE_SKILL_ID)?.prompt ?? REPO_SCAN_PROMPT
       // Pin the scan to the base whose codebase is attached so its findings
       // are written there. This launch point collects no input; strip any
       // {{args}} a user edit added so the placeholder never reaches the model
       // as literal text.
-      sendPrompt(
-        applySkillArgs(prompt, ''),
-        knowledgeTarget,
-        true,
-        'chat',
-        kbId
-      )
+      sendPrompt(applySkillArgs(prompt, ''), knowledgeTarget, true, 'chat', kbId)
     },
     [knowledgeTarget, repoStatuses, busy, compacting, sendPrompt, skillById]
   )
@@ -1149,9 +1080,7 @@ export function AgentPanel({
       setActiveTab('agent')
       const template = skillById.get(TARGETED_SCAN_SKILL_ID)?.prompt
       sendPrompt(
-        template
-          ? applySkillArgs(template, focus)
-          : repoTargetedScanPrompt(focus),
+        template ? applySkillArgs(template, focus) : repoTargetedScanPrompt(focus),
         knowledgeTarget,
         true,
         'chat',
@@ -1196,16 +1125,7 @@ export function AgentPanel({
       sendPrompt(prompt, runTarget, needsRepo, 'chat', kbId)
       return null
     },
-    [
-      busy,
-      compacting,
-      sendPrompt,
-      target,
-      targets,
-      connNames,
-      repoStatusFor,
-      defaultBaseFor
-    ]
+    [busy, compacting, sendPrompt, target, targets, connNames, repoStatusFor, defaultBaseFor]
   )
 
   const stop = useCallback(() => {
@@ -1247,10 +1167,7 @@ export function AgentPanel({
     if (busy || compacting) return
     const current = currentChatSnapshot()
     if (current.messages.length > 0 || current.draft.trim()) {
-      setChatHistory((previous) => [
-        current,
-        ...previous.filter((chat) => chat.id !== current.id)
-      ])
+      setChatHistory((previous) => [current, ...previous.filter((chat) => chat.id !== current.id)])
     }
     const now = Date.now()
     setChatId(nextId('chat'))
@@ -1304,8 +1221,7 @@ export function AgentPanel({
     const q = m[1].toLowerCase()
     return AGENT_SLASH_COMMANDS.filter((c) => c.name.startsWith(q))
   }, [input])
-  const slashSel =
-    slashMatches.length > 0 ? Math.min(slashIndex, slashMatches.length - 1) : 0
+  const slashSel = slashMatches.length > 0 ? Math.min(slashIndex, slashMatches.length - 1) : 0
 
   const runCompact = useCallback(async () => {
     if (busy || compacting) return
@@ -1357,9 +1273,7 @@ export function AgentPanel({
         }
         if (e.key === 'ArrowUp') {
           e.preventDefault()
-          setSlashIndex(
-            (slashSel - 1 + slashMatches.length) % slashMatches.length
-          )
+          setSlashIndex((slashSel - 1 + slashMatches.length) % slashMatches.length)
           return
         }
         if (e.key === 'Tab') {
@@ -1446,8 +1360,7 @@ export function AgentPanel({
             if (activeTab === 'agent') newChat()
             else if (activeTab === 'knowledge') setKnowledgeNewSeq((s) => s + 1)
             else if (activeTab === 'skills') setSkillsNewSeq((s) => s + 1)
-            else if (fileHome)
-              files.createFile(fileHome.connId, fileHome.database)
+            else if (fileHome) files.createFile(fileHome.connId, fileHome.database)
           }}
         >
           <PlusThinIcon />
@@ -1456,10 +1369,7 @@ export function AgentPanel({
       {activeTab === 'agent' && (
         <div className="agent-target-row">
           {activeTarget ? (
-            <span
-              className="ctx-chip"
-              title="The agent follows the app's active connection"
-            >
+            <span className="ctx-chip" title="The agent follows the app's active connection">
               <span className="ctx-chip__lock">
                 <LockIcon />
               </span>
@@ -1485,10 +1395,7 @@ export function AgentPanel({
             </button>
             {modeOpen && (
               <>
-                <div
-                  className="ctx-overlay"
-                  onMouseDown={() => setModeOpen(false)}
-                />
+                <div className="ctx-overlay" onMouseDown={() => setModeOpen(false)} />
                 <div className="model-pop mode-pop">
                   {AGENT_MODES.map((m) => (
                     <button
@@ -1569,22 +1476,11 @@ export function AgentPanel({
               </button>
               {historyOpen && (
                 <>
-                  <div
-                    className="ctx-overlay"
-                    onMouseDown={() => setHistoryOpen(false)}
-                  />
+                  <div className="ctx-overlay" onMouseDown={() => setHistoryOpen(false)} />
                   <div className="chat-history-pop">
-                    <div className="chat-history-pop__heading">
-                      Chat history
-                    </div>
-                    <button
-                      type="button"
-                      className="chat-history-item is-active"
-                      disabled
-                    >
-                      <span className="chat-history-item__title">
-                        {chatTitle(messages)}
-                      </span>
+                    <div className="chat-history-pop__heading">Chat history</div>
+                    <button type="button" className="chat-history-item is-active" disabled>
+                      <span className="chat-history-item__title">{chatTitle(messages)}</span>
                       <span className="chat-history-item__meta">Current</span>
                     </button>
                     {chatHistory.length > 0 ? (
@@ -1626,9 +1522,8 @@ export function AgentPanel({
           {mcpOpen && <McpSettingsDialog onClose={() => setMcpOpen(false)} />}
           {keyMissing && (
             <div className="chat__notice">
-              No API key found — add one in Settings (the gear in the status
-              bar), or add <code>export {keyStatus?.varName ?? API_KEY_VAR}=…</code>{' '}
-              to <code>~/.zshrc</code>.
+              No API key found — add one in Settings (the gear in the status bar), or add{' '}
+              <code>export {keyStatus?.varName ?? API_KEY_VAR}=…</code> to <code>~/.zshrc</code>.
             </div>
           )}
           <KbRefContext.Provider value={renderKbRef}>
@@ -1686,9 +1581,7 @@ export function AgentPanel({
                             )}
                           </code>
                           <span className="chat-tool__summary">
-                            {part.status === 'running'
-                              ? 'running…'
-                              : part.summary}
+                            {part.status === 'running' ? 'running…' : part.summary}
                           </span>
                           {part.status !== 'running' && (
                             <span className="chat-tool__status">
@@ -1733,14 +1626,9 @@ export function AgentPanel({
                         editorNote
                       ].filter((s): s is string => Boolean(s))
                       return (
-                        <div
-                          key={i}
-                          className={`chat-recap chat-recap--${part.status}`}
-                        >
+                        <div key={i} className={`chat-recap chat-recap--${part.status}`}>
                           <span className="chat-recap__label">{label}</span>
-                          <span className="chat-recap__meta">
-                            {segments.join(' · ')}
-                          </span>
+                          <span className="chat-recap__meta">{segments.join(' · ')}</span>
                           {part.finalSql && (
                             <button
                               type="button"
@@ -1762,12 +1650,8 @@ export function AgentPanel({
                   })}
                 </div>
               ))}
-              {thinking && busy && (
-                <div className="chat__thinking">Thinking…</div>
-              )}
-              {compacting && (
-                <div className="chat__thinking">Compacting context…</div>
-              )}
+              {thinking && busy && <div className="chat__thinking">Thinking…</div>}
+              {compacting && <div className="chat__thinking">Compacting context…</div>}
             </div>
           </KbRefContext.Provider>
           <div className="chat__composer">
@@ -1794,9 +1678,7 @@ export function AgentPanel({
                         title={`${item.fileName ?? 'editor'} lines ${item.startLine}–${item.endLine} (snapshot):\n${item.sql.slice(0, 400)}`}
                       >
                         <SqlFileIcon size={12} />
-                        <span className="chip__label">
-                          {item.fileName ?? 'selection'}
-                        </span>
+                        <span className="chip__label">{item.fileName ?? 'selection'}</span>
                         <span className="chip__sub">
                           {lineCount} {lineCount === 1 ? 'line' : 'lines'}
                         </span>
@@ -1820,9 +1702,7 @@ export function AgentPanel({
                       </span>
                     )
                   }
-                  const qualified = item.schema
-                    ? `${item.schema}.${item.name}`
-                    : item.name
+                  const qualified = item.schema ? `${item.schema}.${item.name}` : item.name
                   return (
                     <span
                       key={key}
@@ -1834,9 +1714,7 @@ export function AgentPanel({
                         color="var(--accent-strong)"
                       />
                       <span className="chip__label">{item.name}</span>
-                      <span className="chip__sub">
-                        {CHIP_KIND_LABEL[item.kind]}
-                      </span>
+                      <span className="chip__sub">{CHIP_KIND_LABEL[item.kind]}</span>
                       {remove}
                     </span>
                   )
@@ -1911,19 +1789,14 @@ export function AgentPanel({
                     {effort && model.efforts.includes(effort) && (
                       <>
                         <span className="model-pill__dot" />
-                        <span className="model-pill__effort">
-                          {EFFORT_LABEL[effort]}
-                        </span>
+                        <span className="model-pill__effort">{EFFORT_LABEL[effort]}</span>
                       </>
                     )}
                     <ChevronDownIcon size={10} />
                   </button>
                   {modelOpen && (
                     <>
-                      <div
-                        className="ctx-overlay"
-                        onMouseDown={() => setModelOpen(false)}
-                      />
+                      <div className="ctx-overlay" onMouseDown={() => setModelOpen(false)} />
                       <div className="model-pop">
                         <div className="model-pop__heading">Model</div>
                         {AGENT_MODELS.map((m) => (
@@ -1940,9 +1813,7 @@ export function AgentPanel({
                         {effortOptions.length > 0 && (
                           <>
                             <div className="model-pop__sep" />
-                            <div className="model-pop__heading">
-                              Reasoning effort
-                            </div>
+                            <div className="model-pop__heading">Reasoning effort</div>
                             <div className="model-pop__segs">
                               {effortOptions.map((lvl) => (
                                 <button
@@ -1961,10 +1832,7 @@ export function AgentPanel({
                     </>
                   )}
                 </div>
-                <ContextGauge
-                  tokens={contextTokens}
-                  windowSize={model.contextWindow}
-                />
+                <ContextGauge tokens={contextTokens} windowSize={model.contextWindow} />
                 <div className="agent-tools-ctl">
                   <button
                     type="button"
@@ -1982,10 +1850,7 @@ export function AgentPanel({
                   </button>
                   {agentToolsOpen && (
                     <>
-                      <div
-                        className="ctx-overlay"
-                        onMouseDown={() => setAgentToolsOpen(false)}
-                      />
+                      <div className="ctx-overlay" onMouseDown={() => setAgentToolsOpen(false)} />
                       <div
                         className="model-pop mcp-pop agent-tools-pop"
                         role="menu"
@@ -2005,16 +1870,12 @@ export function AgentPanel({
                             <GlobeIcon size={14} />
                             Web browsing
                           </span>
-                          <span className="agent-tools-pop__state">
-                            {webSearch ? 'On' : 'Off'}
-                          </span>
+                          <span className="agent-tools-pop__state">{webSearch ? 'On' : 'Off'}</span>
                         </button>
                         <div className="model-pop__sep" />
                         <div className="model-pop__heading">MCP servers</div>
                         {mcpStatuses.length === 0 && (
-                          <div className="mcp-pop__empty">
-                            No MCP servers configured.
-                          </div>
+                          <div className="mcp-pop__empty">No MCP servers configured.</div>
                         )}
                         {mcpStatuses.map((status) => (
                           <button
@@ -2032,12 +1893,8 @@ export function AgentPanel({
                               setMcpOpen(true)
                             }}
                           >
-                            <span
-                              className={`mcp-dot mcp-dot--${status.state}`}
-                            />
-                            <span className="mcp-pop__name">
-                              {status.config.name}
-                            </span>
+                            <span className={`mcp-dot mcp-dot--${status.state}`} />
+                            <span className="mcp-pop__name">{status.config.name}</span>
                             <span className="mcp-pop__state">
                               {!status.config.enabled
                                 ? 'disabled'
@@ -2069,12 +1926,7 @@ export function AgentPanel({
                 </div>
                 <div className="composer__spacer" />
                 {busy ? (
-                  <button
-                    type="button"
-                    className="composer__send"
-                    title="Stop"
-                    onClick={stop}
-                  >
+                  <button type="button" className="composer__send" title="Stop" onClick={stop}>
                     <StopIcon />
                   </button>
                 ) : (
@@ -2091,10 +1943,7 @@ export function AgentPanel({
               </div>
               {pickerOpen && (
                 <>
-                  <div
-                    className="ctx-overlay"
-                    onMouseDown={() => setPickerOpen(false)}
-                  />
+                  <div className="ctx-overlay" onMouseDown={() => setPickerOpen(false)} />
                   <div className="picker-pop">
                     <div className="picker-pop__search">
                       <SearchIcon />
@@ -2109,9 +1958,7 @@ export function AgentPanel({
                     <div className="picker-pop__list">
                       {pickerItems.length === 0 && (
                         <div className="picker-pop__empty">
-                          {intro
-                            ? 'Nothing left to add'
-                            : 'Loading schema objects…'}
+                          {intro ? 'Nothing left to add' : 'Loading schema objects…'}
                         </div>
                       )}
                       {pickerItems.map((item) => (
@@ -2126,13 +1973,9 @@ export function AgentPanel({
                             color="var(--text-dim)"
                           />
                           <span className="picker-pop__name">
-                            {item.schema
-                              ? `${item.schema}.${item.name}`
-                              : item.name}
+                            {item.schema ? `${item.schema}.${item.name}` : item.name}
                           </span>
-                          <span className="picker-pop__kind">
-                            {CHIP_KIND_LABEL[item.kind]}
-                          </span>
+                          <span className="picker-pop__kind">{CHIP_KIND_LABEL[item.kind]}</span>
                         </button>
                       ))}
                     </div>

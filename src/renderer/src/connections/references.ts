@@ -229,10 +229,7 @@ export function buildReferenceIndex(db: DatabaseIntrospection): ReferenceIndex {
 }
 
 /** Edges touching one column, in both directions. */
-export function columnReferences(
-  index: ReferenceIndex,
-  ref: ColumnEndpoint
-): ReferenceLists {
+export function columnReferences(index: ReferenceIndex, ref: ColumnEndpoint): ReferenceLists {
   const matches = (end: ColumnEndpoint): boolean =>
     end.schema === ref.schema && end.table === ref.table && end.column === ref.column
   return {
@@ -247,8 +244,7 @@ export function tableReferences(
   schema: string,
   table: string
 ): ReferenceLists {
-  const matches = (end: ColumnEndpoint): boolean =>
-    end.schema === schema && end.table === table
+  const matches = (end: ColumnEndpoint): boolean => end.schema === schema && end.table === table
   return {
     outbound: index.edges.filter((edge) => matches(edge.from)),
     inbound: index.edges.filter((edge) => matches(edge.to))
@@ -263,10 +259,7 @@ function sameEndpoint(a: ColumnEndpoint, b: ColumnEndpoint): boolean {
  * Other source columns that resolve to one of the subject column's targets.
  * The returned edges retain their FK/LFK kind for display in the popover.
  */
-export function semanticPeers(
-  index: ReferenceIndex,
-  subject: ColumnEndpoint
-): ReferenceEdge[] {
+export function semanticPeers(index: ReferenceIndex, subject: ColumnEndpoint): ReferenceEdge[] {
   const targets = index.edges
     .filter((edge) => sameEndpoint(edge.from, subject))
     .map((edge) => edge.to)
@@ -274,8 +267,7 @@ export function semanticPeers(
   if (targets.length === 0) return []
   return index.edges.filter(
     (edge) =>
-      !sameEndpoint(edge.from, subject) &&
-      targets.some((target) => sameEndpoint(edge.to, target))
+      !sameEndpoint(edge.from, subject) && targets.some((target) => sameEndpoint(edge.to, target))
   )
 }
 
@@ -297,10 +289,7 @@ const NAME_PEER_PREVALENCE_CUTOFF = 0.3
  * Same-name, same-type-family columns across the database. This is intentionally
  * independent of the edge graph; columnPeers applies the no-target fallback rule.
  */
-export function nameBasedPeers(
-  db: DatabaseIntrospection,
-  subject: ColumnEndpoint
-): NamePeer[] {
+export function nameBasedPeers(db: DatabaseIntrospection, subject: ColumnEndpoint): NamePeer[] {
   const subjectName = subject.column.toLowerCase()
   if (NAME_PEER_STOPLIST.has(subjectName)) return []
 
@@ -362,9 +351,7 @@ export function columnPeers(
   const hasTarget = index.edges.some((edge) => sameEndpoint(edge.from, subject))
   if (hasTarget) {
     const peers = semanticPeers(index, subject)
-    return peers.length > 0
-      ? { kind: 'semantic', peers }
-      : { kind: null, peers: [] }
+    return peers.length > 0 ? { kind: 'semantic', peers } : { kind: null, peers: [] }
   }
 
   const peers = nameBasedPeers(db, subject)

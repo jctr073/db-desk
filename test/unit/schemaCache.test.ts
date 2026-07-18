@@ -30,9 +30,9 @@ describe('connId path safety', () => {
   // connIds arrive over IPC (db:connect, store:delete) and become filenames
   // under userData/schema-cache/; hostile ids must fail closed.
   it('refuses to persist under an id that escapes the cache directory', () => {
-    expect(() =>
-      schemaCache.saveDatabases('../escape', 'identity', ['db1'])
-    ).toThrow(/Invalid connection id/)
+    expect(() => schemaCache.saveDatabases('../escape', 'identity', ['db1'])).toThrow(
+      /Invalid connection id/
+    )
   })
 
   it('loads nothing for an unsafe id instead of reading outside the cache', () => {
@@ -65,11 +65,7 @@ describe('connId path safety', () => {
   it('round-trips a house-format connId', () => {
     schemaCache.saveDatabases('conn-123-abc', 'identity', ['db1', 'db2'])
 
-    expect(readdirSync(join(userDataDir, 'schema-cache'))).toEqual([
-      'conn-123-abc.json'
-    ])
-    expect(
-      schemaCache.loadCacheFile('conn-123-abc', 'identity')?.databases
-    ).toEqual(['db1', 'db2'])
+    expect(readdirSync(join(userDataDir, 'schema-cache'))).toEqual(['conn-123-abc.json'])
+    expect(schemaCache.loadCacheFile('conn-123-abc', 'identity')?.databases).toEqual(['db1', 'db2'])
   })
 })

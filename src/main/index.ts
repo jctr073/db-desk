@@ -77,10 +77,7 @@ import {
 import type { ConnectParams } from '../shared/db'
 import { dialectFor } from '../shared/dialect'
 import type { DataExportFormat } from '../shared/export'
-import type {
-  KnowledgeLinkInput,
-  KnowledgeRecordInput
-} from '../shared/knowledge'
+import type { KnowledgeLinkInput, KnowledgeRecordInput } from '../shared/knowledge'
 
 // In development Electron otherwise uses the executable name ("Electron") for
 // the macOS application menu. Set this before the app becomes ready so dev and
@@ -163,75 +160,47 @@ function createWindow(): void {
 }
 
 function registerDbHandlers(): void {
-  ipcMain.handle('db:test', (_event, params: ConnectParams) =>
-    testConnection(params)
-  )
-  ipcMain.handle(
-    'db:connect',
-    (_event, connId: string, params: ConnectParams) => connect(connId, params)
+  ipcMain.handle('db:test', (_event, params: ConnectParams) => testConnection(params))
+  ipcMain.handle('db:connect', (_event, connId: string, params: ConnectParams) =>
+    connect(connId, params)
   )
   ipcMain.handle('db:introspect', (_event, connId: string, database: string) =>
     introspectDatabase(connId, database)
   )
-  ipcMain.handle('db:disconnect', (_event, connId: string) =>
-    disconnect(connId)
-  )
+  ipcMain.handle('db:disconnect', (_event, connId: string) => disconnect(connId))
   ipcMain.handle(
     'db:query',
-    (
-      _event,
-      connId: string,
-      database: string,
-      sql: string,
-      limit: number | null
-    ) => runQuery(connId, database, sql, limit)
+    (_event, connId: string, database: string, sql: string, limit: number | null) =>
+      runQuery(connId, database, sql, limit)
   )
-  ipcMain.handle(
-    'db:queryForExport',
-    (_event, connId: string, database: string, sql: string) =>
-      runQuery(connId, database, sql, null, { readOnly: true })
+  ipcMain.handle('db:queryForExport', (_event, connId: string, database: string, sql: string) =>
+    runQuery(connId, database, sql, null, { readOnly: true })
   )
   ipcMain.handle('db:connectSaved', (_event, connId: string) => {
     const params = savedParams(connId)
-    if (!params)
-      return { ok: false as const, error: 'Saved connection not found' }
+    if (!params) return { ok: false as const, error: 'Saved connection not found' }
     return connect(connId, params)
   })
   ipcMain.handle('db:listSchemas', (_event, connId: string, database: string) =>
     listSchemas(connId, database)
   )
-  ipcMain.handle('db:listCatalogs', (_event, connId: string) =>
-    listCatalogs(connId)
-  )
+  ipcMain.handle('db:listCatalogs', (_event, connId: string) => listCatalogs(connId))
 
   ipcMain.handle('store:list', () => listSaved())
   ipcMain.handle(
     'store:save',
-    (
-      _event,
-      id: string,
-      name: string,
-      params: ConnectParams,
-      savePassword: boolean
-    ) => saveConnection(id, name, params, savePassword)
+    (_event, id: string, name: string, params: ConnectParams, savePassword: boolean) =>
+      saveConnection(id, name, params, savePassword)
   )
-  ipcMain.handle('store:getSchemaConfig', (_event, id: string) =>
-    getSchemaConfig(id)
-  )
-  ipcMain.handle(
-    'store:setSchemaConfig',
-    (_event, id: string, config: SchemaSelectionConfig) => {
-      setSchemaConfig(id, config)
-      invalidateAgentSchemaCache(id)
-    }
-  )
-  ipcMain.handle(
-    'store:setCatalogSelection',
-    (_event, id: string, catalogs: string[] | null) => {
-      setCatalogSelection(id, catalogs)
-      invalidateAgentSchemaCache(id)
-    }
-  )
+  ipcMain.handle('store:getSchemaConfig', (_event, id: string) => getSchemaConfig(id))
+  ipcMain.handle('store:setSchemaConfig', (_event, id: string, config: SchemaSelectionConfig) => {
+    setSchemaConfig(id, config)
+    invalidateAgentSchemaCache(id)
+  })
+  ipcMain.handle('store:setCatalogSelection', (_event, id: string, catalogs: string[] | null) => {
+    setCatalogSelection(id, catalogs)
+    invalidateAgentSchemaCache(id)
+  })
   ipcMain.handle(
     'store:setSchemaSelection',
     (_event, id: string, catalog: string, schemas: string[] | null) => {
@@ -292,14 +261,11 @@ function registerSettingsHandlers(): void {
     return appSettingsInfo()
   })
 
-  ipcMain.handle(
-    'settings:setStoredApiKey',
-    (_event, key: string, label: string) => {
-      setStoredApiKey(key, label)
-      broadcast()
-      return appSettingsInfo()
-    }
-  )
+  ipcMain.handle('settings:setStoredApiKey', (_event, key: string, label: string) => {
+    setStoredApiKey(key, label)
+    broadcast()
+    return appSettingsInfo()
+  })
 
   ipcMain.handle('settings:clearStoredApiKey', () => {
     clearStoredApiKey()
@@ -309,61 +275,44 @@ function registerSettingsHandlers(): void {
 }
 
 function registerExportHandlers(): void {
-  ipcMain.handle(
-    'export:choose',
-    (_event, suggestedName: string, format: DataExportFormat) =>
-      chooseExportDestination(mainWindow, suggestedName, format)
+  ipcMain.handle('export:choose', (_event, suggestedName: string, format: DataExportFormat) =>
+    chooseExportDestination(mainWindow, suggestedName, format)
   )
   ipcMain.handle('export:write', (_event, token: string, contents: string) =>
     writeExportDestination(token, contents)
   )
-  ipcMain.handle('export:discard', (_event, token: string) =>
-    discardExportDestination(token)
-  )
+  ipcMain.handle('export:discard', (_event, token: string) => discardExportDestination(token))
 }
 
 function registerFileHandlers(): void {
   ipcMain.handle('files:list', () => listQueries())
   ipcMain.handle(
     'files:create',
-    (
-      _event,
-      connId: string,
-      database: string | null,
-      requestedKind: unknown = 'sql'
-    ) => {
+    (_event, connId: string, database: string | null, requestedKind: unknown = 'sql') => {
       if (!connId) throw new Error('A query file needs a connection')
       const kind = isFileKind(requestedKind) ? requestedKind : 'sql'
       const name = getNextFileName(connId, database, kind)
       return createQuery(name, connId, database)
     }
   )
-  ipcMain.handle(
-    'files:reassign',
-    (_event, id: string, connId: string, database: string | null) =>
-      reassignQuery(id, connId, database)
+  ipcMain.handle('files:reassign', (_event, id: string, connId: string, database: string | null) =>
+    reassignQuery(id, connId, database)
   )
   ipcMain.handle('files:read', (_event, id: string) => loadQueryContent(id))
   ipcMain.handle('files:save', (_event, id: string, content: string) =>
     saveQueryContent(id, content)
   )
-  ipcMain.handle('files:rename', (_event, id: string, name: string) =>
-    renameQuery(id, name)
-  )
+  ipcMain.handle('files:rename', (_event, id: string, name: string) => renameQuery(id, name))
   ipcMain.handle('files:delete', (_event, id: string) => deleteQuery(id))
-  ipcMain.handle(
-    'files:getNextName',
-    (_event, connId: string | null, database: string | null) =>
-      getNextQueryName(connId, database)
+  ipcMain.handle('files:getNextName', (_event, connId: string | null, database: string | null) =>
+    getNextQueryName(connId, database)
   )
   ipcMain.handle('files:deleteForConnection', (_event, connId: string) =>
     deleteQueriesForConnection(connId)
   )
 }
 
-function registerKnowledgeHandlers(
-  getWindow: () => BrowserWindow | null
-): void {
+function registerKnowledgeHandlers(getWindow: () => BrowserWindow | null): void {
   // Record content changed inside one base: names the base plus every
   // (connection, database) target linked to it, so target-keyed views can
   // match without knowing the link table.
@@ -393,14 +342,11 @@ function registerKnowledgeHandlers(
     broadcastStructure()
     return base
   })
-  ipcMain.handle(
-    'knowledge:renameBase',
-    (_event, kbId: string, name: string) => {
-      const base = renameBase(kbId, name)
-      broadcastStructure()
-      return base
-    }
-  )
+  ipcMain.handle('knowledge:renameBase', (_event, kbId: string, name: string) => {
+    const base = renameBase(kbId, name)
+    broadcastStructure()
+    return base
+  })
   ipcMain.handle('knowledge:deleteBase', (_event, kbId: string) => {
     deleteBase(kbId)
     broadcastStructure()
@@ -420,19 +366,14 @@ function registerKnowledgeHandlers(
 
   // --- Records ---
   ipcMain.handle('knowledge:list', (_event, kbId: string) => listRecords(kbId))
-  ipcMain.handle(
-    'knowledge:listForTarget',
-    (_event, connId: string, database: string) =>
-      groupsForTarget(connId, database)
+  ipcMain.handle('knowledge:listForTarget', (_event, connId: string, database: string) =>
+    groupsForTarget(connId, database)
   )
-  ipcMain.handle(
-    'knowledge:save',
-    (_event, kbId: string, record: KnowledgeRecordInput) => {
-      const saved = saveRecord(kbId, record)
-      broadcastRecords(kbId)
-      return saved
-    }
-  )
+  ipcMain.handle('knowledge:save', (_event, kbId: string, record: KnowledgeRecordInput) => {
+    const saved = saveRecord(kbId, record)
+    broadcastRecords(kbId)
+    return saved
+  })
   ipcMain.handle(
     'knowledge:saveExemplar',
     async (
@@ -456,9 +397,8 @@ function registerKnowledgeHandlers(
         const base = createBase(database)
         const conn = listSaved().find((c) => c.id === connId)
         const schema =
-          references.find(
-            (ref) => typeof ref.schema === 'string' && ref.schema.trim() !== ''
-          )?.schema ?? dialectFor(conn?.type).defaultSchema
+          references.find((ref) => typeof ref.schema === 'string' && ref.schema.trim() !== '')
+            ?.schema ?? dialectFor(conn?.type).defaultSchema
         addLink({ kbId: base.id, connId, database, schema })
         kbId = base.id
         broadcastStructure()

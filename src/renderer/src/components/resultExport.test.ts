@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { QueryField } from '../../../shared/db'
-import {
-  exportNeedsFullQuery,
-  selectedResultRows,
-  serializeResult
-} from './resultExport'
+import { exportNeedsFullQuery, selectedResultRows, serializeResult } from './resultExport'
 
 const fields: QueryField[] = [
   { name: 'id', dataType: 'integer' },
@@ -21,10 +17,7 @@ describe('selectedResultRows', () => {
       [3, 'three', true]
     ]
 
-    expect(selectedResultRows(rows, new Set([2, 0, 99]))).toEqual([
-      rows[0],
-      rows[2]
-    ])
+    expect(selectedResultRows(rows, new Set([2, 0, 99]))).toEqual([rows[0], rows[2]])
   })
 })
 
@@ -44,9 +37,9 @@ describe('exportNeedsFullQuery', () => {
 
 describe('serializeResult', () => {
   it('quotes CSV delimiters, quotes, and line breaks', () => {
-    expect(
-      serializeResult(fields, [[1, 'comma, quote " and\nline', null]], 'csv')
-    ).toBe('id,description,active\n1,"comma, quote "" and\nline",\n')
+    expect(serializeResult(fields, [[1, 'comma, quote " and\nline', null]], 'csv')).toBe(
+      'id,description,active\n1,"comma, quote "" and\nline",\n'
+    )
   })
 
   it('uses tabs for TSV without quoting commas', () => {
@@ -66,8 +59,6 @@ describe('serializeResult', () => {
       'json'
     )
 
-    expect(JSON.parse(json)).toEqual([
-      { value: 7, value_2: 'seven', value_2_2: null }
-    ])
+    expect(JSON.parse(json)).toEqual([{ value: 7, value_2: 'seven', value_2_2: null }])
   })
 })

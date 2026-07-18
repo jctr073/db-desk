@@ -217,12 +217,7 @@ describe('treeNodeRef', () => {
 })
 
 describe('schemaLinkBadgeIds', () => {
-  const link = (
-    id: string,
-    connId: string,
-    database: string,
-    schema?: string
-  ): KnowledgeLink => ({
+  const link = (id: string, connId: string, database: string, schema?: string): KnowledgeLink => ({
     id,
     kbId: 'kb-1',
     connId,
@@ -232,16 +227,12 @@ describe('schemaLinkBadgeIds', () => {
   })
 
   it('marks the schema node a link targets, and nothing else', () => {
-    const ids = schemaLinkBadgeIds(buildTree(), [
-      link('kl-1', 'c-1', 'app_db', 'public')
-    ])
+    const ids = schemaLinkBadgeIds(buildTree(), [link('kl-1', 'c-1', 'app_db', 'public')])
     expect(ids).toEqual(new Set(['c-1/app_db/public']))
   })
 
   it('matches database and schema names case-insensitively', () => {
-    const ids = schemaLinkBadgeIds(buildTree(), [
-      link('kl-1', 'c-1', 'APP_DB', 'Public')
-    ])
+    const ids = schemaLinkBadgeIds(buildTree(), [link('kl-1', 'c-1', 'APP_DB', 'Public')])
     expect(ids.has('c-1/app_db/public')).toBe(true)
   })
 
@@ -274,8 +265,6 @@ describe('treeSchemaRef', () => {
   it('returns null for non-schema nodes', () => {
     const tree = buildTree()
     expect(treeSchemaRef(findNode('c-1/app_db', tree)!, tree)).toBeNull()
-    expect(
-      treeSchemaRef(findNode('c-1/app_db/public/tables/users', tree)!, tree)
-    ).toBeNull()
+    expect(treeSchemaRef(findNode('c-1/app_db/public/tables/users', tree)!, tree)).toBeNull()
   })
 })

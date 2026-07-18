@@ -9,21 +9,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  BUILTIN_SKILLS,
-  SCAN_CODEBASE_SKILL_ID
-} from '../../src/shared/skills'
+import { BUILTIN_SKILLS, SCAN_CODEBASE_SKILL_ID } from '../../src/shared/skills'
 
 let userDataDir: string
 
@@ -143,9 +133,7 @@ describe('saveSkill', () => {
     const base = { description: '', prompt: 'p', connId: null }
     expect(() => skills.saveSkill({ ...base, name: '  ' })).toThrow(/name/)
     expect(() => skills.saveSkill({ ...base, name: 'a\nb' })).toThrow(/single/)
-    expect(() =>
-      skills.saveSkill({ ...base, name: 'ok', prompt: '' })
-    ).toThrow(/prompt/)
+    expect(() => skills.saveSkill({ ...base, name: 'ok', prompt: '' })).toThrow(/prompt/)
     expect(() =>
       skills.saveSkill({
         ...base,
@@ -166,9 +154,7 @@ describe('removeSkill', () => {
       connId: null
     })
     skills.removeSkill(SCAN_CODEBASE_SKILL_ID)
-    const scan = skills
-      .listSkills()
-      .find((s) => s.id === SCAN_CODEBASE_SKILL_ID)
+    const scan = skills.listSkills().find((s) => s.id === SCAN_CODEBASE_SKILL_ID)
     expect(scan?.edited).toBe(false)
     expect(scan?.prompt).toBe(scanBuiltin.prompt)
   })
@@ -206,13 +192,9 @@ describe('load hardening', () => {
     } finally {
       spy.mockRestore()
     }
-    const quarantined = readdirSync(userDataDir).filter((f) =>
-      f.startsWith('skills.json.corrupt-')
-    )
+    const quarantined = readdirSync(userDataDir).filter((f) => f.startsWith('skills.json.corrupt-'))
     expect(quarantined).toHaveLength(1)
-    expect(
-      readFileSync(join(userDataDir, quarantined[0]), 'utf8')
-    ).toBe('{not json')
+    expect(readFileSync(join(userDataDir, quarantined[0]), 'utf8')).toBe('{not json')
     expect(existsSync(storeFile())).toBe(true)
   })
 

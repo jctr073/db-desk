@@ -63,6 +63,7 @@ function makeReq(overrides: Partial<AgentSendRequest> = {}): AgentSendRequest {
   return {
     chatId: 'chat-1',
     prompt: 'hello',
+    intent: 'chat',
     model: 'claude-opus-4-8',
     effort: null,
     mode: 'metadata',
@@ -94,14 +95,10 @@ describe('buildSystemPrompt repo attachment section', () => {
   const dialect = dialectFor('postgres')
 
   it('mentions the root, commit, list_repo_files, and provenance guidance when repo info is given', () => {
-    const prompt = agent.buildSystemPrompt(
-      makeReq({ repo: true }),
-      'metadata',
-      null,
-      dialect,
-      [],
-      { root: '/Users/dev/myapp', commit: 'abc1234' }
-    )
+    const prompt = agent.buildSystemPrompt(makeReq({ repo: true }), 'metadata', null, dialect, [], {
+      root: '/Users/dev/myapp',
+      commit: 'abc1234'
+    })
     expect(prompt).toContain('/Users/dev/myapp')
     expect(prompt).toContain('abc1234')
     expect(prompt).toContain('list_repo_files')
@@ -111,26 +108,16 @@ describe('buildSystemPrompt repo attachment section', () => {
   })
 
   it('mentions the root without a commit clause when the repo is not a git checkout', () => {
-    const prompt = agent.buildSystemPrompt(
-      makeReq({ repo: true }),
-      'metadata',
-      null,
-      dialect,
-      [],
-      { root: '/Users/dev/myapp', commit: null }
-    )
+    const prompt = agent.buildSystemPrompt(makeReq({ repo: true }), 'metadata', null, dialect, [], {
+      root: '/Users/dev/myapp',
+      commit: null
+    })
     expect(prompt).toContain('/Users/dev/myapp')
     expect(prompt).not.toContain('git commit')
   })
 
   it('omits every repo line when the parameter is omitted', () => {
-    const prompt = agent.buildSystemPrompt(
-      makeReq(),
-      'metadata',
-      null,
-      dialect,
-      []
-    )
+    const prompt = agent.buildSystemPrompt(makeReq(), 'metadata', null, dialect, [])
     expect(prompt).not.toContain('list_repo_files')
     expect(prompt).not.toContain('grep_repo')
     expect(prompt).not.toContain('read_repo_file')
@@ -139,14 +126,7 @@ describe('buildSystemPrompt repo attachment section', () => {
   })
 
   it('omits every repo line when the parameter is explicitly null', () => {
-    const prompt = agent.buildSystemPrompt(
-      makeReq(),
-      'metadata',
-      null,
-      dialect,
-      [],
-      null
-    )
+    const prompt = agent.buildSystemPrompt(makeReq(), 'metadata', null, dialect, [], null)
     expect(prompt).not.toContain('list_repo_files')
     expect(prompt).not.toContain('grep_repo')
     expect(prompt).not.toContain('read_repo_file')

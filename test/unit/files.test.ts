@@ -1,11 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -43,9 +37,7 @@ describe('renameQuery', () => {
     const metadata = JSON.parse(
       readFileSync(join(userDataDir, 'queries', 'metadata.json'), 'utf8')
     ) as Array<{ id: string; name: string }>
-    expect(metadata.find((candidate) => candidate.id === file.id)?.name).toBe(
-      'customer totals.sql'
-    )
+    expect(metadata.find((candidate) => candidate.id === file.id)?.name).toBe('customer totals.sql')
   })
 
   it('rejects duplicate names within the same connection and database', () => {
@@ -57,13 +49,10 @@ describe('renameQuery', () => {
     )
   })
 
-  it.each(['', '   ', '../customers', 'folder/customers'])(
-    'rejects invalid name %j',
-    (name) => {
-      const file = files.createQuery('query1.sql', null, null)
-      expect(() => files.renameQuery(file.id, name)).toThrow()
-    }
-  )
+  it.each(['', '   ', '../customers', 'folder/customers'])('rejects invalid name %j', (name) => {
+    const file = files.createQuery('query1.sql', null, null)
+    expect(() => files.renameQuery(file.id, name)).toThrow()
+  })
 })
 
 describe('moveQueryStorage', () => {
@@ -87,9 +76,9 @@ describe('moveQueryStorage', () => {
     expect(existsSync(join(newDir, `${created.id}.sql`))).toBe(true)
 
     // The choice is persisted for the next launch.
-    const settings = JSON.parse(
-      readFileSync(join(userDataDir, 'settings.json'), 'utf8')
-    ) as { sqlFilesDir?: string }
+    const settings = JSON.parse(readFileSync(join(userDataDir, 'settings.json'), 'utf8')) as {
+      sqlFilesDir?: string
+    }
     expect(settings.sqlFilesDir).toBe(newDir)
   })
 
@@ -112,10 +101,7 @@ describe('moveQueryStorage', () => {
     expect(files.moveQueryStorage(newDir)).toBe(1)
 
     expect(existsSync(join(newDir, `${kept.id}.sql`))).toBe(true)
-    expect(files.listQueries().map((entry) => entry.id)).toEqual([
-      kept.id,
-      ghost.id
-    ])
+    expect(files.listQueries().map((entry) => entry.id)).toEqual([kept.id, ghost.id])
   })
 })
 

@@ -28,22 +28,19 @@ export const AGENT_MODES: AgentModeOption[] = [
   {
     id: 'metadata',
     label: 'Metadata Only',
-    description:
-      'Writes SQL from the schema tree. Never executes anything on the database.',
+    description: 'Writes SQL from the schema tree. Never executes anything on the database.',
     enabled: true
   },
   {
     id: 'read-only',
     label: 'Read-Only',
-    description:
-      'Runs read-only queries to inspect schema and live data. Writes are blocked.',
+    description: 'Runs read-only queries to inspect schema and live data. Writes are blocked.',
     enabled: true
   },
   {
     id: 'write-admin',
     label: 'Write/Admin',
-    description:
-      'Can change data and schema (DML/DDL). Disabled in this version.',
+    description: 'Can change data and schema (DML/DDL). Disabled in this version.',
     enabled: false
   }
 ]
@@ -182,10 +179,7 @@ export interface AgentResultItem {
   error: string | null
 }
 
-export type AgentContextItem =
-  | AgentDbObjectItem
-  | AgentEditorSelectionItem
-  | AgentResultItem
+export type AgentContextItem = AgentDbObjectItem | AgentEditorSelectionItem | AgentResultItem
 
 /**
  * The user's live selection in the active SQL editor, sent with a prompt so

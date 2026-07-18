@@ -11,24 +11,15 @@ interface FilesPanelProps {
   activeConnId?: string | null
 }
 
-function groupLabel(
-  file: QueryFile,
-  connNames: Record<string, string>
-): string {
+function groupLabel(file: QueryFile, connNames: Record<string, string>): string {
   if (!file.connId) return 'No connection'
   const name = connNames[file.connId] ?? file.connId
   return file.database ? `${name} / ${file.database}` : name
 }
 
-export function FilesPanel({
-  files,
-  connNames,
-  activeConnId
-}: FilesPanelProps): ReactElement {
+export function FilesPanel({ files, connNames, activeConnId }: FilesPanelProps): ReactElement {
   const visibleFiles =
-    activeConnId != null
-      ? files.files.filter((file) => file.connId === activeConnId)
-      : files.files
+    activeConnId != null ? files.files.filter((file) => file.connId === activeConnId) : files.files
   const hiddenCount = files.files.length - visibleFiles.length
 
   const groups = new Map<string, QueryFile[]>()
@@ -53,9 +44,7 @@ export function FilesPanel({
   if (visibleFiles.length === 0) {
     return (
       <div className="files-panel-empty">
-        <div className="files-panel-empty__text">
-          No query files on this connection yet
-        </div>
+        <div className="files-panel-empty__text">No query files on this connection yet</div>
         <div className="files-panel-empty__hint">
           Use the + button in the editor tab bar, or right-click a connection
         </div>

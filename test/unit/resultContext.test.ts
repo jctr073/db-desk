@@ -161,11 +161,7 @@ describe('buildResultContextItem — row/column selection filtering', () => {
       selectedColumns: new Set([1])
     })
     expect(item.columns).toEqual([{ name: 'email', dataType: 'text' }])
-    expect(item.rows).toEqual([
-      ['a@example.com'],
-      ['b@example.com'],
-      ['c@example.com']
-    ])
+    expect(item.rows).toEqual([['a@example.com'], ['b@example.com'], ['c@example.com']])
   })
 
   it('combines row and column selection', () => {

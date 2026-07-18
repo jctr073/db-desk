@@ -28,10 +28,7 @@ export function assignIds(node: TreeNode, parentId: string): void {
 }
 
 /** Depth-first search for a node by id. */
-export function findNode(
-  id: string | null,
-  nodes: TreeNode[]
-): TreeNode | null {
+export function findNode(id: string | null, nodes: TreeNode[]): TreeNode | null {
   if (!id) return null
   for (const node of nodes) {
     if (node.id === id) return node
@@ -75,10 +72,7 @@ function routineLabel(routine: RoutineInfo): string {
   return `${routine.name}(${routine.args})`
 }
 
-function schemaNode(
-  schema: SchemaIntrospection,
-  logicalRefs?: Map<string, string>
-): TreeNode {
+function schemaNode(schema: SchemaIntrospection, logicalRefs?: Map<string, string>): TreeNode {
   return {
     id: '',
     kind: 'schema',
@@ -91,9 +85,7 @@ function schemaNode(
         key: 'tables',
         icon: 'table',
         label: 'Tables',
-        children: schema.tables.map((rel) =>
-          relationNode('table', rel, schema.name, logicalRefs)
-        )
+        children: schema.tables.map((rel) => relationNode('table', rel, schema.name, logicalRefs))
       },
       {
         id: '',
@@ -101,9 +93,7 @@ function schemaNode(
         key: 'views',
         icon: 'view',
         label: 'Views',
-        children: schema.views.map((rel) =>
-          relationNode('view', rel, schema.name, logicalRefs)
-        )
+        children: schema.views.map((rel) => relationNode('view', rel, schema.name, logicalRefs))
       },
       {
         id: '',
@@ -268,10 +258,7 @@ export function formFromSaved(saved: SavedConnection): ConnectionForm {
  * connected to is fully populated; sibling databases are marked lazy and get
  * introspected when first expanded.
  */
-export function connectionNodeFromResult(
-  saved: SavedConnection,
-  result: ConnectResult
-): TreeNode {
+export function connectionNodeFromResult(saved: SavedConnection, result: ConnectResult): TreeNode {
   const connected = result.connectedDatabase
   const names =
     saved.type === 'databricks'
@@ -326,10 +313,7 @@ export function schemaCounts(
 }
 
 /** Expand a new connection down to the connected database's tables. */
-export function defaultExpansion(
-  conn: TreeNode,
-  connectedDb: string
-): Record<string, boolean> {
+export function defaultExpansion(conn: TreeNode, connectedDb: string): Record<string, boolean> {
   const out: Record<string, boolean> = { [conn.id]: true }
   const db = conn.children?.find((child) => child.key === connectedDb)
   // A connected database can come back unloaded (schema selection pending);
@@ -338,8 +322,7 @@ export function defaultExpansion(
   out[db.id] = true
   // Land on the engine's conventional starter schema when present.
   const schema =
-    db.children?.find((s) => s.label === 'public' || s.label === 'default') ??
-    db.children?.[0]
+    db.children?.find((s) => s.label === 'public' || s.label === 'default') ?? db.children?.[0]
   if (!schema) return out
   out[schema.id] = true
   const tables = schema.children?.find((cat) => cat.key === 'tables')

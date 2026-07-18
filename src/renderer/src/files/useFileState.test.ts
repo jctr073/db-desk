@@ -14,24 +14,14 @@ const files: QueryFile[] = ['one', 'two', 'three'].map((id, index) => ({
 
 describe('closeOpenFiles', () => {
   it('closes every requested file and selects the first remaining open file', () => {
-    const next = closeOpenFiles(
-      files,
-      new Set(['one', 'two', 'three']),
-      'two',
-      ['one', 'two']
-    )
+    const next = closeOpenFiles(files, new Set(['one', 'two', 'three']), 'two', ['one', 'two'])
 
     expect([...next.openFileIds]).toEqual(['three'])
     expect(next.selectedFileId).toBe('three')
   })
 
   it('preserves the selection when closing a different group', () => {
-    const next = closeOpenFiles(
-      files,
-      new Set(['one', 'two', 'three']),
-      'one',
-      ['two', 'three']
-    )
+    const next = closeOpenFiles(files, new Set(['one', 'two', 'three']), 'one', ['two', 'three'])
 
     expect([...next.openFileIds]).toEqual(['one'])
     expect(next.selectedFileId).toBe('one')

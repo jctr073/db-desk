@@ -6,11 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import {
-  applyAutoLimit,
-  classifyStatement,
-  guardAgentStatement
-} from '../../src/shared/sql'
+import { applyAutoLimit, classifyStatement, guardAgentStatement } from '../../src/shared/sql'
 import { ALL_CASES, ESCAPE_CASES } from '../support/statements'
 
 describe('classifyStatement', () => {
@@ -28,11 +24,7 @@ describe('classifyStatement', () => {
     ['EXPLAIN FORMATTED (Databricks)', 'EXPLAIN FORMATTED SELECT 1', 'read'],
     ['EXPLAIN EXTENDED (Databricks)', 'EXPLAIN EXTENDED SELECT 1', 'read'],
     ['EXPLAIN ANALYZE of a DELETE', 'EXPLAIN ANALYZE DELETE FROM t', 'dml'],
-    [
-      'EXPLAIN bare options then a read',
-      'EXPLAIN ANALYZE VERBOSE SELECT * FROM t',
-      'read'
-    ],
+    ['EXPLAIN bare options then a read', 'EXPLAIN ANALYZE VERBOSE SELECT * FROM t', 'read'],
     ['case-insensitive INSERT', 'Insert INTO t VALUES (1)', 'dml'],
     ['case-insensitive EXPLAIN of a write', 'explain update t set a = 1', 'dml'],
     ['SELECT INTO via WITH', 'WITH x AS (SELECT 1) SELECT * INTO t2 FROM x', 'ddl'],

@@ -74,10 +74,7 @@ const SERVICE_SUFFIXES = ['service', 'svc', 'api', 'app', 'worker', 'server']
  * itself. Matching is case- and separator-insensitive (`billing-svc` ↔
  * `billing_svc`), with common service suffixes stripped as a fallback.
  */
-export function suggestSchema(
-  folder: string,
-  schemas: string[]
-): string | null {
+export function suggestSchema(folder: string, schemas: string[]): string | null {
   const byKey = new Map(schemas.map((s) => [matchKey(s), s]))
   const key = matchKey(folder)
   const direct = byKey.get(key)

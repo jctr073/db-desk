@@ -81,20 +81,10 @@ export function useQueryRunner(): QueryRunner {
   const runTokens = useRef(new Map<string, number>())
 
   const execute = useCallback(
-    async (
-      tabId: string,
-      sql: string,
-      target: QueryTarget,
-      limit: number | null
-    ) => {
+    async (tabId: string, sql: string, target: QueryTarget, limit: number | null) => {
       const token = (runTokens.current.get(tabId) ?? 0) + 1
       runTokens.current.set(tabId, token)
-      const res = await window.dbDesk.db.query(
-        target.connId,
-        target.database,
-        sql,
-        limit
-      )
+      const res = await window.dbDesk.db.query(target.connId, target.database, sql, limit)
       if (runTokens.current.get(tabId) !== token) return
       setTabs((prev) =>
         prev.map((tab) =>
@@ -129,9 +119,7 @@ export function useQueryRunner(): QueryRunner {
         result: null,
         error: null
       }
-      setTabs((prev) =>
-        live ? prev.map((tab) => (tab.id === id ? next : tab)) : [...prev, next]
-      )
+      setTabs((prev) => (live ? prev.map((tab) => (tab.id === id ? next : tab)) : [...prev, next]))
       setActiveTabId(id)
       void execute(id, sql, target, limit)
     },
@@ -143,9 +131,7 @@ export function useQueryRunner(): QueryRunner {
       const tab = tabs.find((t) => t.id === id)
       if (!tab || tab.running) return
       setTabs((prev) =>
-        prev.map((t) =>
-          t.id === id ? { ...t, running: true, result: null, error: null } : t
-        )
+        prev.map((t) => (t.id === id ? { ...t, running: true, result: null, error: null } : t))
       )
       setActiveTabId(id)
       void execute(id, tab.sql, tab.target, limit)
@@ -177,9 +163,7 @@ export function useQueryRunner(): QueryRunner {
         error: null
       }
       setTabs((prev) =>
-        existing
-          ? prev.map((tab) => (tab.id === id ? next : tab))
-          : [...prev, next]
+        existing ? prev.map((tab) => (tab.id === id ? next : tab)) : [...prev, next]
       )
       setActiveTabId(id)
       void execute(id, sql, target, 100)
@@ -188,12 +172,7 @@ export function useQueryRunner(): QueryRunner {
   )
 
   const showResult = useCallback(
-    (
-      sql: string,
-      target: QueryTarget,
-      result: QueryResult | null,
-      error: string | null
-    ) => {
+    (sql: string, target: QueryTarget, result: QueryResult | null, error: string | null) => {
       const id = `r${++tabSeq}`
       const tab: ResultTab = {
         id,
@@ -218,9 +197,7 @@ export function useQueryRunner(): QueryRunner {
     setTabs((prev) => {
       const last = [...prev].reverse().find((tab) => tab.source === 'ai')
       if (!last || last.final) return prev
-      return prev.map((tab) =>
-        tab.id === last.id ? { ...tab, final: true } : tab
-      )
+      return prev.map((tab) => (tab.id === last.id ? { ...tab, final: true } : tab))
     })
   }, [])
 
@@ -230,9 +207,7 @@ export function useQueryRunner(): QueryRunner {
       if (!tab || tab.pinned) return
       // Computed outside the updater: resultSeq++ must run exactly once.
       const title = resultTitle('Result', tab.sql)
-      setTabs((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, pinned: true, title } : t))
-      )
+      setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, pinned: true, title } : t)))
     },
     [tabs]
   )
