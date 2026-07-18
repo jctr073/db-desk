@@ -21,9 +21,7 @@ const SHARED_LINES = [
 describe('REPO_SCAN_PROMPT', () => {
   it('surveys the whole codebase through the source hierarchy', () => {
     expect(REPO_SCAN_PROMPT).toContain('Survey the attached codebase')
-    expect(REPO_SCAN_PROMPT).toContain(
-      'Work through these sources, most authoritative first:'
-    )
+    expect(REPO_SCAN_PROMPT).toContain('Work through these sources, most authoritative first:')
     expect(REPO_SCAN_PROMPT).toContain('1. Migrations')
   })
 
@@ -46,9 +44,7 @@ describe('repoTargetedScanPrompt', () => {
     const text = repoTargetedScanPrompt(focus)
     expect(text).toContain('targeted follow-up scan')
     expect(text).toContain('Survey only the parts of the codebase relevant')
-    expect(text).not.toContain(
-      'Work through these sources, most authoritative first:'
-    )
+    expect(text).not.toContain('Work through these sources, most authoritative first:')
   })
 
   it('tells the agent to reconcile with existing records first', () => {

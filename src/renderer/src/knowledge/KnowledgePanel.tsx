@@ -10,12 +10,7 @@ import type {
   KnowledgeSource,
   UsageHit
 } from '../../../shared/knowledge'
-import {
-  BookIcon,
-  CloseIcon,
-  PlusThinIcon,
-  SearchIcon
-} from '../components/icons'
+import { BookIcon, CloseIcon, PlusThinIcon, SearchIcon } from '../components/icons'
 import { InlineMarkdown } from '../components/MarkdownText'
 import type { QueryTarget } from '../components/useQueryRunner'
 import {
@@ -80,9 +75,7 @@ export function KnowledgePanel({
 }: KnowledgePanelProps): ReactElement {
   const [search, setSearch] = useState('')
   const [kindFilter, setKindFilter] = useState<KnowledgeKind | 'all'>('all')
-  const [sourceFilter, setSourceFilter] = useState<KnowledgeSource | 'all'>(
-    'all'
-  )
+  const [sourceFilter, setSourceFilter] = useState<KnowledgeSource | 'all'>('all')
   const [usagesRef, setUsagesRef] = useState<ColumnRef | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [newMenu, setNewMenu] = useState<{ x: number; y: number } | null>(null)
@@ -101,8 +94,7 @@ export function KnowledgePanel({
 
   // Introspection backs the ref pickers and dangling-ref warnings.
   useEffect(() => {
-    if (state.connId && state.database)
-      ensureSchema(state.connId, state.database)
+    if (state.connId && state.database) ensureSchema(state.connId, state.database)
   }, [state.connId, state.database, ensureSchema])
 
   // Navigation requests: "Show usages" / "Add annotation…" from the schema
@@ -121,9 +113,7 @@ export function KnowledgePanel({
       }
       // A [kb:id] citation can point at any of the target's linked bases, so
       // find the base that holds the record, select it, then open it.
-      const owner = state.groups.find((g) =>
-        g.records.some((r) => r.id === nav.recordId)
-      )
+      const owner = state.groups.find((g) => g.records.some((r) => r.id === nav.recordId))
       const record = owner?.records.find((r) => r.id === nav.recordId)
       if (owner && record && isKnownKind(record.kind)) {
         // As in openRecord: only a single-base view follows the record to its
@@ -165,14 +155,8 @@ export function KnowledgePanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [newMenu])
 
-  const intro =
-    state.connId && state.database
-      ? schemas[state.connId]?.[state.database]
-      : undefined
-  const validKeys = useMemo(
-    () => (intro ? buildRefKeySet(intro) : null),
-    [intro]
-  )
+  const intro = state.connId && state.database ? schemas[state.connId]?.[state.database] : undefined
+  const validKeys = useMemo(() => (intro ? buildRefKeySet(intro) : null), [intro])
   /** " · schema: a, b" suffix for a group's dropdown/list labels. */
   const schemasLabel = (links: Array<{ schema?: string }>): string => {
     const scopes = links.map((l) => l.schema).filter((s): s is string => !!s)
@@ -182,14 +166,8 @@ export function KnowledgePanel({
   }
   // Usage lookups span every linked base (state.index is the union), so the
   // record map must too — a hit can point at a base other than the selected one.
-  const allRecords = useMemo(
-    () => state.groups.flatMap((g) => g.records),
-    [state.groups]
-  )
-  const recordById = useMemo(
-    () => new Map(allRecords.map((r) => [r.id, r])),
-    [allRecords]
-  )
+  const allRecords = useMemo(() => state.groups.flatMap((g) => g.records), [state.groups])
+  const recordById = useMemo(() => new Map(allRecords.map((r) => [r.id, r])), [allRecords])
   const selectedGroup = useMemo(
     () => state.groups.find((g) => g.base.id === state.selectedKbId) ?? null,
     [state.groups, state.selectedKbId]
@@ -208,16 +186,11 @@ export function KnowledgePanel({
     return (selectedGroup ? [selectedGroup] : state.groups)
       .map((group) => ({
         group,
-        records: group.records
-          .filter(matches)
-          .sort((a, b) => b.updatedAt - a.updatedAt)
+        records: group.records.filter(matches).sort((a, b) => b.updatedAt - a.updatedAt)
       }))
       .filter((entry) => entry.records.length > 0)
   }, [state.groups, selectedGroup, search, kindFilter, sourceFilter])
-  const visibleCount = filteredGroups.reduce(
-    (n, entry) => n + entry.records.length,
-    0
-  )
+  const visibleCount = filteredGroups.reduce((n, entry) => n + entry.records.length, 0)
 
   const usageGroups = useMemo(() => {
     if (!usagesRef) return []
@@ -237,9 +210,7 @@ export function KnowledgePanel({
     // keeping the list behind the editor consistent with what is being edited.
     // The all-bases view already shows every record and stays put.
     if (state.selectedKbId) {
-      const owner = state.groups.find((g) =>
-        g.records.some((r) => r.id === record.id)
-      )
+      const owner = state.groups.find((g) => g.records.some((r) => r.id === record.id))
       if (owner && owner.base.id !== state.selectedKbId) {
         state.setSelectedKbId(owner.base.id)
       }
@@ -253,9 +224,7 @@ export function KnowledgePanel({
     openEditor({ record: null, kind, prefillTarget: null })
   }
 
-  const saveDraft = async (
-    input: Parameters<KnowledgeState['save']>[0]
-  ): Promise<void> => {
+  const saveDraft = async (input: Parameters<KnowledgeState['save']>[0]): Promise<void> => {
     const saved = await state.save(input)
     if (saved) setEditor(null)
   }
@@ -267,9 +236,7 @@ export function KnowledgePanel({
   }
 
   const noTarget = !state.connId || !state.database
-  const capTarget = targets.find(
-    (t) => knowledgeTargetKeyOf(t.connId, t.database) === targetKey
-  )
+  const capTarget = targets.find((t) => knowledgeTargetKeyOf(t.connId, t.database) === targetKey)
 
   return (
     <div className="knowledge">
@@ -298,12 +265,8 @@ export function KnowledgePanel({
             title="Knowledge follows the app's active connection"
           >
             <span className="ctx-chip__dot" />
-            <span className="ctx-chip__name">
-              {capTarget?.connName ?? 'No connection'}
-            </span>
-            {capTarget && (
-              <span className="ctx-chip__db">/ {capTarget.database}</span>
-            )}
+            <span className="ctx-chip__name">{capTarget?.connName ?? 'No connection'}</span>
+            {capTarget && <span className="ctx-chip__db">/ {capTarget.database}</span>}
           </span>
         )}
         <button
@@ -405,11 +368,7 @@ export function KnowledgePanel({
       ) : usagesRef ? (
         <div className="kn-usages">
           <div className="kn-usages__head">
-            <button
-              type="button"
-              className="kn-back"
-              onClick={() => setUsagesRef(null)}
-            >
+            <button type="button" className="kn-back" onClick={() => setUsagesRef(null)}>
               ‹ All records
             </button>
             <span className="kn-usages__title" title={formatRef(usagesRef)}>
@@ -422,9 +381,8 @@ export function KnowledgePanel({
               <div className="kn-empty">
                 <div className="kn-empty__text">No usages recorded.</div>
                 <div className="kn-empty__hint">
-                  Annotations, relationships, glossary mappings, exemplars, and
-                  notes that reference this{' '}
-                  {usagesRef.column ? 'column' : 'table'} will appear here.
+                  Annotations, relationships, glossary mappings, exemplars, and notes that reference
+                  this {usagesRef.column ? 'column' : 'table'} will appear here.
                 </div>
               </div>
             )}
@@ -445,9 +403,7 @@ export function KnowledgePanel({
                       onClick={() => record && openRecord(record)}
                     >
                       <span className="kn-usage-hit__summary">
-                        <InlineMarkdown
-                          text={summarizeUsage(hit, record, usagesRef)}
-                        />
+                        <InlineMarkdown text={summarizeUsage(hit, record, usagesRef)} />
                       </span>
                       <span className="kn-usage-hit__role">{hit.role}</span>
                     </button>
@@ -474,9 +430,7 @@ export function KnowledgePanel({
                 className="toolbar-select kn-filters__select"
                 title="Filter by kind"
                 value={kindFilter}
-                onChange={(e) =>
-                  setKindFilter(e.target.value as KnowledgeKind | 'all')
-                }
+                onChange={(e) => setKindFilter(e.target.value as KnowledgeKind | 'all')}
               >
                 <option value="all">All kinds</option>
                 {KIND_ORDER.map((kind) => (
@@ -489,9 +443,7 @@ export function KnowledgePanel({
                 className="toolbar-select kn-filters__select"
                 title="Filter by source"
                 value={sourceFilter}
-                onChange={(e) =>
-                  setSourceFilter(e.target.value as KnowledgeSource | 'all')
-                }
+                onChange={(e) => setSourceFilter(e.target.value as KnowledgeSource | 'all')}
               >
                 <option value="all">All sources</option>
                 <option value="human">Human</option>
@@ -510,8 +462,8 @@ export function KnowledgePanel({
                 </div>
                 {state.records.length === 0 && (
                   <div className="kn-empty__hint">
-                    Right-click a table or column in the schema tree, click New,
-                    or ask the agent to remember a fact about this database.
+                    Right-click a table or column in the schema tree, click New, or ask the agent to
+                    remember a fact about this database.
                   </div>
                 )}
               </div>
@@ -525,9 +477,7 @@ export function KnowledgePanel({
                   </div>
                 )}
                 {records.map((record) => {
-                  const dangling = validKeys
-                    ? danglingRefs(record, validKeys)
-                    : []
+                  const dangling = validKeys ? danglingRefs(record, validKeys) : []
                   return (
                     <button
                       key={record.id}
@@ -535,9 +485,7 @@ export function KnowledgePanel({
                       className="kn-item"
                       onClick={() => openRecord(record)}
                     >
-                      <span className="kn-item__kind">
-                        {KIND_LABELS[record.kind]}
-                      </span>
+                      <span className="kn-item__kind">{KIND_LABELS[record.kind]}</span>
                       <span className="kn-item__title">
                         <InlineMarkdown text={recordTitle(record)} />
                       </span>
@@ -551,14 +499,9 @@ export function KnowledgePanel({
                           !
                         </span>
                       )}
-                      <span className={`kn-badge kn-badge--${record.source}`}>
-                        {record.source}
-                      </span>
+                      <span className={`kn-badge kn-badge--${record.source}`}>{record.source}</span>
                       {record.confidence && (
-                        <span
-                          className="kn-badge kn-badge--conf"
-                          title="Agent confidence"
-                        >
+                        <span className="kn-badge kn-badge--conf" title="Agent confidence">
                           {record.confidence}
                         </span>
                       )}
@@ -599,7 +542,6 @@ export function KnowledgePanel({
           </div>
         </div>
       )}
-
     </div>
   )
 }

@@ -103,10 +103,7 @@ function extractIdentifierPaths(sql: string): string[][] {
  *
  * Pure and dependency-free; unit-tested directly.
  */
-export function matchReferencesInSql(
-  sql: string,
-  intro: DatabaseIntrospection
-): ColumnRef[] {
+export function matchReferencesInSql(sql: string, intro: DatabaseIntrospection): ColumnRef[] {
   const rels = collectRelations(intro)
   const schemaNames = new Set(intro.schemas.map((s) => s.name.toLowerCase()))
   const relByQualified = new Map<string, Rel>()
@@ -256,8 +253,7 @@ function canonicalizeRef(
   }
   if (typeof raw.column !== 'string') return null
   const column =
-    rel?.columns.find((c) => c.toLowerCase() === (raw.column as string).toLowerCase()) ??
-    raw.column
+    rel?.columns.find((c) => c.toLowerCase() === (raw.column as string).toLowerCase()) ?? raw.column
   return { schema, table, column }
 }
 
@@ -302,10 +298,7 @@ async function llmExtractReferences(
     const parsed: unknown = JSON.parse(text.slice(start, end + 1))
     if (!Array.isArray(parsed)) return null
     const relByQualified = new Map(
-      collectRelations(intro).map((rel) => [
-        `${rel.schema}.${rel.table}`.toLowerCase(),
-        rel
-      ])
+      collectRelations(intro).map((rel) => [`${rel.schema}.${rel.table}`.toLowerCase(), rel])
     )
     const result: ColumnRef[] = []
     const seen = new Set<string>()
@@ -327,10 +320,7 @@ async function llmExtractReferences(
 
 /** Injectable dependencies, so the LLM/introspection seams are mockable. */
 export interface ExtractionDeps {
-  introspect?: (
-    connId: string,
-    database: string
-  ) => Promise<DbResult<DatabaseIntrospection>>
+  introspect?: (connId: string, database: string) => Promise<DbResult<DatabaseIntrospection>>
   llm?: (sql: string, intro: DatabaseIntrospection) => Promise<ColumnRef[] | null>
 }
 

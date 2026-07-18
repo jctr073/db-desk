@@ -256,11 +256,7 @@ describe('execSaveKnowledge', () => {
   // empty, database-named base and link behind.
   it('rejects a malformed record without creating the auto-base for a fresh target', () => {
     const { send } = collect()
-    agent.execSaveKnowledge(
-      makeReq(),
-      toolUse({ kind: 'annotation', text: 'orphan' }),
-      send
-    )
+    agent.execSaveKnowledge(makeReq(), toolUse({ kind: 'annotation', text: 'orphan' }), send)
     expect(knowledge.listBases()).toEqual([])
     expect(knowledge.listLinks()).toEqual([])
   })

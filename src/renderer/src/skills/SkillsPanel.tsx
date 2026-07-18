@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 
-import {
-  applySkillArgs,
-  builtinSkillById,
-  skillHasArgs
-} from '../../../shared/skills'
+import { applySkillArgs, builtinSkillById, skillHasArgs } from '../../../shared/skills'
 import type { Skill } from '../../../shared/skills'
 import { CloseIcon, PlayIcon } from '../components/icons'
 import type { SkillsState } from './useSkillsState'
@@ -53,8 +49,7 @@ export function SkillsPanel({
   /** Why the last Run was refused (no connection, no codebase, …). */
   const [runError, setRunError] = useState<string | null>(null)
   const editorSeq = useRef(0)
-  const openEditor = (skill: Skill | null): void =>
-    setEditor({ skill, seq: ++editorSeq.current })
+  const openEditor = (skill: Skill | null): void => setEditor({ skill, seq: ++editorSeq.current })
 
   // Tab bar "+" while this tab is active: open a blank editor. A one-shot —
   // the parent resets `newSeq` once consumed, so remounts never replay it.
@@ -79,8 +74,8 @@ export function SkillsPanel({
 
   const general = state.skills.filter((s) => s.connId === null)
   const scoped = state.skills.filter((s) => s.connId !== null)
-  const connIds = [...new Set(scoped.map((s) => s.connId as string))].sort(
-    (a, b) => (connNames[a] ?? a).localeCompare(connNames[b] ?? b)
+  const connIds = [...new Set(scoped.map((s) => s.connId as string))].sort((a, b) =>
+    (connNames[a] ?? a).localeCompare(connNames[b] ?? b)
   )
 
   const argsDialog = argsFor && (
@@ -153,8 +148,8 @@ export function SkillsPanel({
               <div className="kn-empty">
                 <div className="kn-empty__text">No skills yet</div>
                 <div className="kn-empty__hint">
-                  Skills are reusable prompts the agent runs as chat turns. Use
-                  the + button to write one.
+                  Skills are reusable prompts the agent runs as chat turns. Use the + button to
+                  write one.
                 </div>
               </div>
             )}
@@ -202,16 +197,10 @@ function SkillGroup({
         >
           <span className="sk-item__text">
             <span className="kn-item__title">{skill.name}</span>
-            {skill.description && (
-              <span className="sk-item__desc">{skill.description}</span>
-            )}
+            {skill.description && <span className="sk-item__desc">{skill.description}</span>}
           </span>
-          {skill.edited && (
-            <span className="kn-badge kn-badge--agent">edited</span>
-          )}
-          {skill.builtin && (
-            <span className="kn-badge kn-badge--human">built-in</span>
-          )}
+          {skill.edited && <span className="kn-badge kn-badge--agent">edited</span>}
+          {skill.builtin && <span className="kn-badge kn-badge--human">built-in</span>}
           <button
             type="button"
             className="icon-btn icon-btn--sm sk-item__run"
@@ -307,9 +296,7 @@ function SkillEditor({
         <span className="kn-editor__title sk-editor__title">
           {skill ? skill.name : 'New skill'}
         </span>
-        {skill?.builtin && (
-          <span className="kn-badge kn-badge--human">built-in</span>
-        )}
+        {skill?.builtin && <span className="kn-badge kn-badge--human">built-in</span>}
       </div>
       <div className="kn-editor__body">
         <div className="kn-field">
@@ -375,16 +362,13 @@ function SkillEditor({
             onChange={(e) => setPrompt(e.target.value)}
           />
           <div className="url-hint">
-            Running a skill sends its prompt as a normal chat turn against the
-            agent’s current connection.{' '}
-            <code className="url-hint__mono">{'{{args}}'}</code> is replaced
-            with input collected when the skill runs.
+            Running a skill sends its prompt as a normal chat turn against the agent’s current
+            connection. <code className="url-hint__mono">{'{{args}}'}</code> is replaced with input
+            collected when the skill runs.
           </div>
         </div>
         {(error ?? state.error ?? runError) && (
-          <div className="mcp-form-error">
-            {error ?? state.error ?? runError}
-          </div>
+          <div className="mcp-form-error">{error ?? state.error ?? runError}</div>
         )}
       </div>
       <div className="kn-editor__foot">
@@ -478,16 +462,9 @@ function SkillArgsDialog({
           </span>
           <div className="dialog__titles">
             <div className="dialog__title">{skill.name}</div>
-            {skill.description && (
-              <div className="dialog__subtitle">{skill.description}</div>
-            )}
+            {skill.description && <div className="dialog__subtitle">{skill.description}</div>}
           </div>
-          <button
-            className="dialog__close"
-            onClick={onClose}
-            title="Close"
-            type="button"
-          >
+          <button className="dialog__close" onClick={onClose} title="Close" type="button">
             <CloseIcon />
           </button>
         </div>

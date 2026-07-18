@@ -38,28 +38,18 @@ import type {
   MonorepoPick,
   RepoStatus
 } from '../shared/repo'
-import type {
-  ChooseExportResult,
-  DataExportFormat,
-  WriteExportResult
-} from '../shared/export'
+import type { ChooseExportResult, DataExportFormat, WriteExportResult } from '../shared/export'
 
 const api = Object.freeze({
   appName: 'DB Desk',
   db: Object.freeze({
     test: (params: ConnectParams): Promise<DbResult<TestResult>> =>
       ipcRenderer.invoke('db:test', params),
-    connect: (
-      connId: string,
-      params: ConnectParams
-    ): Promise<DbResult<ConnectResult>> =>
+    connect: (connId: string, params: ConnectParams): Promise<DbResult<ConnectResult>> =>
       ipcRenderer.invoke('db:connect', connId, params),
     connectSaved: (connId: string): Promise<DbResult<ConnectResult>> =>
       ipcRenderer.invoke('db:connectSaved', connId),
-    introspect: (
-      connId: string,
-      database: string
-    ): Promise<DbResult<DatabaseIntrospection>> =>
+    introspect: (connId: string, database: string): Promise<DbResult<DatabaseIntrospection>> =>
       ipcRenderer.invoke('db:introspect', connId, database),
     disconnect: (connId: string): Promise<DbResult<null>> =>
       ipcRenderer.invoke('db:disconnect', connId),
@@ -77,10 +67,7 @@ const api = Object.freeze({
     ): Promise<DbResult<QueryResult>> =>
       ipcRenderer.invoke('db:queryForExport', connId, database, sql),
     /** Schema names of one database, unfiltered (feeds the schema picker). */
-    listSchemas: (
-      connId: string,
-      database: string
-    ): Promise<DbResult<string[]>> =>
+    listSchemas: (connId: string, database: string): Promise<DbResult<string[]>> =>
       ipcRenderer.invoke('db:listSchemas', connId, database),
     /** All catalogs reachable from a connection, unfiltered. */
     listCatalogs: (connId: string): Promise<DbResult<string[]>> =>
@@ -89,13 +76,8 @@ const api = Object.freeze({
      * Subscribe to background schema-revalidation pushes (validating/ok/
      * error per database); returns an unsubscribe function.
      */
-    onSchemaRefresh: (
-      callback: (evt: SchemaRefreshEvent) => void
-    ): (() => void) => {
-      const listener = (
-        _event: IpcRendererEvent,
-        evt: SchemaRefreshEvent
-      ): void => callback(evt)
+    onSchemaRefresh: (callback: (evt: SchemaRefreshEvent) => void): (() => void) => {
+      const listener = (_event: IpcRendererEvent, evt: SchemaRefreshEvent): void => callback(evt)
       ipcRenderer.on('db:schema-refresh', listener)
       return () => {
         ipcRenderer.removeListener('db:schema-refresh', listener)
@@ -103,15 +85,11 @@ const api = Object.freeze({
     }
   }),
   exportFile: Object.freeze({
-    choose: (
-      suggestedName: string,
-      format: DataExportFormat
-    ): Promise<ChooseExportResult> =>
+    choose: (suggestedName: string, format: DataExportFormat): Promise<ChooseExportResult> =>
       ipcRenderer.invoke('export:choose', suggestedName, format),
     write: (token: string, contents: string): Promise<WriteExportResult> =>
       ipcRenderer.invoke('export:write', token, contents),
-    discard: (token: string): Promise<void> =>
-      ipcRenderer.invoke('export:discard', token)
+    discard: (token: string): Promise<void> => ipcRenderer.invoke('export:discard', token)
   }),
   store: Object.freeze({
     list: (): Promise<SavedConnection[]> => ipcRenderer.invoke('store:list'),
@@ -120,27 +98,16 @@ const api = Object.freeze({
       name: string,
       params: ConnectParams,
       savePassword: boolean
-    ): Promise<SavedConnection> =>
-      ipcRenderer.invoke('store:save', id, name, params, savePassword),
-    delete: (id: string): Promise<void> =>
-      ipcRenderer.invoke('store:delete', id),
+    ): Promise<SavedConnection> => ipcRenderer.invoke('store:save', id, name, params, savePassword),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('store:delete', id),
     // --- Schema/catalog pinning (Databricks) ---
     getSchemaConfig: (id: string): Promise<SchemaSelectionConfig> =>
       ipcRenderer.invoke('store:getSchemaConfig', id),
-    setSchemaConfig: (
-      id: string,
-      config: SchemaSelectionConfig
-    ): Promise<void> => ipcRenderer.invoke('store:setSchemaConfig', id, config),
-    setCatalogSelection: (
-      id: string,
-      catalogs: string[] | null
-    ): Promise<void> =>
+    setSchemaConfig: (id: string, config: SchemaSelectionConfig): Promise<void> =>
+      ipcRenderer.invoke('store:setSchemaConfig', id, config),
+    setCatalogSelection: (id: string, catalogs: string[] | null): Promise<void> =>
       ipcRenderer.invoke('store:setCatalogSelection', id, catalogs),
-    setSchemaSelection: (
-      id: string,
-      catalog: string,
-      schemas: string[] | null
-    ): Promise<void> =>
+    setSchemaSelection: (id: string, catalog: string, schemas: string[] | null): Promise<void> =>
       ipcRenderer.invoke('store:setSchemaSelection', id, catalog, schemas)
   }),
   files: Object.freeze({
@@ -192,12 +159,8 @@ const api = Object.freeze({
       createdAt: number
       updatedAt: number
     }> => ipcRenderer.invoke('files:rename', id, name),
-    delete: (id: string): Promise<void> =>
-      ipcRenderer.invoke('files:delete', id),
-    getNextName: (
-      connId: string | null,
-      database: string | null
-    ): Promise<string> =>
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('files:delete', id),
+    getNextName: (connId: string | null, database: string | null): Promise<string> =>
       ipcRenderer.invoke('files:getNextName', connId, database),
     deleteForConnection: (connId: string): Promise<void> =>
       ipcRenderer.invoke('files:deleteForConnection', connId)
@@ -205,8 +168,7 @@ const api = Object.freeze({
   settings: Object.freeze({
     get: (): Promise<AppSettingsInfo> => ipcRenderer.invoke('settings:get'),
     /** Directory picker + move; resolves after the files are relocated. */
-    chooseSqlDir: (): Promise<ChangeSqlDirResult> =>
-      ipcRenderer.invoke('settings:chooseSqlDir'),
+    chooseSqlDir: (): Promise<ChangeSqlDirResult> => ipcRenderer.invoke('settings:chooseSqlDir'),
     setApiKeyVar: (name: string): Promise<AppSettingsInfo> =>
       ipcRenderer.invoke('settings:setApiKeyVar', name),
     setStoredApiKey: (key: string, label: string): Promise<AppSettingsInfo> =>
@@ -226,18 +188,12 @@ const api = Object.freeze({
     list: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:list'),
     save: (config: McpServerConfig): Promise<McpServerStatus[]> =>
       ipcRenderer.invoke('mcp:save', config),
-    delete: (id: string): Promise<McpServerStatus[]> =>
-      ipcRenderer.invoke('mcp:delete', id),
-    restart: (id: string): Promise<McpServerStatus[]> =>
-      ipcRenderer.invoke('mcp:restart', id),
+    delete: (id: string): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:delete', id),
+    restart: (id: string): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:restart', id),
     /** Subscribe to server status pushes; returns an unsubscribe function. */
-    onChanged: (
-      callback: (statuses: McpServerStatus[]) => void
-    ): (() => void) => {
-      const listener = (
-        _event: IpcRendererEvent,
-        statuses: McpServerStatus[]
-      ): void => callback(statuses)
+    onChanged: (callback: (statuses: McpServerStatus[]) => void): (() => void) => {
+      const listener = (_event: IpcRendererEvent, statuses: McpServerStatus[]): void =>
+        callback(statuses)
       ipcRenderer.on('mcp:changed', listener)
       return () => {
         ipcRenderer.removeListener('mcp:changed', listener)
@@ -246,35 +202,25 @@ const api = Object.freeze({
   }),
   knowledge: Object.freeze({
     // --- Bases: free-standing named record collections ---
-    listBases: (): Promise<KnowledgeBaseSummary[]> =>
-      ipcRenderer.invoke('knowledge:listBases'),
+    listBases: (): Promise<KnowledgeBaseSummary[]> => ipcRenderer.invoke('knowledge:listBases'),
     createBase: (name: string): Promise<KnowledgeBase> =>
       ipcRenderer.invoke('knowledge:createBase', name),
     renameBase: (kbId: string, name: string): Promise<KnowledgeBase> =>
       ipcRenderer.invoke('knowledge:renameBase', kbId, name),
     /** Deletes the base's records and every link pointing at it. */
-    deleteBase: (kbId: string): Promise<void> =>
-      ipcRenderer.invoke('knowledge:deleteBase', kbId),
+    deleteBase: (kbId: string): Promise<void> => ipcRenderer.invoke('knowledge:deleteBase', kbId),
     // --- Links: base ↔ (connection, database[, schema]) attachments ---
-    listLinks: (): Promise<KnowledgeLink[]> =>
-      ipcRenderer.invoke('knowledge:listLinks'),
+    listLinks: (): Promise<KnowledgeLink[]> => ipcRenderer.invoke('knowledge:listLinks'),
     addLink: (input: KnowledgeLinkInput): Promise<KnowledgeLink> =>
       ipcRenderer.invoke('knowledge:addLink', input),
     removeLink: (linkId: string): Promise<void> =>
       ipcRenderer.invoke('knowledge:removeLink', linkId),
     // --- Records ---
-    list: (kbId: string): Promise<KnowledgeRecord[]> =>
-      ipcRenderer.invoke('knowledge:list', kbId),
+    list: (kbId: string): Promise<KnowledgeRecord[]> => ipcRenderer.invoke('knowledge:list', kbId),
     /** Every base linked to the target, with its link and records. */
-    listForTarget: (
-      connId: string,
-      database: string
-    ): Promise<KnowledgeTargetGroup[]> =>
+    listForTarget: (connId: string, database: string): Promise<KnowledgeTargetGroup[]> =>
       ipcRenderer.invoke('knowledge:listForTarget', connId, database),
-    save: (
-      kbId: string,
-      record: KnowledgeRecordInput
-    ): Promise<KnowledgeRecord> =>
+    save: (kbId: string, record: KnowledgeRecordInput): Promise<KnowledgeRecord> =>
       ipcRenderer.invoke('knowledge:save', kbId, record),
     /**
      * Save a question→SQL exemplar into a base; the main process extracts the
@@ -289,14 +235,7 @@ const api = Object.freeze({
       question: string,
       sql: string
     ): Promise<KnowledgeRecord> =>
-      ipcRenderer.invoke(
-        'knowledge:saveExemplar',
-        kbId,
-        connId,
-        database,
-        question,
-        sql
-      ),
+      ipcRenderer.invoke('knowledge:saveExemplar', kbId, connId, database, question, sql),
     remove: (kbId: string, id: string): Promise<void> =>
       ipcRenderer.invoke('knowledge:delete', kbId, id),
     /**
@@ -336,11 +275,9 @@ const api = Object.freeze({
   }),
   skills: Object.freeze({
     list: (): Promise<Skill[]> => ipcRenderer.invoke('skills:list'),
-    save: (input: SkillSaveInput): Promise<Skill> =>
-      ipcRenderer.invoke('skills:save', input),
+    save: (input: SkillSaveInput): Promise<Skill> => ipcRenderer.invoke('skills:save', input),
     /** For a built-in id this resets it to the installed version. */
-    remove: (id: string): Promise<void> =>
-      ipcRenderer.invoke('skills:delete', id),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke('skills:delete', id),
     /** Subscribe to skills-change pushes; returns an unsubscribe function. */
     onChanged: (callback: () => void): (() => void) => {
       const listener = (_event: IpcRendererEvent): void => callback()
@@ -351,27 +288,19 @@ const api = Object.freeze({
     }
   }),
   repo: Object.freeze({
-    get: (kbId: string): Promise<RepoStatus> =>
-      ipcRenderer.invoke('repo:get', kbId),
-    choose: (kbId: string): Promise<RepoStatus> =>
-      ipcRenderer.invoke('repo:choose', kbId),
-    clear: (kbId: string): Promise<RepoStatus> =>
-      ipcRenderer.invoke('repo:clear', kbId),
+    get: (kbId: string): Promise<RepoStatus> => ipcRenderer.invoke('repo:get', kbId),
+    choose: (kbId: string): Promise<RepoStatus> => ipcRenderer.invoke('repo:choose', kbId),
+    clear: (kbId: string): Promise<RepoStatus> => ipcRenderer.invoke('repo:clear', kbId),
     /** Opens the monorepo-root picker; null when the user cancels. */
-    monorepoPick: (): Promise<MonorepoPick | null> =>
-      ipcRenderer.invoke('repo:monorepoPick'),
+    monorepoPick: (): Promise<MonorepoPick | null> => ipcRenderer.invoke('repo:monorepoPick'),
     monorepoCreate: (input: MonorepoCreateInput): Promise<MonorepoCreateResult> =>
       ipcRenderer.invoke('repo:monorepoCreate', input)
   }),
   agent: Object.freeze({
-    keyStatus: (): Promise<AgentKeyStatus> =>
-      ipcRenderer.invoke('agent:keyStatus'),
-    send: (req: AgentSendRequest): Promise<void> =>
-      ipcRenderer.invoke('agent:send', req),
-    stop: (chatId: string): Promise<void> =>
-      ipcRenderer.invoke('agent:stop', chatId),
-    reset: (chatId: string): Promise<void> =>
-      ipcRenderer.invoke('agent:reset', chatId),
+    keyStatus: (): Promise<AgentKeyStatus> => ipcRenderer.invoke('agent:keyStatus'),
+    send: (req: AgentSendRequest): Promise<void> => ipcRenderer.invoke('agent:send', req),
+    stop: (chatId: string): Promise<void> => ipcRenderer.invoke('agent:stop', chatId),
+    reset: (chatId: string): Promise<void> => ipcRenderer.invoke('agent:reset', chatId),
     /** Replace the chat history with a model-written summary (/compact). */
     compact: (chatId: string, model: string): Promise<AgentCompactResult> =>
       ipcRenderer.invoke('agent:compact', chatId, model),
@@ -398,8 +327,7 @@ const api = Object.freeze({
     },
     /** Subscribe to agent progress events; returns an unsubscribe function. */
     onEvent: (callback: (evt: AgentEvent) => void): (() => void) => {
-      const listener = (_event: IpcRendererEvent, evt: AgentEvent): void =>
-        callback(evt)
+      const listener = (_event: IpcRendererEvent, evt: AgentEvent): void => callback(evt)
       ipcRenderer.on('agent:event', listener)
       return () => {
         ipcRenderer.removeListener('agent:event', listener)

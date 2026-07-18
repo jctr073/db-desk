@@ -49,12 +49,7 @@ export function TargetedScanDialog({
     // No click-to-close on the overlay: a stray click must not discard a
     // half-filled form (same rule as the other dialogs).
     <div className="dialog-overlay">
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Targeted codebase scan"
-      >
+      <div className="dialog" role="dialog" aria-modal="true" aria-label="Targeted codebase scan">
         <div className="dialog__header">
           <span className="dialog__icon">
             <SearchIcon size={16} />
@@ -63,12 +58,7 @@ export function TargetedScanDialog({
             <div className="dialog__title">Targeted Scan</div>
             <div className="dialog__subtitle">{targetLabel}</div>
           </div>
-          <button
-            className="dialog__close"
-            onClick={onClose}
-            title="Close"
-            type="button"
-          >
+          <button className="dialog__close" onClick={onClose} title="Close" type="button">
             <CloseIcon />
           </button>
         </div>
@@ -96,9 +86,8 @@ export function TargetedScanDialog({
           />
           <div className="url-hint">
             The agent re-scans only the parts of{' '}
-            {repoName ? `"${repoName}"` : 'the attached codebase'} relevant to
-            this focus and adds or updates knowledge records, instead of
-            surveying the whole repo again.
+            {repoName ? `"${repoName}"` : 'the attached codebase'} relevant to this focus and adds
+            or updates knowledge records, instead of surveying the whole repo again.
           </div>
           {error && <div className="mcp-form-error">{error}</div>}
         </div>

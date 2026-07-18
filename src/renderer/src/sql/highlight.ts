@@ -11,14 +11,7 @@ import { BUILTIN_FUNCTIONS, BUILTIN_TYPES, KEYWORDS, NO_ARG_FUNCTIONS } from './
 import { tokenize } from './tokens'
 import type { Token } from './tokens'
 
-export type HighlightClass =
-  | 'kw'
-  | 'fn'
-  | 'type'
-  | 'str'
-  | 'num'
-  | 'comment'
-  | 'op'
+export type HighlightClass = 'kw' | 'fn' | 'type' | 'str' | 'num' | 'comment' | 'op'
 
 export interface HighlightSegment {
   /** null renders in the surrounding text color (identifiers, punctuation). */
@@ -27,12 +20,8 @@ export interface HighlightSegment {
 }
 
 // Multi-word entries ('GROUP BY', 'IS NOT NULL') highlight per word.
-const KEYWORD_WORDS = new Set(
-  KEYWORDS.flatMap((kw) => kw.toLowerCase().split(' '))
-)
-const TYPE_WORDS = new Set(
-  BUILTIN_TYPES.flatMap((t) => t.toLowerCase().split(' '))
-)
+const KEYWORD_WORDS = new Set(KEYWORDS.flatMap((kw) => kw.toLowerCase().split(' ')))
+const TYPE_WORDS = new Set(BUILTIN_TYPES.flatMap((t) => t.toLowerCase().split(' ')))
 const FUNCTION_WORDS = new Set([...BUILTIN_FUNCTIONS, ...NO_ARG_FUNCTIONS])
 
 // Symbolic operators render like keywords in the editor theme; grouping and

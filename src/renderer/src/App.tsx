@@ -67,9 +67,7 @@ export function App(): ReactElement {
   const [agentContext, setAgentContext] = useState<AgentContextItem[]>([])
   const addAgentContext = useCallback((item: AgentContextItem) => {
     setAgentContext((prev) =>
-      prev.some((c) => agentContextKey(c) === agentContextKey(item))
-        ? prev
-        : [...prev, item]
+      prev.some((c) => agentContextKey(c) === agentContextKey(item)) ? prev : [...prev, item]
     )
   }, [])
   const removeAgentContext = useCallback((key: string) => {
@@ -92,9 +90,7 @@ export function App(): ReactElement {
         seq: ++agentSeedSeq.current,
         text: prompt,
         intent: 'fix-query',
-        target: item
-          ? { connId: item.connId, database: item.database }
-          : undefined
+        target: item ? { connId: item.connId, database: item.database } : undefined
       })
     },
     [addAgentContext]
@@ -227,9 +223,7 @@ export function App(): ReactElement {
     : null
   /** The active connection + the database it was opened against. */
   const activeTarget: QueryTarget | null =
-    activeTargets.find(
-      (t) => t.database === activeConnNode?.connectedDatabase
-    ) ??
+    activeTargets.find((t) => t.database === activeConnNode?.connectedDatabase) ??
     activeTargets.find((t) => t.primary) ??
     activeTargets[0] ??
     null
@@ -246,9 +240,7 @@ export function App(): ReactElement {
     (item: AgentDbObjectItem) => {
       if (item.kind === 'schema') return
       const target = targets.find(
-        (candidate) =>
-          candidate.connId === item.connId &&
-          candidate.database === item.database
+        (candidate) => candidate.connId === item.connId && candidate.database === item.database
       )
       if (!target) return
       const quote = target.connectionType === 'databricks' ? '`' : '"'
@@ -275,27 +267,18 @@ export function App(): ReactElement {
   useEffect(() => {
     if (
       knTargetKey &&
-      activeTargets.some(
-        (t) => knowledgeTargetKeyOf(t.connId, t.database) === knTargetKey
-      )
+      activeTargets.some((t) => knowledgeTargetKeyOf(t.connId, t.database) === knTargetKey)
     ) {
       return
     }
     setKnTargetKey(
-      activeTarget
-        ? knowledgeTargetKeyOf(activeTarget.connId, activeTarget.database)
-        : null
+      activeTarget ? knowledgeTargetKeyOf(activeTarget.connId, activeTarget.database) : null
     )
   }, [activeTargets, activeTarget, knTargetKey])
   const knTarget =
-    activeTargets.find(
-      (t) => knowledgeTargetKeyOf(t.connId, t.database) === knTargetKey
-    ) ?? null
+    activeTargets.find((t) => knowledgeTargetKeyOf(t.connId, t.database) === knTargetKey) ?? null
 
-  const knowledge = useKnowledgeState(
-    knTarget?.connId ?? null,
-    knTarget?.database ?? null
-  )
+  const knowledge = useKnowledgeState(knTarget?.connId ?? null, knTarget?.database ?? null)
 
   // "Show usages" / "Add annotation…" requests routed from the schema tree.
   // A one-shot: KnowledgePanel clears it once consumed (via onNavConsumed) so a
@@ -303,12 +286,7 @@ export function App(): ReactElement {
   const [knowledgeNav, setKnowledgeNav] = useState<KnowledgeNav | null>(null)
   const knNavSeq = useRef(0)
   const onKnowledgeAction = useCallback(
-    (
-      action: 'usages' | 'annotate',
-      connId: string,
-      database: string,
-      ref: ColumnRef
-    ) => {
+    (action: 'usages' | 'annotate', connId: string, database: string, ref: ColumnRef) => {
       setKnTargetKey(knowledgeTargetKeyOf(connId, database))
       setKnowledgeNav({ seq: ++knNavSeq.current, action, connId, database, ref })
     },
@@ -318,19 +296,16 @@ export function App(): ReactElement {
 
   // "[kb:id]" citation chips in the agent transcript: point the knowledge tab
   // at the chat's target and open the cited record.
-  const openKnowledgeRecord = useCallback(
-    (connId: string, database: string, recordId: string) => {
-      setKnTargetKey(knowledgeTargetKeyOf(connId, database))
-      setKnowledgeNav({
-        seq: ++knNavSeq.current,
-        action: 'record',
-        connId,
-        database,
-        recordId
-      })
-    },
-    []
-  )
+  const openKnowledgeRecord = useCallback((connId: string, database: string, recordId: string) => {
+    setKnTargetKey(knowledgeTargetKeyOf(connId, database))
+    setKnowledgeNav({
+      seq: ++knNavSeq.current,
+      action: 'record',
+      connId,
+      database,
+      recordId
+    })
+  }, [])
 
   // Live usage indexes for every connected database, so the tree badges
   // knowledge across all of them (not just the tab's current target).
@@ -361,12 +336,8 @@ export function App(): ReactElement {
   }, [connections.tree, targets, knowledgeIndexes, knowledgeStructure.links])
 
   const rootId = connections.selected?.split('/')[0]
-  const activeConn = rootId
-    ? connections.tree.find((node) => node.id === rootId)
-    : undefined
-  const title = activeConn
-    ? `DB Desk  —  ${activeConn.subtitle ?? activeConn.label}`
-    : 'DB Desk'
+  const activeConn = rootId ? connections.tree.find((node) => node.id === rootId) : undefined
+  const title = activeConn ? `DB Desk  —  ${activeConn.subtitle ?? activeConn.label}` : 'DB Desk'
 
   // Drive the native OS window title instead of a custom title bar row.
   useEffect(() => {
@@ -392,9 +363,7 @@ export function App(): ReactElement {
               title={`Active context — every panel targets ${activeTarget.connName} / ${activeTarget.database}`}
             >
               <span className="titlebar-pill__dot" />
-              <span className="titlebar-pill__name">
-                {activeTarget.connName}
-              </span>
+              <span className="titlebar-pill__name">{activeTarget.connName}</span>
               <span className="titlebar-pill__sep">/</span>
               <span className="titlebar-pill__db">{activeTarget.database}</span>
               <span className="titlebar-pill__divider" />
@@ -483,9 +452,7 @@ export function App(): ReactElement {
         schemaTitle={schemaSync?.title}
         queryTarget={
           queryStatus.target ||
-          (activeTarget
-            ? `${activeTarget.connName} / ${activeTarget.database}`
-            : '')
+          (activeTarget ? `${activeTarget.connName} / ${activeTarget.database}` : '')
         }
       />
       {settingsOpen && (

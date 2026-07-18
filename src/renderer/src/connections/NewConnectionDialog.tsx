@@ -27,12 +27,7 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
   const layout = dialect.form
   const isParams = state.dialogTab === 'params' || !dialect.supportsUrl
   const editing = state.editingId !== null
-  const dbError = databaseFieldError(
-    dialect,
-    isParams,
-    state.form.database,
-    state.form.url
-  )
+  const dbError = databaseFieldError(dialect, isParams, state.form.database, state.form.url)
 
   const secretField = (
     <div style={{ flex: 1 }}>
@@ -228,11 +223,7 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
           )}
 
           <label className="save-pwd">
-            <input
-              type="checkbox"
-              checked={state.form.savePwd}
-              onChange={state.toggleSavePwd}
-            />
+            <input type="checkbox" checked={state.form.savePwd} onChange={state.toggleSavePwd} />
             {layout.savePwdLabel}
           </label>
         </div>

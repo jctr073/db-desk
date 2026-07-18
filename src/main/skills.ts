@@ -19,12 +19,7 @@ import { writeJsonAtomic } from './atomicJson'
 import { app, ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 
-import {
-  builtinSkillById,
-  isBuiltinSkillId,
-  matchesBuiltin,
-  resolveSkills
-} from '../shared/skills'
+import { builtinSkillById, isBuiltinSkillId, matchesBuiltin, resolveSkills } from '../shared/skills'
 import type { Skill, SkillSaveInput, StoredSkill } from '../shared/skills'
 
 /** Current on-disk file format version. */
@@ -100,11 +95,7 @@ function load(): StoredSkill[] {
         .filter(isStoredSkill)
         // A built-in override is always general-purpose; a hand-edited
         // scope would otherwise hide the built-in from resolveSkills.
-        .map((s) =>
-          isBuiltinSkillId(s.id) && s.connId !== null
-            ? { ...s, connId: null }
-            : s
-        )
+        .map((s) => (isBuiltinSkillId(s.id) && s.connId !== null ? { ...s, connId: null } : s))
     } else {
       console.error(`skills: unreadable file quarantined: ${path}`)
       quarantineCorruptFile(path)
@@ -157,9 +148,7 @@ function validateSkillInput(input: unknown): asserts input is SkillSaveInput {
     throw new Error('Skill prompt must be a non-empty string')
   }
   if (s.prompt.length > PROMPT_MAX_CHARS) {
-    throw new Error(
-      `Skill prompt too long (max ${PROMPT_MAX_CHARS.toLocaleString()} characters)`
-    )
+    throw new Error(`Skill prompt too long (max ${PROMPT_MAX_CHARS.toLocaleString()} characters)`)
   }
   if (s.connId !== null && typeof s.connId !== 'string') {
     throw new Error('Skill connId must be a string or null')
@@ -249,9 +238,7 @@ export function deleteSkillsForConnection(connId: string): void {
 
 // --- IPC ----------------------------------------------------------------------
 
-export function registerSkillHandlers(
-  getWindow: () => BrowserWindow | null
-): void {
+export function registerSkillHandlers(getWindow: () => BrowserWindow | null): void {
   notifyChanged = () => {
     const win = getWindow()
     if (win && !win.isDestroyed()) {
@@ -259,8 +246,6 @@ export function registerSkillHandlers(
     }
   }
   ipcMain.handle('skills:list', () => listSkills())
-  ipcMain.handle('skills:save', (_event, input: SkillSaveInput) =>
-    saveSkill(input)
-  )
+  ipcMain.handle('skills:save', (_event, input: SkillSaveInput) => saveSkill(input))
   ipcMain.handle('skills:delete', (_event, id: string) => removeSkill(id))
 }

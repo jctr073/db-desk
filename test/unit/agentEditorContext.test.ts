@@ -131,9 +131,7 @@ describe('buildSystemPrompt editor-selection context items', () => {
   })
 
   it('falls back to "the editor" when the selection has no file name', () => {
-    const text = prompt(
-      makeReq({ context: [selectionItem({ fileName: null })] })
-    )
+    const text = prompt(makeReq({ context: [selectionItem({ fileName: null })] }))
     expect(text).toContain('From the editor, lines 3–4:')
   })
 
@@ -205,9 +203,7 @@ describe('buildSystemPrompt live editor selection', () => {
     )
     expect(text).toContain('Active editor file (q.sql) contents:')
     expect(text).toContain('lines 2–2 of the editor selected')
-    expect(text.indexOf('lines 2–2')).toBeGreaterThan(
-      text.indexOf('Active editor file')
-    )
+    expect(text.indexOf('lines 2–2')).toBeGreaterThan(text.indexOf('Active editor file'))
   })
 
   it('omits the selection block for blank selections', () => {
@@ -243,48 +239,23 @@ describe('buildSystemPrompt editor tool rules', () => {
 
 describe('shouldForceEditorProposal', () => {
   it('catches a Fix with AI turn that ended with chat only', () => {
-    expect(
-      agent.shouldForceEditorProposal(
-        { intent: 'fix-query' },
-        'end_turn',
-        false,
-        false
-      )
-    ).toBe(true)
+    expect(agent.shouldForceEditorProposal({ intent: 'fix-query' }, 'end_turn', false, false)).toBe(
+      true
+    )
   })
 
   it('does not force ordinary, completed, repeated, or interrupted turns', () => {
-    expect(
-      agent.shouldForceEditorProposal(
-        { intent: 'chat' },
-        'end_turn',
-        false,
-        false
-      )
-    ).toBe(false)
-    expect(
-      agent.shouldForceEditorProposal(
-        { intent: 'fix-query' },
-        'end_turn',
-        true,
-        false
-      )
-    ).toBe(false)
-    expect(
-      agent.shouldForceEditorProposal(
-        { intent: 'fix-query' },
-        'end_turn',
-        false,
-        true
-      )
-    ).toBe(false)
-    expect(
-      agent.shouldForceEditorProposal(
-        { intent: 'fix-query' },
-        'aborted',
-        false,
-        false
-      )
-    ).toBe(false)
+    expect(agent.shouldForceEditorProposal({ intent: 'chat' }, 'end_turn', false, false)).toBe(
+      false
+    )
+    expect(agent.shouldForceEditorProposal({ intent: 'fix-query' }, 'end_turn', true, false)).toBe(
+      false
+    )
+    expect(agent.shouldForceEditorProposal({ intent: 'fix-query' }, 'end_turn', false, true)).toBe(
+      false
+    )
+    expect(agent.shouldForceEditorProposal({ intent: 'fix-query' }, 'aborted', false, false)).toBe(
+      false
+    )
   })
 })

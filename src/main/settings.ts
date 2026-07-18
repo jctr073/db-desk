@@ -123,10 +123,7 @@ function decryptStoredKey(): string | null {
 function readKeyFromZshrc(varName: string): string | null {
   try {
     const text = readFileSync(join(homedir(), '.zshrc'), 'utf8')
-    const re = new RegExp(
-      `^\\s*(?:export\\s+)?${varName}\\s*=\\s*["']?([^"'\\s#]+)`,
-      'gm'
-    )
+    const re = new RegExp(`^\\s*(?:export\\s+)?${varName}\\s*=\\s*["']?([^"'\\s#]+)`, 'gm')
     let match: RegExpExecArray | null
     let last: string | null = null
     while ((match = re.exec(text)) !== null) last = match[1]

@@ -38,9 +38,7 @@ export function isKnownKind(kind: string): kind is KnowledgeKind {
 }
 
 export function formatRef(ref: ColumnRef): string {
-  return ref.column
-    ? `${ref.schema}.${ref.table}.${ref.column}`
-    : `${ref.schema}.${ref.table}`
+  return ref.column ? `${ref.schema}.${ref.table}.${ref.column}` : `${ref.schema}.${ref.table}`
 }
 
 /** Parse "schema.table" or "schema.table.column" text into a ColumnRef. */
@@ -162,9 +160,7 @@ export function buildRefKeySet(intro: DatabaseIntrospection): Set<string> {
       for (const table of [rel.name, ...tableNameAliases(schema.name, rel.name)]) {
         keys.add(normalizeColumnKey({ schema: schema.name, table }))
         for (const col of rel.columns) {
-          keys.add(
-            normalizeColumnKey({ schema: schema.name, table, column: col.name })
-          )
+          keys.add(normalizeColumnKey({ schema: schema.name, table, column: col.name }))
         }
       }
     }
@@ -173,10 +169,7 @@ export function buildRefKeySet(intro: DatabaseIntrospection): Set<string> {
 }
 
 /** The record's refs that are missing from the current introspection. */
-export function danglingRefs(
-  record: KnowledgeRecord,
-  validKeys: Set<string>
-): ColumnRef[] {
+export function danglingRefs(record: KnowledgeRecord, validKeys: Set<string>): ColumnRef[] {
   return recordRefs(record).filter((ref) => !validKeys.has(normalizeColumnKey(ref)))
 }
 
@@ -206,9 +199,7 @@ export function summarizeUsage(
     case 'joins-from': {
       if (record?.kind !== 'relationship') return 'Join source'
       if (record.relType === 'polymorphic') {
-        const disc = record.discriminator
-          ? formatRef(record.discriminator)
-          : 'a discriminator'
+        const disc = record.discriminator ? formatRef(record.discriminator) : 'a discriminator'
         return `Polymorphic join source — target depends on ${disc}`
       }
       return record.to ? `Joins to ${formatRef(record.to)}` : 'Join source'
@@ -217,9 +208,7 @@ export function summarizeUsage(
       if (record?.kind !== 'relationship') return 'Join target'
       if (record.relType === 'polymorphic') {
         const values = polymorphicValuesFor(record, ref)
-        const disc = record.discriminator
-          ? formatRef(record.discriminator)
-          : 'the discriminator'
+        const disc = record.discriminator ? formatRef(record.discriminator) : 'the discriminator'
         const when = values.length
           ? ` when ${disc} = ${values.map((v) => `'${v}'`).join(' or ')}`
           : ''

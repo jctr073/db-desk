@@ -10,9 +10,7 @@ import type { InlineToken } from './markdown'
  * Without a provider the marker renders as its literal text, so surfaces that
  * never see citations (knowledge panel titles, etc.) need no setup.
  */
-export const KbRefContext = createContext<((id: string) => ReactNode) | null>(
-  null
-)
+export const KbRefContext = createContext<((id: string) => ReactNode) | null>(null)
 
 function KbRef({ id }: { id: string }): ReactElement {
   const resolve = useContext(KbRefContext)

@@ -170,10 +170,7 @@ describe('buildReferenceIndex', () => {
         rel('shipments', [col('id', 'integer', 'pk'), col('warehouse_id', 'integer')]),
         // Composite PK: no inference from order_items' own key, but its
         // order_id column still logically references orders.
-        rel('order_items', [
-          col('order_id', 'integer', 'pk'),
-          col('item_no', 'integer', 'pk')
-        ]),
+        rel('order_items', [col('order_id', 'integer', 'pk'), col('item_no', 'integer', 'pk')]),
         // Irregular plural: statuses.id <- tickets.status_id.
         rel('statuses', [col('id', 'integer', 'pk')]),
         rel('tickets', [col('id', 'integer', 'pk'), col('status_id', 'integer')])
@@ -205,23 +202,17 @@ describe('buildReferenceIndex', () => {
   })
 
   it('infers convention-2 logical FKs (pk named like the column)', () => {
-    expect(keys).toContain(
-      'lfk public shipments warehouse_id public warehouses warehouse_id'
-    )
+    expect(keys).toContain('lfk public shipments warehouse_id public warehouses warehouse_id')
   })
 
   it('never emits a self-edge for a convention-2 pk column', () => {
     expect(
-      index.edges.some(
-        (e) => e.from.table === 'warehouses' && e.to.table === 'warehouses'
-      )
+      index.edges.some((e) => e.from.table === 'warehouses' && e.to.table === 'warehouses')
     ).toBe(false)
   })
 
   it('rejects logical pairs across type families', () => {
-    expect(
-      index.edges.some((e) => e.from.table === 'reviews' && e.kind === 'lfk')
-    ).toBe(false)
+    expect(index.edges.some((e) => e.from.table === 'reviews' && e.kind === 'lfk')).toBe(false)
   })
 
   it('skips inference targets for composite PKs but still matches their columns', () => {
@@ -247,13 +238,11 @@ describe('buildReferenceIndex', () => {
   })
 
   it('records inferred targets for tree badges, keyed by source column', () => {
-    expect(
-      index.logicalRefs.get(columnKey('public', 'orders', 'customer_id'))
-    ).toBe('public.customers.id')
+    expect(index.logicalRefs.get(columnKey('public', 'orders', 'customer_id'))).toBe(
+      'public.customers.id'
+    )
     // Declared FKs get no logical badge entry.
-    expect(
-      index.logicalRefs.has(columnKey('public', 'payments', 'customer_id'))
-    ).toBe(false)
+    expect(index.logicalRefs.has(columnKey('public', 'payments', 'customer_id'))).toBe(false)
   })
 
   it('answers column-level direction queries', () => {
@@ -302,12 +291,8 @@ describe('column peers', () => {
     const fixture = db(
       schema('public', [
         rel('contracts', [col('id', 'integer', 'pk')]),
-        rel('orders', [
-          col('contract_id', 'integer', 'fk', 'public.contracts.id')
-        ]),
-        rel('invoices', [
-          col('contract_id', 'integer', 'fk', 'public.contracts.id')
-        ]),
+        rel('orders', [col('contract_id', 'integer', 'fk', 'public.contracts.id')]),
+        rel('invoices', [col('contract_id', 'integer', 'fk', 'public.contracts.id')]),
         rel('shipments', [col('contract_id', 'integer')])
       ])
     )
@@ -363,9 +348,7 @@ describe('column peers', () => {
     const fixture = db(
       schema('public', [
         rel('accounts', [col('id', 'integer', 'pk')]),
-        rel('orders', [
-          col('account_key', 'integer', 'fk', 'public.accounts.id')
-        ]),
+        rel('orders', [col('account_key', 'integer', 'fk', 'public.accounts.id')]),
         rel('imports', [col('account_key', 'integer')]),
         rel('products', [col('sku', 'text')]),
         rel('warehouses', [col('location', 'text')]),

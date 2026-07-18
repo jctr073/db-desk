@@ -26,14 +26,7 @@
  */
 
 import { app } from 'electron'
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync
-} from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import { pickDefaultLink } from '../shared/knowledge'
@@ -237,9 +230,7 @@ function loadLinks(): KnowledgeLink[] {
     try {
       parsed = JSON.parse(readFileSync(path, 'utf8'))
       readable =
-        !!parsed &&
-        typeof parsed === 'object' &&
-        Array.isArray((parsed as LinksFile).links)
+        !!parsed && typeof parsed === 'object' && Array.isArray((parsed as LinksFile).links)
     } catch {
       readable = false
     }
@@ -271,9 +262,7 @@ function isColumnRef(value: unknown): value is ColumnRef {
   const r = value as Record<string, unknown>
   if (typeof r.schema !== 'string' || typeof r.table !== 'string') return false
   if (r.column !== undefined && typeof r.column !== 'string') return false
-  return ![r.schema, r.table, r.column ?? ''].some((part) =>
-    CONTROL_CHARS.test(part as string)
-  )
+  return ![r.schema, r.table, r.column ?? ''].some((part) => CONTROL_CHARS.test(part as string))
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -341,9 +330,7 @@ export function validateKnowledgeRecord(record: unknown): void {
       break
     case 'relationship':
       if (r.relType !== 'standard' && r.relType !== 'polymorphic') {
-        throw new Error(
-          'relationship.relType must be "standard" or "polymorphic"'
-        )
+        throw new Error('relationship.relType must be "standard" or "polymorphic"')
       }
       if (!isColumnRef(r.from) || r.from.column === undefined) {
         throw new Error('relationship.from must be a ColumnRef with a column')
@@ -354,14 +341,10 @@ export function validateKnowledgeRecord(record: unknown): void {
         }
       } else {
         if (!isColumnRef(r.discriminator)) {
-          throw new Error(
-            'polymorphic relationship requires a "discriminator" ColumnRef'
-          )
+          throw new Error('polymorphic relationship requires a "discriminator" ColumnRef')
         }
         if (!isColumnRefMap(r.targets)) {
-          throw new Error(
-            'polymorphic relationship requires a "targets" map of ColumnRefs'
-          )
+          throw new Error('polymorphic relationship requires a "targets" map of ColumnRefs')
         }
       }
       if (r.notes !== undefined && typeof r.notes !== 'string') {
@@ -379,9 +362,7 @@ export function validateKnowledgeRecord(record: unknown): void {
         throw new Error('glossary.definition must be a string')
       }
       if (!isMappingArray(r.mappings)) {
-        throw new Error(
-          'glossary.mappings must be an array of { ref, caveat? }'
-        )
+        throw new Error('glossary.mappings must be an array of { ref, caveat? }')
       }
       break
     case 'exemplar':
@@ -597,27 +578,17 @@ export function addLink(input: KnowledgeLinkInput): KnowledgeLink {
  * from the base's record references. Never exposed to callers; `addLink`
  * requires a schema.
  */
-function addDatabaseWideLink(
-  kbId: string,
-  connId: string,
-  database: string
-): void {
+function addDatabaseWideLink(kbId: string, connId: string, database: string): void {
   const links = loadLinks()
   if (
     links.some(
       (l) =>
-        l.kbId === kbId &&
-        l.connId === connId &&
-        l.database === database &&
-        l.schema === undefined
+        l.kbId === kbId && l.connId === connId && l.database === database && l.schema === undefined
     )
   ) {
     return
   }
-  persistLinks([
-    ...links,
-    { id: generateId('kl'), kbId, connId, database, createdAt: Date.now() }
-  ])
+  persistLinks([...links, { id: generateId('kl'), kbId, connId, database, createdAt: Date.now() }])
 }
 
 export function removeLink(linkId: string): void {
@@ -653,10 +624,7 @@ export function listRecords(kbId: string): KnowledgeRecord[] {
  * record is minted. Validates the payload for its `kind` and stamps
  * timestamps.
  */
-export function saveRecord(
-  kbId: string,
-  record: KnowledgeRecordInput
-): KnowledgeRecord {
+export function saveRecord(kbId: string, record: KnowledgeRecordInput): KnowledgeRecord {
   validateKnowledgeRecord(record)
   const loaded = loadBase(kbId)
   if (!loaded) throw new Error(`Unknown knowledge base: ${kbId}`)
@@ -711,10 +679,7 @@ export function deleteRecord(kbId: string, id: string): void {
  * file has vanished is pruned from the table rather than surfaced as an
  * empty group.
  */
-export function groupsForTarget(
-  connId: string,
-  database: string
-): KnowledgeTargetGroup[] {
+export function groupsForTarget(connId: string, database: string): KnowledgeTargetGroup[] {
   const groups: KnowledgeTargetGroup[] = []
   const byBase = new Map<string, KnowledgeTargetGroup>()
   const dangling: string[] = []
@@ -748,18 +713,13 @@ export function groupsForTarget(
  * base (rule shared with the renderer via `pickDefaultLink`). Null when the
  * target has no links at all (callers then create-and-link).
  */
-export function defaultKbForTarget(
-  connId: string,
-  database: string
-): string | null {
+export function defaultKbForTarget(connId: string, database: string): string | null {
   return pickDefaultLink(linksForTarget(connId, database))?.kbId ?? null
 }
 
 /** Unique (connId, database) targets a base is linked to — the set of
  * knowledge views a change to this base invalidates. */
-export function targetsForBase(
-  kbId: string
-): Array<{ connId: string; database: string }> {
+export function targetsForBase(kbId: string): Array<{ connId: string; database: string }> {
   const seen = new Set<string>()
   const targets: Array<{ connId: string; database: string }> = []
   for (const link of loadLinks()) {
@@ -866,9 +826,7 @@ export function migrateLegacyKnowledge(
       try {
         parsed = JSON.parse(readFileSync(join(connDir, fileName), 'utf8'))
       } catch {
-        console.error(
-          `knowledge: unreadable v1 file left in backup: ${connId}/${fileName}`
-        )
+        console.error(`knowledge: unreadable v1 file left in backup: ${connId}/${fileName}`)
         continue
       }
       if (
@@ -885,10 +843,7 @@ export function migrateLegacyKnowledge(
           : fileName.slice(0, -'.json'.length)
       const records = legacy.records.filter(isLoadableRecord)
       const conn = resolveConn(connId)
-      const name = uniqueBaseName(
-        conn ? `${conn.name} / ${database}` : database,
-        usedNames
-      )
+      const name = uniqueBaseName(conn ? `${conn.name} / ${database}` : database, usedNames)
       const createdAt = records.reduce(
         (min, r) => (typeof r.createdAt === 'number' ? Math.min(min, r.createdAt) : min),
         now
@@ -940,17 +895,12 @@ export function migrateLegacyKnowledge(
       // backup file preserves it.
       const conn = resolveConn(connId)
       if (!conn || !/^[A-Za-z0-9_-]+$/.test(connId)) continue
-      const base = createBase(
-        uniqueBaseName(`${conn.name} / ${conn.database}`, usedNames)
-      )
+      const base = createBase(uniqueBaseName(`${conn.name} / ${conn.database}`, usedNames))
       setBaseRepoRoot(base.id, root)
       addDatabaseWideLink(base.id, connId, conn.database)
     }
     try {
-      renameSync(
-        repoRootsPath,
-        join(app.getPath('userData'), 'repo-roots.legacy-v1.json')
-      )
+      renameSync(repoRootsPath, join(app.getPath('userData'), 'repo-roots.legacy-v1.json'))
     } catch (err) {
       console.error('knowledge: could not rename legacy repo-roots.json:', err)
     }
@@ -970,11 +920,7 @@ function refSchemas(records: KnowledgeRecord[]): string[] {
   const add = (ref: ColumnRef | undefined | null): void => {
     if (!ref || typeof ref.schema !== 'string') return
     const schema = ref.schema.trim()
-    if (
-      schema === '' ||
-      schema.length > MAX_NAME_CHARS ||
-      CONTROL_CHARS.test(schema)
-    ) {
+    if (schema === '' || schema.length > MAX_NAME_CHARS || CONTROL_CHARS.test(schema)) {
       return
     }
     const key = schema.toLowerCase()
@@ -1019,9 +965,7 @@ function refSchemas(records: KnowledgeRecord[]): string[] {
  * it does nothing. Runs at startup after `migrateLegacyKnowledge`, which
  * still mints database-wide links from v1 files.
  */
-export function migrateLinksToSchemaScope(
-  defaultSchemaFor: (connId: string) => string
-): void {
+export function migrateLinksToSchemaScope(defaultSchemaFor: (connId: string) => string): void {
   const links = loadLinks()
   if (!links.some((l) => l.schema === undefined)) return
   const next: KnowledgeLink[] = links.filter((l) => l.schema !== undefined)

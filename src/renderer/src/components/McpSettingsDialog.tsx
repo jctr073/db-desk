@@ -30,9 +30,7 @@ function envTextFor(env: Record<string, string>): string {
 }
 
 /** Parse KEY=VALUE lines; returns an error message for a malformed line. */
-function parseEnvText(
-  text: string
-): { env: Record<string, string> } | { error: string } {
+function parseEnvText(text: string): { env: Record<string, string> } | { error: string } {
   const env: Record<string, string> = {}
   for (const rawLine of text.split('\n')) {
     const line = rawLine.trim()
@@ -65,9 +63,7 @@ interface McpSettingsDialogProps {
   onClose: () => void
 }
 
-export function McpSettingsDialog({
-  onClose
-}: McpSettingsDialogProps): ReactElement {
+export function McpSettingsDialog({ onClose }: McpSettingsDialogProps): ReactElement {
   const [statuses, setStatuses] = useState<McpServerStatus[] | null>(null)
   const [form, setForm] = useState<FormState | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
@@ -143,9 +139,7 @@ export function McpSettingsDialog({
   }, [])
 
   const removeServer = useCallback(async (status: McpServerStatus) => {
-    if (
-      !window.confirm(`Remove MCP server "${status.config.name}"?`)
-    ) {
+    if (!window.confirm(`Remove MCP server "${status.config.name}"?`)) {
       return
     }
     setStatuses(await window.dbDesk.mcp.delete(status.config.id))
@@ -155,28 +149,16 @@ export function McpSettingsDialog({
     // No click-to-close on the overlay: a stray click must not discard a
     // half-filled form (same rule as the connection dialog).
     <div className="dialog-overlay">
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="MCP servers"
-      >
+      <div className="dialog" role="dialog" aria-modal="true" aria-label="MCP servers">
         <div className="dialog__header">
           <span className="dialog__icon">
             <PlugIcon size={18} />
           </span>
           <div className="dialog__titles">
             <div className="dialog__title">MCP Servers</div>
-            <div className="dialog__subtitle">
-              External tools for the AI agent
-            </div>
+            <div className="dialog__subtitle">External tools for the AI agent</div>
           </div>
-          <button
-            className="dialog__close"
-            onClick={onClose}
-            title="Close"
-            type="button"
-          >
+          <button className="dialog__close" onClick={onClose} title="Close" type="button">
             <CloseIcon />
           </button>
         </div>
@@ -192,9 +174,7 @@ export function McpSettingsDialog({
                 className="text-input"
                 placeholder="github"
                 value={form.name}
-                onChange={(event) =>
-                  setForm({ ...form, name: event.target.value })
-                }
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
               />
               <div style={{ marginTop: 11 }}>
                 <label className="field-label" htmlFor="mcp-command">
@@ -205,13 +185,11 @@ export function McpSettingsDialog({
                   className="text-input text-input--mono"
                   placeholder="npx -y @modelcontextprotocol/server-github"
                   value={form.commandLine}
-                  onChange={(event) =>
-                    setForm({ ...form, commandLine: event.target.value })
-                  }
+                  onChange={(event) => setForm({ ...form, commandLine: event.target.value })}
                 />
                 <div className="url-hint">
-                  Executable and arguments, launched as a stdio MCP server.
-                  Quote arguments that contain spaces.
+                  Executable and arguments, launched as a stdio MCP server. Quote arguments that
+                  contain spaces.
                 </div>
               </div>
               <div style={{ marginTop: 11 }}>
@@ -224,9 +202,7 @@ export function McpSettingsDialog({
                   placeholder={'GITHUB_TOKEN=ghp_…\nONE_PER_LINE=value'}
                   rows={3}
                   value={form.envText}
-                  onChange={(event) =>
-                    setForm({ ...form, envText: event.target.value })
-                  }
+                  onChange={(event) => setForm({ ...form, envText: event.target.value })}
                 />
                 <div className="url-hint">
                   KEY=VALUE per line. Stored encrypted with your OS keychain.
@@ -244,15 +220,12 @@ export function McpSettingsDialog({
             </div>
           ) : (
             <div className="mcp-list">
-              {statuses === null && (
-                <div className="mcp-empty">Loading…</div>
-              )}
+              {statuses === null && <div className="mcp-empty">Loading…</div>}
               {statuses !== null && statuses.length === 0 && (
                 <div className="mcp-empty">
-                  No MCP servers configured. Add one to give the agent tools
-                  beyond the database — its access to external systems is
-                  whatever you grant the server; the database access mode
-                  applies only to the built-in SQL tools.
+                  No MCP servers configured. Add one to give the agent tools beyond the database —
+                  its access to external systems is whatever you grant the server; the database
+                  access mode applies only to the built-in SQL tools.
                 </div>
               )}
               {statuses?.map((status) => (
@@ -288,9 +261,7 @@ export function McpSettingsDialog({
                     className="icon-btn icon-btn--sm"
                     title="Restart server"
                     onClick={() => {
-                      void window.dbDesk.mcp
-                        .restart(status.config.id)
-                        .then(setStatuses)
+                      void window.dbDesk.mcp.restart(status.config.id).then(setStatuses)
                     }}
                     disabled={!status.config.enabled}
                   >
@@ -334,11 +305,7 @@ export function McpSettingsDialog({
           <div className="test-msg" />
           {form ? (
             <>
-              <button
-                className="btn-cancel"
-                onClick={() => setForm(null)}
-                type="button"
-              >
+              <button className="btn-cancel" onClick={() => setForm(null)} type="button">
                 Back
               </button>
               <button
@@ -356,11 +323,7 @@ export function McpSettingsDialog({
               <button className="btn-cancel" onClick={onClose} type="button">
                 Close
               </button>
-              <button
-                className="btn-primary"
-                onClick={() => openForm(null)}
-                type="button"
-              >
+              <button className="btn-primary" onClick={() => openForm(null)} type="button">
                 Add Server
               </button>
             </>

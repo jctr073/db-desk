@@ -144,10 +144,7 @@ function fileFor(connId: string, identity: string): CacheFile {
 }
 
 /** Order-insensitive equality of two pinnings; null only matches null. */
-export function sameSelection(
-  a: string[] | null,
-  b: string[] | null
-): boolean {
+export function sameSelection(a: string[] | null, b: string[] | null): boolean {
   if (!a || !b) return !a && !b
   if (a.length !== b.length) return false
   const bSet = new Set(b)
@@ -185,11 +182,7 @@ export function saveIntrospection(
 }
 
 /** Record the reachable database/catalog list (unfiltered by any pinning). */
-export function saveDatabases(
-  connId: string,
-  identity: string,
-  databases: string[]
-): void {
+export function saveDatabases(connId: string, identity: string, databases: string[]): void {
   const file = fileFor(connId, identity)
   file.savedAt = Date.now()
   file.databases = [...databases]

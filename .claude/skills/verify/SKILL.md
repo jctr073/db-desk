@@ -35,6 +35,7 @@ CDP websocket (Node ≥22 has native WebSocket; no deps needed): find elements,
 `Page.captureScreenshot`.
 
 Flow to get query results:
+
 1. Local Postgres must be up (`nc -z localhost 5436` for the wcap_dev conn).
 2. Connect: dispatch `contextmenu` on the saved-connection tree row, click the
    `.ctx-menu__item` labeled "Connect", wait ~4s (Run button enables).

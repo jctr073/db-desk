@@ -16,9 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from 'pg'
 import { clientConfig, PG_HOST, PG_PORT } from './config'
 
-const COMPOSE_FILE = fileURLToPath(
-  new URL('../../docker-compose.yml', import.meta.url)
-)
+const COMPOSE_FILE = fileURLToPath(new URL('../../docker-compose.yml', import.meta.url))
 
 function compose(...args: string[]): void {
   execFileSync('docker', ['compose', '-f', COMPOSE_FILE, ...args], {
@@ -41,9 +39,7 @@ async function waitForSeed(attempts = 30): Promise<void> {
       await new Promise((r) => setTimeout(r, 500))
     }
   }
-  throw new Error(
-    `Test database at ${PG_HOST}:${PG_PORT} never became ready: ${String(lastError)}`
-  )
+  throw new Error(`Test database at ${PG_HOST}:${PG_PORT} never became ready: ${String(lastError)}`)
 }
 
 export async function setup(): Promise<void> {

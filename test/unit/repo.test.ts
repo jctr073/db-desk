@@ -19,13 +19,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync
-} from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -87,21 +81,15 @@ describe('resolveRepoPath', () => {
   })
 
   it('throws on a simple ".." escape', () => {
-    expect(() => resolveRepoPath(root, '../outside')).toThrow(
-      /escapes the repository root/
-    )
+    expect(() => resolveRepoPath(root, '../outside')).toThrow(/escapes the repository root/)
   })
 
   it('throws on a sneaky nested ".." escape', () => {
-    expect(() => resolveRepoPath(root, 'a/../../b')).toThrow(
-      /escapes the repository root/
-    )
+    expect(() => resolveRepoPath(root, 'a/../../b')).toThrow(/escapes the repository root/)
   })
 
   it('throws on an absolute path', () => {
-    expect(() => resolveRepoPath(root, '/etc/passwd')).toThrow(
-      /must be relative/
-    )
+    expect(() => resolveRepoPath(root, '/etc/passwd')).toThrow(/must be relative/)
   })
 
   it('throws on a "~" prefixed path', () => {
@@ -114,19 +102,13 @@ describe('resolveRepoPath', () => {
   })
 
   it('throws on control characters', () => {
-    expect(() => resolveRepoPath(root, 'a\x00b')).toThrow(
-      /control characters/
-    )
+    expect(() => resolveRepoPath(root, 'a\x00b')).toThrow(/control characters/)
     expect(() => resolveRepoPath(root, 'a\nb')).toThrow(/control characters/)
-    expect(() => resolveRepoPath(root, 'a\x7fb')).toThrow(
-      /control characters/
-    )
+    expect(() => resolveRepoPath(root, 'a\x7fb')).toThrow(/control characters/)
   })
 
   it('throws on a non-string path', () => {
-    expect(() =>
-      resolveRepoPath(root, undefined as unknown as string)
-    ).toThrow(/must be a string/)
+    expect(() => resolveRepoPath(root, undefined as unknown as string)).toThrow(/must be a string/)
   })
 })
 
@@ -222,9 +204,7 @@ describe('listRepoFiles', () => {
 
   it('matches basenames at any depth when the glob has no "/"', async () => {
     const res = await listRepoFiles(root, undefined, '*.rb')
-    expect(res.files.sort()).toEqual(
-      ['app/models/user.rb', 'db/migrate/001_init.rb'].sort()
-    )
+    expect(res.files.sort()).toEqual(['app/models/user.rb', 'db/migrate/001_init.rb'].sort())
   })
 
   it('scopes the walk to the given dir', async () => {
@@ -233,15 +213,11 @@ describe('listRepoFiles', () => {
   })
 
   it('throws for a dir outside the root', async () => {
-    await expect(listRepoFiles(root, '../outside')).rejects.toThrow(
-      /escapes the repository root/
-    )
+    await expect(listRepoFiles(root, '../outside')).rejects.toThrow(/escapes the repository root/)
   })
 
   it('throws when dir names a file, not a directory', async () => {
-    await expect(listRepoFiles(root, 'README.md')).rejects.toThrow(
-      /Not a directory/
-    )
+    await expect(listRepoFiles(root, 'README.md')).rejects.toThrow(/Not a directory/)
   })
 })
 
@@ -312,9 +288,7 @@ describe('grepRepo', () => {
   })
 
   it('throws a clean error for an invalid regex', async () => {
-    await expect(grepRepo(root, '(unterminated')).rejects.toThrow(
-      /Invalid regular expression/
-    )
+    await expect(grepRepo(root, '(unterminated')).rejects.toThrow(/Invalid regular expression/)
   })
 
   it('throws for an empty pattern', async () => {
@@ -329,9 +303,7 @@ describe('grepRepo', () => {
 
   it('respects the glob filter', async () => {
     const res = await grepRepo(root, 'needle', { glob: '*.rb' })
-    expect(res.matches).toEqual([
-      expect.objectContaining({ path: 'sub/b.rb', line: 2 })
-    ])
+    expect(res.matches).toEqual([expect.objectContaining({ path: 'sub/b.rb', line: 2 })])
   })
 })
 
@@ -343,10 +315,7 @@ describe('readRepoFile', () => {
     const lines = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`)
     writeFileSync(join(root, 'multi.txt'), lines.join('\n'))
     writeFileSync(join(root, '.env'), 'SECRET=1\n')
-    writeFileSync(
-      join(root, 'binary.dat'),
-      Buffer.from([0x00, 0x01, 0x61, 0x62])
-    )
+    writeFileSync(join(root, 'binary.dat'), Buffer.from([0x00, 0x01, 0x61, 0x62]))
     mkdirSync(join(root, 'adir'), { recursive: true })
   })
 
@@ -398,9 +367,7 @@ describe('readRepoFile', () => {
     try {
       writeFileSync(join(outside, 'secret.txt'), 'top secret\n')
       symlinkSync(join(outside, 'secret.txt'), join(root, 'link.txt'))
-      await expect(readRepoFile(root, 'link.txt')).rejects.toThrow(
-        /resolves outside/
-      )
+      await expect(readRepoFile(root, 'link.txt')).rejects.toThrow(/resolves outside/)
     } finally {
       rmSync(outside, { recursive: true, force: true })
     }

@@ -122,10 +122,7 @@ export function splitStatements(sql: string): StatementSpan[] {
 }
 
 /** The statement the cursor sits in (or the closest one), for run-at-cursor. */
-export function statementAtOffset(
-  sql: string,
-  offset: number
-): StatementSpan | null {
+export function statementAtOffset(sql: string, offset: number): StatementSpan | null {
   const spans = splitStatements(sql)
   if (spans.length === 0) return null
   for (const span of spans) {
@@ -185,14 +182,7 @@ export type StatementClass =
   | 'ddl' // CREATE / ALTER / DROP / GRANT / REVOKE / COMMENT / RENAME / ...
   | 'unknown' // everything else: SET, BEGIN, CALL, USE, multi-statement, ...
 
-const DML_STARTERS = new Set([
-  'insert',
-  'update',
-  'delete',
-  'merge',
-  'truncate',
-  'copy'
-])
+const DML_STARTERS = new Set(['insert', 'update', 'delete', 'merge', 'truncate', 'copy'])
 
 const DDL_STARTERS = new Set([
   'create',
@@ -298,8 +288,7 @@ export function classifyStatement(sql: string): StatementClass {
 }
 
 export type AgentGuardResult =
-  | { ok: true }
-  | { ok: false; reason: string; cls: StatementClass | 'multi' | 'empty' }
+  { ok: true } | { ok: false; reason: string; cls: StatementClass | 'multi' | 'empty' }
 
 /** Model-facing refusal copy, keyed by why the statement was blocked. */
 const BLOCKED_REASONS: Record<'dml' | 'ddl' | 'unknown' | 'multi', string> = {
@@ -332,10 +321,7 @@ export function guardAgentStatement(sql: string): AgentGuardResult {
  * or FOR locking clause. WITH statements whose top level is DML are left
  * alone, as is anything containing multiple statements.
  */
-export function applyAutoLimit(
-  sql: string,
-  limit: number
-): { text: string; applied: boolean } {
+export function applyAutoLimit(sql: string, limit: number): { text: string; applied: boolean } {
   // The limit is interpolated into SQL text and arrives over IPC typed but
   // runtime-unchecked; anything but a positive integer must not reach the
   // statement (a smuggled string here would be injection).

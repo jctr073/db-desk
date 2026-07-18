@@ -18,10 +18,7 @@ import type {
   TestResult,
   TypeInfo
 } from '../../shared/db'
-import {
-  normalizeConnectionUrl,
-  parseConnectionUrl
-} from '../../shared/connectionUrl'
+import { normalizeConnectionUrl, parseConnectionUrl } from '../../shared/connectionUrl'
 import { applyAutoLimit } from '../../shared/sql'
 import type { ConnectOptions, Driver, RunQueryOptions } from './types'
 
@@ -59,10 +56,7 @@ const connections = new Map<string, ManagedConnection>()
  */
 type SslOverride = boolean | null
 
-function clientConfig(
-  params: ConnectParams,
-  ssl: SslOverride = null
-): ClientConfig {
+function clientConfig(params: ConnectParams, ssl: SslOverride = null): ClientConfig {
   let config: ClientConfig
   if (params.useUrl && params.url.trim()) {
     let connectionString = normalizeConnectionUrl(params.url)
@@ -120,10 +114,7 @@ function resolveDatabase(params: ConnectParams): string | null {
  * arg means "the pinned database", and any other name is a hard error rather
  * than a silent cross-database query.
  */
-function pinnedDatabase(
-  managed: ManagedConnection,
-  database: string
-): DbResult<string> {
+function pinnedDatabase(managed: ManagedConnection, database: string): DbResult<string> {
   if (!database.trim() || database === managed.database) {
     return { ok: true, data: managed.database }
   }
@@ -155,9 +146,7 @@ function explicitSslMode(params: ConnectParams): string | null {
  * 'verify' (verify-ca/verify-full) defers to pg's own verifying handling of
  * the URL and must never be downgraded; 'plain' (disable) never uses TLS.
  */
-function sslStrategy(
-  params: ConnectParams
-): 'auto' | 'plain' | 'tls' | 'verify' {
+function sslStrategy(params: ConnectParams): 'auto' | 'plain' | 'tls' | 'verify' {
   const mode = explicitSslMode(params)
   if (mode === null || mode === 'prefer' || mode === 'allow') return 'auto'
   if (mode === 'disable') return 'plain'
@@ -203,35 +192,34 @@ async function introspectWith(
   client: ClientBase,
   database: string
 ): Promise<DatabaseIntrospection> {
-  const [schemaRes, relRes, colRes, conRes, idxRes, procRes, typeRes, enumRes] =
-    [
-      await client.query<{ nspname: string }>(
-        `SELECT n.nspname
+  const [schemaRes, relRes, colRes, conRes, idxRes, procRes, typeRes, enumRes] = [
+    await client.query<{ nspname: string }>(
+      `SELECT n.nspname
          FROM pg_namespace n
         WHERE ${SYSTEM_SCHEMA_FILTER}
         ORDER BY n.nspname`
-      ),
-      await client.query<{
-        oid: string
-        schema: string
-        name: string
-        kind: string
-        reltuples: number
-      }>(
-        `SELECT c.oid::text AS oid, n.nspname AS schema, c.relname AS name, c.relkind AS kind,
+    ),
+    await client.query<{
+      oid: string
+      schema: string
+      name: string
+      kind: string
+      reltuples: number
+    }>(
+      `SELECT c.oid::text AS oid, n.nspname AS schema, c.relname AS name, c.relkind AS kind,
               c.reltuples::float8 AS reltuples
          FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S') AND ${SYSTEM_SCHEMA_FILTER}
         ORDER BY n.nspname, c.relname`
-      ),
-      await client.query<{
-        reloid: string
-        name: string
-        dtype: string
-        attnum: number
-      }>(
-        `SELECT a.attrelid::text AS reloid, a.attname AS name,
+    ),
+    await client.query<{
+      reloid: string
+      name: string
+      dtype: string
+      attnum: number
+    }>(
+      `SELECT a.attrelid::text AS reloid, a.attname AS name,
               format_type(a.atttypid, a.atttypmod) AS dtype, a.attnum
          FROM pg_attribute a
          JOIN pg_class c ON c.oid = a.attrelid
@@ -239,43 +227,43 @@ async function introspectWith(
         WHERE c.relkind IN ('r', 'p', 'v', 'm')
           AND a.attnum > 0 AND NOT a.attisdropped AND ${SYSTEM_SCHEMA_FILTER}
         ORDER BY a.attrelid, a.attnum`
-      ),
-      await client.query<{
-        reloid: string
-        contype: string
-        conkey: number[]
-        refoid: string | null
-        confkey: number[] | null
-      }>(
-        `SELECT c.conrelid::text AS reloid, c.contype, c.conkey,
+    ),
+    await client.query<{
+      reloid: string
+      contype: string
+      conkey: number[]
+      refoid: string | null
+      confkey: number[] | null
+    }>(
+      `SELECT c.conrelid::text AS reloid, c.contype, c.conkey,
               NULLIF(c.confrelid, 0)::text AS refoid, c.confkey
          FROM pg_constraint c
          JOIN pg_class r ON r.oid = c.conrelid
          JOIN pg_namespace n ON n.oid = r.relnamespace
         WHERE c.contype IN ('p', 'f') AND ${SYSTEM_SCHEMA_FILTER}`
-      ),
-      await client.query<{
-        schema: string
-        name: string
-        reloid: string
-        def: string
-      }>(
-        `SELECT n.nspname AS schema, ci.relname AS name,
+    ),
+    await client.query<{
+      schema: string
+      name: string
+      reloid: string
+      def: string
+    }>(
+      `SELECT n.nspname AS schema, ci.relname AS name,
               i.indrelid::text AS reloid, pg_get_indexdef(i.indexrelid) AS def
          FROM pg_index i
          JOIN pg_class ci ON ci.oid = i.indexrelid
          JOIN pg_namespace n ON n.oid = ci.relnamespace
         WHERE ${SYSTEM_SCHEMA_FILTER}
         ORDER BY n.nspname, ci.relname`
-      ),
-      await client.query<{
-        schema: string
-        name: string
-        args: string
-        ret: string
-        kind: string
-      }>(
-        `SELECT n.nspname AS schema, p.proname AS name,
+    ),
+    await client.query<{
+      schema: string
+      name: string
+      args: string
+      ret: string
+      kind: string
+    }>(
+      `SELECT n.nspname AS schema, p.proname AS name,
               pg_get_function_arguments(p.oid) AS args,
               pg_get_function_result(p.oid) AS ret,
               p.prokind AS kind
@@ -283,9 +271,9 @@ async function introspectWith(
          JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE p.prokind IN ('f', 'p', 'w', 'a') AND ${SYSTEM_SCHEMA_FILTER}
         ORDER BY n.nspname, p.proname`
-      ),
-      await client.query<{ schema: string; name: string; kind: string }>(
-        `SELECT n.nspname AS schema, t.typname AS name, t.typtype AS kind
+    ),
+    await client.query<{ schema: string; name: string; kind: string }>(
+      `SELECT n.nspname AS schema, t.typname AS name, t.typtype AS kind
          FROM pg_type t
          JOIN pg_namespace n ON n.oid = t.typnamespace
         WHERE t.typtype IN ('e', 'c', 'd', 'r', 'm')
@@ -295,25 +283,23 @@ async function introspectWith(
                 SELECT 1 FROM pg_type el WHERE el.oid = t.typelem AND el.typarray = t.oid)
           AND ${SYSTEM_SCHEMA_FILTER}
         ORDER BY n.nspname, t.typname`
-      ),
-      await client.query<{ schema: string; name: string; label: string }>(
-        `SELECT n.nspname AS schema, t.typname AS name, e.enumlabel AS label
+    ),
+    await client.query<{ schema: string; name: string; label: string }>(
+      `SELECT n.nspname AS schema, t.typname AS name, e.enumlabel AS label
          FROM pg_enum e
          JOIN pg_type t ON t.oid = e.enumtypid
          JOIN pg_namespace n ON n.oid = t.typnamespace
         WHERE ${SYSTEM_SCHEMA_FILTER}
         ORDER BY n.nspname, t.typname, e.enumsortorder`
-      )
-    ]
+    )
+  ]
 
   // (reloid, attnum) → column name and reloid → qualified name, so foreign
   // keys can be rendered as "schema.table.column" references.
   const attNames = new Map<string, string>()
-  for (const col of colRes.rows)
-    attNames.set(`${col.reloid}.${col.attnum}`, col.name)
+  for (const col of colRes.rows) attNames.set(`${col.reloid}.${col.attnum}`, col.name)
   const relQualified = new Map<string, string>()
-  for (const rel of relRes.rows)
-    relQualified.set(rel.oid, `${rel.schema}.${rel.name}`)
+  for (const rel of relRes.rows) relQualified.set(rel.oid, `${rel.schema}.${rel.name}`)
 
   // Column badges: pk wins over fk when a column participates in both.
   const pkCols = new Map<string, Set<number>>()
@@ -328,8 +314,7 @@ async function introspectWith(
       const refRel = relQualified.get(con.refoid)
       con.conkey?.forEach((attnum, i) => {
         const refCol = attNames.get(`${con.refoid}.${con.confkey?.[i]}`)
-        if (refRel && refCol)
-          fkRefs.set(`${con.reloid}.${attnum}`, `${refRel}.${refCol}`)
+        if (refRel && refCol) fkRefs.set(`${con.reloid}.${attnum}`, `${refRel}.${refCol}`)
       })
     }
   }
@@ -432,8 +417,7 @@ async function introspectWith(
 
 /** "CREATE UNIQUE INDEX foo ON s.t USING btree (a, b)" → "foo unique btree (a, b)". */
 function compactIndexDef(def: string): string {
-  const match =
-    /^CREATE (UNIQUE )?INDEX (\S+) ON \S+(?:\s+\S+)? USING (.+)$/.exec(def)
+  const match = /^CREATE (UNIQUE )?INDEX (\S+) ON \S+(?:\s+\S+)? USING (.+)$/.exec(def)
   if (!match) return def
   return `${match[2]}${match[1] ? ' unique' : ''} ${match[3]}`
 }
@@ -447,9 +431,7 @@ async function testOnce(
   const started = Date.now()
   try {
     await client.connect()
-    const res = await client.query<{ version: string }>(
-      'SELECT version() AS version'
-    )
+    const res = await client.query<{ version: string }>('SELECT version() AS version')
     return {
       ok: true,
       data: {
@@ -465,9 +447,7 @@ async function testOnce(
   }
 }
 
-export async function testConnection(
-  params: ConnectParams
-): Promise<DbResult<TestResult>> {
+export async function testConnection(params: ConnectParams): Promise<DbResult<TestResult>> {
   switch (sslStrategy(params)) {
     case 'plain':
       return testOnce(params, null, false)
@@ -654,9 +634,7 @@ const BUILTIN_TYPE_NAMES: Record<number, string> = {
 }
 
 function truncateCell(value: string): string {
-  return value.length > MAX_CELL_CHARS
-    ? `${value.slice(0, MAX_CELL_CHARS)}…`
-    : value
+  return value.length > MAX_CELL_CHARS ? `${value.slice(0, MAX_CELL_CHARS)}…` : value
 }
 
 function serializeCell(value: unknown): CellValue {
@@ -672,9 +650,7 @@ function serializeCell(value: unknown): CellValue {
       return value.toString()
     default:
       if (value instanceof Date) {
-        return Number.isNaN(value.getTime())
-          ? String(value)
-          : value.toISOString()
+        return Number.isNaN(value.getTime()) ? String(value) : value.toISOString()
       }
       if (Buffer.isBuffer(value)) {
         return truncateCell(`\\x${value.toString('hex')}`)
@@ -697,9 +673,7 @@ async function resolveFields(
     ...new Set(
       fields
         .map((f) => f.dataTypeID)
-        .filter(
-          (oid) => !(oid in BUILTIN_TYPE_NAMES) && !managed.typeNames.has(oid)
-        )
+        .filter((oid) => !(oid in BUILTIN_TYPE_NAMES) && !managed.typeNames.has(oid))
     )
   ]
   if (unknown.length > 0) {
@@ -709,8 +683,7 @@ async function resolveFields(
            FROM pg_type WHERE oid = ANY($1::oid[])`,
         [unknown]
       )
-      for (const row of res.rows)
-        managed.typeNames.set(Number(row.oid), row.name)
+      for (const row of res.rows) managed.typeNames.set(Number(row.oid), row.name)
     } catch {
       // Lookup is cosmetic; fall through to the numeric fallback below.
     }
@@ -734,10 +707,7 @@ async function resolveFields(
 export const PG_READ_ONLY_VIOLATION_CODES = new Set(['25006', '25001'])
 
 /** Cancel a running statement on this server from a separate session. */
-async function cancelBackend(
-  managed: ManagedConnection,
-  pid: number
-): Promise<void> {
+async function cancelBackend(managed: ManagedConnection, pid: number): Promise<void> {
   let client: PoolClient | undefined
   try {
     client = await managed.pool.connect()
@@ -761,8 +731,7 @@ async function runQuery(
   const pinned = pinnedDatabase(managed, database)
   if (!pinned.ok) return pinned
 
-  const prepared =
-    limit === null ? { text: sql, applied: false } : applyAutoLimit(sql, limit)
+  const prepared = limit === null ? { text: sql, applied: false } : applyAutoLimit(sql, limit)
   let client: PoolClient | undefined
   const sessionSettings: string[] = []
   if (options.readOnly) sessionSettings.push('default_transaction_read_only')
@@ -777,9 +746,7 @@ async function runQuery(
       await client.query('SET default_transaction_read_only = on')
     }
     if (options.timeoutMs) {
-      await client.query(
-        `SET statement_timeout = ${Math.floor(options.timeoutMs)}`
-      )
+      await client.query(`SET statement_timeout = ${Math.floor(options.timeoutMs)}`)
     }
     const started = Date.now()
     const res = await client.query({ text: prepared.text, rowMode: 'array' })
@@ -1060,11 +1027,7 @@ export async function searchSchema(
       m: 'materialized view',
       f: 'foreign table'
     }
-    const section = <T>(
-      title: string,
-      rows: T[],
-      render: (row: T) => string
-    ): string[] => {
+    const section = <T>(title: string, rows: T[], render: (row: T) => string): string[] => {
       if (rows.length === 0) return []
       const shown = rows.slice(0, SEARCH_RESULT_LIMIT)
       const lines = [`${title}:`, ...shown.map((row) => `  ${render(row)}`)]
@@ -1080,16 +1043,8 @@ export async function searchSchema(
         relRes.rows,
         (r) => `${KIND[r.kind] ?? r.kind} ${r.schema}.${r.name}`
       ),
-      ...section(
-        'columns',
-        colRes.rows,
-        (c) => `${c.schema}.${c.rel}.${c.name} ${c.dtype}`
-      ),
-      ...section(
-        'functions',
-        procRes.rows,
-        (p) => `${p.schema}.${p.name}(${p.args})`
-      )
+      ...section('columns', colRes.rows, (c) => `${c.schema}.${c.rel}.${c.name} ${c.dtype}`),
+      ...section('functions', procRes.rows, (p) => `${p.schema}.${p.name}(${p.args})`)
     ]
     return lines.length > 0
       ? lines.join('\n')

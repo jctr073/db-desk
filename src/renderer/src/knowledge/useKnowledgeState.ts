@@ -26,10 +26,7 @@ export type KnowledgeNav = {
   seq: number
   connId: string
   database: string
-} & (
-  | { action: 'usages' | 'annotate'; ref: ColumnRef }
-  | { action: 'record'; recordId: string }
-)
+} & ({ action: 'usages' | 'annotate'; ref: ColumnRef } | { action: 'record'; recordId: string })
 
 export interface KnowledgeState {
   connId: string | null
@@ -76,10 +73,7 @@ export interface KnowledgeState {
  * writes refresh the panel and tree badges without any UI action) and on every
  * structural push (a base or link created/removed shifts what is linked here).
  */
-export function useKnowledgeState(
-  connId: string | null,
-  database: string | null
-): KnowledgeState {
+export function useKnowledgeState(connId: string | null, database: string | null): KnowledgeState {
   const [groups, setGroups] = useState<KnowledgeTargetGroup[]>([])
   const [selectedKbId, setSelectedKbId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -98,10 +92,7 @@ export function useKnowledgeState(
     let cancelled = false
     const load = async (): Promise<void> => {
       try {
-        const loaded = await window.dbDesk.knowledge.listForTarget(
-          connId,
-          database
-        )
+        const loaded = await window.dbDesk.knowledge.listForTarget(connId, database)
         if (!cancelled) {
           setGroups(loaded)
           setLoadedKey(knowledgeTargetKeyOf(connId, database))
@@ -119,18 +110,12 @@ export function useKnowledgeState(
     setLoading(true)
     void load()
     const offChanged = window.dbDesk.knowledge.onChanged((change) => {
-      if (
-        change.targets.some(
-          (t) => t.connId === connId && t.database === database
-        )
-      ) {
+      if (change.targets.some((t) => t.connId === connId && t.database === database)) {
         void load()
       }
     })
     // Any structural change can add or drop a link for this target.
-    const offStructure = window.dbDesk.knowledge.onStructureChanged(() =>
-      void load()
-    )
+    const offStructure = window.dbDesk.knowledge.onStructureChanged(() => void load())
     return () => {
       cancelled = true
       offChanged()
@@ -168,10 +153,7 @@ export function useKnowledgeState(
         ? groups.find((g) => g.records.some((r) => r.id === record.id))?.base.id
         : undefined
       const kbId =
-        owner ??
-        selectedKbId ??
-        pickDefaultLink(groups.flatMap((g) => g.links))?.kbId ??
-        null
+        owner ?? selectedKbId ?? pickDefaultLink(groups.flatMap((g) => g.links))?.kbId ?? null
       if (!kbId) return null
       try {
         const saved = await window.dbDesk.knowledge.save(kbId, record)
@@ -227,10 +209,7 @@ export function useKnowledgeState(
 
   const clearLoadError = useCallback(() => setLoadError(null), [])
 
-  const index = useMemo(
-    () => buildUsageIndex(groups.flatMap((g) => g.records)),
-    [groups]
-  )
+  const index = useMemo(() => buildUsageIndex(groups.flatMap((g) => g.records)), [groups])
 
   return {
     connId,
@@ -270,10 +249,7 @@ export function useKnowledgeStructure(): KnowledgeStructure {
   useEffect(() => {
     let cancelled = false
     const load = (): void => {
-      void Promise.all([
-        window.dbDesk.knowledge.listBases(),
-        window.dbDesk.knowledge.listLinks()
-      ])
+      void Promise.all([window.dbDesk.knowledge.listBases(), window.dbDesk.knowledge.listLinks()])
         .then(([bases, links]) => {
           if (!cancelled) setStructure({ bases, links })
         })
@@ -308,9 +284,7 @@ export interface KnowledgeTarget {
  * added/removed changes which bases feed a target); connect/disconnect loads
  * the newly connected targets and drops the departed ones.
  */
-export function useKnowledgeIndexes(
-  targets: KnowledgeTarget[]
-): Map<string, UsageIndex> {
+export function useKnowledgeIndexes(targets: KnowledgeTarget[]): Map<string, UsageIndex> {
   const [indexes, setIndexes] = useState<Map<string, UsageIndex>>(() => new Map())
 
   // Order-independent signature: the effect only re-runs when membership shifts.
@@ -321,9 +295,7 @@ export function useKnowledgeIndexes(
 
   useEffect(() => {
     let cancelled = false
-    const active = new Map(
-      targets.map((t) => [knowledgeTargetKeyOf(t.connId, t.database), t])
-    )
+    const active = new Map(targets.map((t) => [knowledgeTargetKeyOf(t.connId, t.database), t]))
 
     const load = (connId: string, database: string): void => {
       const key = knowledgeTargetKeyOf(connId, database)
@@ -332,9 +304,7 @@ export function useKnowledgeIndexes(
         .then((groups) => {
           if (!cancelled) {
             const records = groups.flatMap((g) => g.records)
-            setIndexes((prev) =>
-              new Map(prev).set(key, buildUsageIndex(records))
-            )
+            setIndexes((prev) => new Map(prev).set(key, buildUsageIndex(records)))
           }
         })
         .catch(() => {

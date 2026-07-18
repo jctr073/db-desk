@@ -53,10 +53,7 @@ interface Draft {
   body: string
 }
 
-function initDraft(
-  record: KnowledgeRecord | null,
-  prefillTarget: ColumnRef | null
-): Draft {
+function initDraft(record: KnowledgeRecord | null, prefillTarget: ColumnRef | null): Draft {
   const draft: Draft = {
     target: prefillTarget,
     text: '',
@@ -379,11 +376,7 @@ export function RecordEditor({
             {draft.relType === 'standard' ? (
               <div className="kn-field">
                 <label className="field-label">Joins to</label>
-                <RefField
-                  {...refProps}
-                  value={draft.to}
-                  onChange={(to) => patch({ to })}
-                />
+                <RefField {...refProps} value={draft.to} onChange={(to) => patch({ to })} />
               </div>
             ) : (
               <>
@@ -547,10 +540,7 @@ export function RecordEditor({
                 className="kn-add-row"
                 onClick={() =>
                   patch({
-                    mappings: [
-                      ...draft.mappings,
-                      { key: nextRowKey(), ref: null, caveat: '' }
-                    ]
+                    mappings: [...draft.mappings, { key: nextRowKey(), ref: null, caveat: '' }]
                   })
                 }
               >
@@ -577,11 +567,7 @@ export function RecordEditor({
                 SQL
               </label>
               <div className="kn-sql-input">
-                <pre
-                  ref={sqlHighlightRef}
-                  className="kn-sql-input__highlight"
-                  aria-hidden="true"
-                >
+                <pre ref={sqlHighlightRef} className="kn-sql-input__highlight" aria-hidden="true">
                   <SqlCode sql={draft.sql} />
                   {'\n'}
                 </pre>
@@ -594,10 +580,8 @@ export function RecordEditor({
                   onChange={(e) => patch({ sql: e.target.value })}
                   onScroll={(e) => {
                     if (!sqlHighlightRef.current) return
-                    sqlHighlightRef.current.scrollTop =
-                      e.currentTarget.scrollTop
-                    sqlHighlightRef.current.scrollLeft =
-                      e.currentTarget.scrollLeft
+                    sqlHighlightRef.current.scrollTop = e.currentTarget.scrollTop
+                    sqlHighlightRef.current.scrollLeft = e.currentTarget.scrollLeft
                   }}
                 />
               </div>
@@ -633,9 +617,7 @@ export function RecordEditor({
               />
             </div>
             <div className="kn-field">
-              <label className="field-label">
-                References (columns mentioned in the note)
-              </label>
+              <label className="field-label">References (columns mentioned in the note)</label>
               <RefChipEditor
                 {...refProps}
                 refs={draft.references}

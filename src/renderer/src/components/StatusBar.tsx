@@ -40,18 +40,14 @@ export function StatusBar({
       </button>
       {connText && <span className="statusbar__dot" aria-hidden="true" />}
       {connText && <span className="statusbar__sel">{connText}</span>}
-      {connText && queryText && (
-        <span className="statusbar__divider" aria-hidden="true" />
-      )}
+      {connText && queryText && <span className="statusbar__divider" aria-hidden="true" />}
       {queryText && <span className="statusbar__query">{queryText}</span>}
       {(connText || queryText) && schemaText && (
         <span className="statusbar__divider" aria-hidden="true" />
       )}
       {schemaText && (
         <span
-          className={`statusbar__schema${
-            schemaState ? ` is-${schemaState}` : ''
-          }`}
+          className={`statusbar__schema${schemaState ? ` is-${schemaState}` : ''}`}
           title={schemaTitle}
         >
           {schemaText}

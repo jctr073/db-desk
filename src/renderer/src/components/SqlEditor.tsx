@@ -106,16 +106,10 @@ interface SqlEditorProps {
 
 export function resolveTheme(theme?: Theme): string {
   if (theme) return theme === 'dark' ? DARK_THEME : 'light'
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
-    ? DARK_THEME
-    : 'light'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? DARK_THEME : 'light'
 }
 
-export function SqlEditor({
-  theme,
-  onMount,
-  language = 'sql'
-}: SqlEditorProps): ReactElement {
+export function SqlEditor({ theme, onMount, language = 'sql' }: SqlEditorProps): ReactElement {
   return (
     <section className="sql-editor" aria-label="File editor">
       <Editor

@@ -31,12 +31,49 @@ export interface CursorContext {
 
 /** Keywords that terminate a table item and therefore can never be an alias. */
 const NOT_ALIAS = new Set([
-  'as', 'where', 'join', 'inner', 'left', 'right', 'full', 'cross', 'natural',
-  'on', 'using', 'group', 'order', 'having', 'limit', 'offset', 'union',
-  'intersect', 'except', 'set', 'returning', 'values', 'for', 'fetch',
-  'window', 'into', 'from', 'when', 'then', 'else', 'end', 'and', 'or',
-  'not', 'tablesample', 'lateral', 'only', 'with', 'select', 'case', 'do',
-  'nothing', 'conflict'
+  'as',
+  'where',
+  'join',
+  'inner',
+  'left',
+  'right',
+  'full',
+  'cross',
+  'natural',
+  'on',
+  'using',
+  'group',
+  'order',
+  'having',
+  'limit',
+  'offset',
+  'union',
+  'intersect',
+  'except',
+  'set',
+  'returning',
+  'values',
+  'for',
+  'fetch',
+  'window',
+  'into',
+  'from',
+  'when',
+  'then',
+  'else',
+  'end',
+  'and',
+  'or',
+  'not',
+  'tablesample',
+  'lateral',
+  'only',
+  'with',
+  'select',
+  'case',
+  'do',
+  'nothing',
+  'conflict'
 ])
 
 /** Clause keywords that put the cursor in table position. */
@@ -44,16 +81,56 @@ const TABLE_KEYWORDS = new Set(['from', 'join', 'update', 'into', 'truncate', 't
 
 /** Words skipped (not counted as names) when scanning back for the zone. */
 const ZONE_SKIP = new Set([
-  'as', 'only', 'lateral', 'inner', 'left', 'right', 'full', 'cross',
-  'natural', 'outer', 'if', 'exists', 'concurrently'
+  'as',
+  'only',
+  'lateral',
+  'inner',
+  'left',
+  'right',
+  'full',
+  'cross',
+  'natural',
+  'outer',
+  'if',
+  'exists',
+  'concurrently'
 ])
 
 /** Clause keywords that put the cursor in expression (column) position. */
 const COLUMN_KEYWORDS = new Set([
-  'select', 'where', 'on', 'having', 'group', 'order', 'by', 'set',
-  'returning', 'using', 'values', 'when', 'then', 'else', 'case', 'and',
-  'or', 'not', 'in', 'like', 'ilike', 'between', 'distinct', 'limit',
-  'offset', 'is', 'all', 'any', 'some', 'end', 'union', 'intersect', 'except'
+  'select',
+  'where',
+  'on',
+  'having',
+  'group',
+  'order',
+  'by',
+  'set',
+  'returning',
+  'using',
+  'values',
+  'when',
+  'then',
+  'else',
+  'case',
+  'and',
+  'or',
+  'not',
+  'in',
+  'like',
+  'ilike',
+  'between',
+  'distinct',
+  'limit',
+  'offset',
+  'is',
+  'all',
+  'any',
+  'some',
+  'end',
+  'union',
+  'intersect',
+  'except'
 ])
 
 /** Index of the ')' matching the '(' at `open` (or tokens.length if unclosed). */
@@ -120,7 +197,10 @@ function parseTableItem(
   refs: TableRef[],
   allowFunction = false
 ): number {
-  while (tokens[j]?.type === 'word' && (tokens[j].value === 'only' || tokens[j].value === 'lateral')) {
+  while (
+    tokens[j]?.type === 'word' &&
+    (tokens[j].value === 'only' || tokens[j].value === 'lateral')
+  ) {
     j++
   }
 

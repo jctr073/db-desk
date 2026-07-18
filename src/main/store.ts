@@ -232,10 +232,7 @@ export function getSchemaConfig(id: string): SchemaSelectionConfig {
 }
 
 /** Replace the complete catalog/schema selection in one persisted update. */
-export function setSchemaConfig(
-  id: string,
-  config: SchemaSelectionConfig
-): void {
+export function setSchemaConfig(id: string, config: SchemaSelectionConfig): void {
   const records = [...load()]
   const index = records.findIndex((record) => record.id === id)
   if (index < 0) return
@@ -244,10 +241,7 @@ export function setSchemaConfig(
   else delete record.catalogSelection
 
   const schemaSelections = Object.fromEntries(
-    Object.entries(config.schemas).map(([catalog, schemas]) => [
-      catalog,
-      [...schemas]
-    ])
+    Object.entries(config.schemas).map(([catalog, schemas]) => [catalog, [...schemas]])
   )
   if (Object.keys(schemaSelections).length > 0) {
     record.schemaSelections = schemaSelections
@@ -271,11 +265,7 @@ export function setCatalogSelection(id: string, catalogs: string[] | null): void
 }
 
 /** Pin the schemas of one catalog; null clears (back to all). */
-export function setSchemaSelection(
-  id: string,
-  catalog: string,
-  schemas: string[] | null
-): void {
+export function setSchemaSelection(id: string, catalog: string, schemas: string[] | null): void {
   const records = [...load()]
   const index = records.findIndex((record) => record.id === id)
   if (index < 0) return

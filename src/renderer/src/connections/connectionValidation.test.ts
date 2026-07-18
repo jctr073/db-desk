@@ -8,32 +8,19 @@ const databricks = DIALECTS.databricks
 
 describe('databaseFieldError', () => {
   it('requires a database for single-database dialects in params mode', () => {
-    expect(databaseFieldError(postgres, true, '', '')).toBe(
-      'DATABASE is required.'
-    )
-    expect(databaseFieldError(postgres, true, '   ', '')).toBe(
-      'DATABASE is required.'
-    )
+    expect(databaseFieldError(postgres, true, '', '')).toBe('DATABASE is required.')
+    expect(databaseFieldError(postgres, true, '   ', '')).toBe('DATABASE is required.')
     expect(databaseFieldError(postgres, true, 'postgres', '')).toBeNull()
   })
 
   it('requires a database path segment for single-database dialects in URL mode', () => {
-    expect(
-      databaseFieldError(postgres, false, '', 'postgresql://user@host:5432')
-    ).toBe(
+    expect(databaseFieldError(postgres, false, '', 'postgresql://user@host:5432')).toBe(
       'Connection URL must include a database (e.g. postgresql://user:password@host:port/database).'
     )
-    expect(
-      databaseFieldError(postgres, false, '', 'postgresql://user@host:5432/')
-    ).toContain('must include a database')
-    expect(
-      databaseFieldError(
-        postgres,
-        false,
-        '',
-        'postgresql://user@host:5432/app_db'
-      )
-    ).toBeNull()
+    expect(databaseFieldError(postgres, false, '', 'postgresql://user@host:5432/')).toContain(
+      'must include a database'
+    )
+    expect(databaseFieldError(postgres, false, '', 'postgresql://user@host:5432/app_db')).toBeNull()
   })
 
   it('leaves an unparseable URL to the existing connect-time error', () => {

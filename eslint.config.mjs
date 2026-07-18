@@ -51,8 +51,7 @@ export default tseslint.config(
             {
               name: './db',
               importNames: ['runQuery'],
-              message:
-                'Agent code must use runAgentQuery — the guarded read-only channel.'
+              message: 'Agent code must use runAgentQuery — the guarded read-only channel.'
             }
           ]
         }

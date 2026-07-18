@@ -85,10 +85,7 @@ export async function disconnectDriver(connId: string): Promise<void> {
 }
 
 /** Exactly how src/main/agent.ts invokes the driver today. */
-export function runAsAgent(
-  connId: string,
-  sql: string
-): Promise<DbResult<QueryResult>> {
+export function runAsAgent(connId: string, sql: string): Promise<DbResult<QueryResult>> {
   return postgresDriver.runQuery(connId, PG_DATABASE, sql, AGENT_LIMIT, {
     readOnly: true,
     timeoutMs: AGENT_TIMEOUT_MS
@@ -96,9 +93,6 @@ export function runAsAgent(
 }
 
 /** Exactly how the editor's Run button invokes the driver today. */
-export function runAsEditor(
-  connId: string,
-  sql: string
-): Promise<DbResult<QueryResult>> {
+export function runAsEditor(connId: string, sql: string): Promise<DbResult<QueryResult>> {
   return postgresDriver.runQuery(connId, PG_DATABASE, sql, null, {})
 }

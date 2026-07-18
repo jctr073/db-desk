@@ -22,7 +22,7 @@ Postgres only, consistent with how the rest of the reference feature is gated.
 ## Two flavors of peers — implement both, with precedence
 
 **1. Semantic peers (primary).** When the subject column has a resolved target
-(FK or LFK), peers are the *other* source columns whose edges point at the
+(FK or LFK), peers are the _other_ source columns whose edges point at the
 same target. Derive this entirely from the existing edge list: take the
 subject's outbound edge(s), collect inbound edges of each target, exclude the
 subject itself. No new inference; every peer is grounded in a declared or

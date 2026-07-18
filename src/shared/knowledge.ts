@@ -95,9 +95,7 @@ export interface KnowledgeTargetGroup {
  * be filtered to one (connection, database) target.
  */
 export function pickDefaultLink(links: KnowledgeLink[]): KnowledgeLink | null {
-  const sorted = [...links].sort(
-    (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)
-  )
+  const sorted = [...links].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
   return sorted[0] ?? null
 }
 
@@ -179,11 +177,7 @@ export interface NoteRecord extends KnowledgeRecordBase {
 }
 
 export type KnowledgeRecord =
-  | AnnotationRecord
-  | RelationshipRecord
-  | GlossaryRecord
-  | ExemplarRecord
-  | NoteRecord
+  AnnotationRecord | RelationshipRecord | GlossaryRecord | ExemplarRecord | NoteRecord
 
 /**
  * A record as proposed by a caller (renderer form or agent tool). The store
@@ -316,7 +310,12 @@ export type UsageIndex = Map<string, UsageHit[]>
 export function buildUsageIndex(records: KnowledgeRecord[]): UsageIndex {
   const index: UsageIndex = new Map()
 
-  const add = (ref: ColumnRef | undefined | null, kind: KnowledgeKind, role: UsageRole, id: string): void => {
+  const add = (
+    ref: ColumnRef | undefined | null,
+    kind: KnowledgeKind,
+    role: UsageRole,
+    id: string
+  ): void => {
     if (!ref || typeof ref.schema !== 'string' || typeof ref.table !== 'string') return
     const key = normalizeColumnKey(ref)
     const hits = index.get(key)

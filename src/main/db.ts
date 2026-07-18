@@ -76,10 +76,7 @@ function driverFor(connId: string): Driver {
  * the driver. Multi-database engines (Databricks) and an empty/omitted
  * database — meaning "the connected database" — always pass.
  */
-function guardDatabase(
-  connId: string,
-  database: string
-): { ok: false; error: string } | null {
+function guardDatabase(connId: string, database: string): { ok: false; error: string } | null {
   const type = connTypes.get(connId)
   if (!type || dialectFor(type).multiDatabase) return null
   const pinned = connDatabases.get(connId)
@@ -116,14 +113,11 @@ function allowedSchemasFor(connId: string, database: string): string[] | null {
  */
 export function isReadOnlyViolation(code: string | undefined): boolean {
   return (
-    code !== undefined &&
-    (code === WRITE_REQUIRED_CODE || PG_READ_ONLY_VIOLATION_CODES.has(code))
+    code !== undefined && (code === WRITE_REQUIRED_CODE || PG_READ_ONLY_VIOLATION_CODES.has(code))
   )
 }
 
-export function testConnection(
-  params: ConnectParams
-): Promise<DbResult<TestResult>> {
+export function testConnection(params: ConnectParams): Promise<DbResult<TestResult>> {
   return DRIVERS[params.type ?? 'postgres'].test(params)
 }
 
@@ -156,14 +150,8 @@ export async function connect(
     connIdentities.set(connId, identity)
     const connectedName = res.data.connectedDatabase.name
     if (cached) {
-      const selection =
-        type === 'databricks' ? schemaSelectionFor(connId, connectedName) : null
-      const entry = cachedIntrospection(
-        connId,
-        identity,
-        connectedName,
-        selection
-      )
+      const selection = type === 'databricks' ? schemaSelectionFor(connId, connectedName) : null
+      const entry = cachedIntrospection(connId, identity, connectedName, selection)
       if (cached.databases.length > 0 && dialectFor(type).multiDatabase) {
         res.data.databases = cached.databases
       }
@@ -189,9 +177,7 @@ export async function connect(
           connId,
           identity,
           connectedName,
-          type === 'databricks'
-            ? schemaSelectionFor(connId, connectedName)
-            : null,
+          type === 'databricks' ? schemaSelectionFor(connId, connectedName) : null,
           res.data.connectedDatabase
         )
       }
@@ -219,9 +205,7 @@ export async function disconnectAll(): Promise<void> {
   connTypes.clear()
   connDatabases.clear()
   connIdentities.clear()
-  await Promise.allSettled(
-    Object.values(DRIVERS).map((driver) => driver.disconnectAll())
-  )
+  await Promise.allSettled(Object.values(DRIVERS).map((driver) => driver.disconnectAll()))
 }
 
 export function getServerVersion(connId: string): string | null {
@@ -229,10 +213,7 @@ export function getServerVersion(connId: string): string | null {
 }
 
 /** Driver introspection with the connection's pinning applied; no cache. */
-function rawIntrospect(
-  connId: string,
-  database: string
-): Promise<DbResult<DatabaseIntrospection>> {
+function rawIntrospect(connId: string, database: string): Promise<DbResult<DatabaseIntrospection>> {
   if (connTypes.get(connId) === 'databricks') {
     return driverFor(connId).introspectDatabase(connId, database, {
       allowedSchemas: allowedSchemasFor(connId, database),
@@ -295,10 +276,7 @@ export function queueRevalidate(connId: string, database: string): void {
       }
       const identity = connIdentities.get(connId)
       const selection = allowedSchemasFor(connId, database)
-      if (
-        res.data.needsSchemaSelection ||
-        !sameSelection(selectionBefore, selection)
-      ) {
+      if (res.data.needsSchemaSelection || !sameSelection(selectionBefore, selection)) {
         // The pinning changed under us (or vanished): this result is not
         // trustworthy under the current selection. Drop the stale entry and
         // leave the tree alone — the selection-change flow reloads it.
@@ -306,11 +284,8 @@ export function queueRevalidate(connId: string, database: string): void {
         schemaEventSink({ connId, database, state: 'ok', unchanged: true })
         return
       }
-      const previous = identity
-        ? cachedIntrospection(connId, identity, database, selection)
-        : null
-      const changed =
-        !previous || JSON.stringify(previous) !== JSON.stringify(res.data)
+      const previous = identity ? cachedIntrospection(connId, identity, database, selection) : null
+      const changed = !previous || JSON.stringify(previous) !== JSON.stringify(res.data)
       if (identity) {
         saveIntrospection(connId, identity, database, selection, res.data)
       }
@@ -344,10 +319,7 @@ export function queueRevalidate(connId: string, database: string): void {
  * Schema names of one database, cheaply (no tables/columns), unfiltered by
  * any pinning — this is what populates the schema picker.
  */
-export function listSchemas(
-  connId: string,
-  database: string
-): Promise<DbResult<string[]>> {
+export function listSchemas(connId: string, database: string): Promise<DbResult<string[]>> {
   const blocked = guardDatabase(connId, database)
   if (blocked) return Promise.resolve(blocked)
   const list = driverFor(connId).listSchemas
@@ -388,13 +360,7 @@ export async function runQuery(
 ): Promise<DbResult<QueryResult>> {
   const blocked = guardDatabase(connId, database)
   if (blocked) return blocked
-  const res = await driverFor(connId).runQuery(
-    connId,
-    database,
-    sql,
-    limit,
-    options
-  )
+  const res = await driverFor(connId).runQuery(connId, database, sql, limit, options)
   // Successful DDL invalidates the cached metadata immediately; revalidate
   // now so the tree (and the cache on disk) catch up without a manual
   // refresh.
