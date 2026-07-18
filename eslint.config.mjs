@@ -55,7 +55,7 @@ export default tseslint.config(
     }
   },
   {
-    files: ['src/main/agent.ts'],
+    files: ['src/main/agent.ts', 'src/main/agent/**/*.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -63,6 +63,11 @@ export default tseslint.config(
           paths: [
             {
               name: './db',
+              importNames: ['runQuery'],
+              message: 'Agent code must use runAgentQuery — the guarded read-only channel.'
+            },
+            {
+              name: '../db',
               importNames: ['runQuery'],
               message: 'Agent code must use runAgentQuery — the guarded read-only channel.'
             }
