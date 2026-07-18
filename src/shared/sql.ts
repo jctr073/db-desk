@@ -336,6 +336,12 @@ export function applyAutoLimit(
   sql: string,
   limit: number
 ): { text: string; applied: boolean } {
+  // The limit is interpolated into SQL text and arrives over IPC typed but
+  // runtime-unchecked; anything but a positive integer must not reach the
+  // statement (a smuggled string here would be injection).
+  if (!Number.isInteger(limit) || limit <= 0) {
+    return { text: sql, applied: false }
+  }
   const { firstWord, topWords, multi } = scanTopLevel(sql)
 
   if (multi || !STARTERS.has(firstWord)) return { text: sql, applied: false }

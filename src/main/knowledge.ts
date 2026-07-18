@@ -32,12 +32,13 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
-  rmSync,
-  writeFileSync
+  rmSync
 } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import { pickDefaultLink } from '../shared/knowledge'
+import { assertSafeId } from './safeId'
+import { writeJsonAtomic } from './atomicJson'
 import type {
   ColumnRef,
   KnowledgeBase,
@@ -93,19 +94,6 @@ function basesDir(): string {
 
 function linksPath(): string {
   return join(knowledgeDir(), 'links.json')
-}
-
-/**
- * Ids are renderer-supplied over IPC and become path segments, so they must
- * never be able to escape `knowledge/bases/` (`deleteBase('..')` would
- * otherwise rmSync outside the store). House ids are `kb-<ts>-<rand>`;
- * anything outside that alphabet fails closed, same trust model as the
- * renderer-tampering guards in agent.ts.
- */
-function assertSafeId(id: string, what: string): void {
-  if (typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id)) {
-    throw new Error(`Invalid ${what} id: ${JSON.stringify(id)}`)
-  }
 }
 
 function basePath(kbId: string): string {
@@ -221,12 +209,9 @@ function persistBase(loaded: LoadedBase): void {
     base: loaded.base,
     records: loaded.records
   }
-  // Temp-file + rename so a crash mid-write cannot truncate the canonical
-  // file (which load() would then quarantine, losing nothing but continuity).
-  const path = basePath(loaded.base.id)
-  const tmp = `${path}.tmp`
-  writeFileSync(tmp, JSON.stringify(file, null, 2), 'utf8')
-  renameSync(tmp, path)
+  // Atomic write so a crash mid-write cannot truncate the canonical file
+  // (which load() would then quarantine, losing nothing but continuity).
+  writeJsonAtomic(basePath(loaded.base.id), file)
 }
 
 function isLoadableLink(value: unknown): value is KnowledgeLink {
@@ -271,13 +256,8 @@ function loadLinks(): KnowledgeLink[] {
 
 function persistLinks(links: KnowledgeLink[]): void {
   linksCache = links
-  const dir = knowledgeDir()
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   const file: LinksFile = { version: LINKS_FILE_VERSION, links }
-  const path = linksPath()
-  const tmp = `${path}.tmp`
-  writeFileSync(tmp, JSON.stringify(file, null, 2), 'utf8')
-  renameSync(tmp, path)
+  writeJsonAtomic(linksPath(), file)
 }
 
 function generateId(prefix: string): string {

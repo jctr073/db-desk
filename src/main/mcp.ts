@@ -10,8 +10,10 @@
  * tools.
  */
 
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+import { writeJsonAtomic } from './atomicJson'
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import {
@@ -67,18 +69,8 @@ function load(): StoredRecord[] {
 
 function persist(records: StoredRecord[]): void {
   cache = records
-  const path = storePath()
-  mkdirSync(dirname(path), { recursive: true })
   // Owner-only: env values are frequently access tokens.
-  writeFileSync(path, JSON.stringify(records, null, 2), {
-    encoding: 'utf8',
-    mode: 0o600
-  })
-  try {
-    chmodSync(path, 0o600)
-  } catch {
-    // best effort (e.g. filesystems without POSIX permissions)
-  }
+  writeJsonAtomic(storePath(), records, { mode: 0o600 })
 }
 
 function encryptEnv(env: Record<string, string>): Pick<StoredRecord, 'envSecret' | 'env'> {

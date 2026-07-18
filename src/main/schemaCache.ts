@@ -13,17 +13,13 @@
  */
 
 import { app } from 'electron'
-import {
-  chmodSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { normalizeConnectionUrl } from '../shared/connectionUrl'
 import type { ConnectParams, DatabaseIntrospection } from '../shared/db'
+import { assertSafeId } from './safeId'
+import { writeJsonAtomic } from './atomicJson'
 
 const CACHE_VERSION = 1
 
@@ -56,6 +52,9 @@ function cacheDir(): string {
 }
 
 function pathFor(connId: string): string {
+  // connIds are renderer-supplied over IPC (db:connect, store:delete) and
+  // become filenames; fail closed rather than write/delete outside the cache.
+  assertSafeId(connId, 'connection')
   return join(cacheDir(), `${connId}.json`)
 }
 
@@ -128,15 +127,8 @@ export function loadCacheFile(connId: string, identity: string): CacheFile | nul
 
 function persist(connId: string, file: CacheFile): void {
   memo.set(connId, file)
-  mkdirSync(cacheDir(), { recursive: true })
-  const path = pathFor(connId)
   // No secrets in here, but schema layouts are still the user's business.
-  writeFileSync(path, JSON.stringify(file), { encoding: 'utf8', mode: 0o600 })
-  try {
-    chmodSync(path, 0o600)
-  } catch {
-    // best effort (e.g. filesystems without POSIX permissions)
-  }
+  writeJsonAtomic(pathFor(connId), file, { mode: 0o600, pretty: false })
 }
 
 function fileFor(connId: string, identity: string): CacheFile {

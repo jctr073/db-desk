@@ -1,7 +1,8 @@
 import { app, safeStorage } from 'electron'
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
+import { writeJsonAtomic } from './atomicJson'
 import { normalizeConnectionUrl } from '../shared/connectionUrl'
 import type { ConnectionType } from '../shared/dialect'
 import type { ConnectParams, SavedConnection } from '../shared/db'
@@ -108,20 +109,9 @@ function load(): StoredRecord[] {
 
 function persist(records: StoredRecord[]): void {
   cache = records
-  const path = storePath()
-  mkdirSync(dirname(path), { recursive: true })
   const file: StoredFile = { version: STORE_VERSION, connections: records }
   // Owner-only: the file holds connection metadata and encrypted secrets.
-  writeFileSync(path, JSON.stringify(file, null, 2), {
-    encoding: 'utf8',
-    mode: 0o600
-  })
-  try {
-    // mode above only applies on creation; tighten pre-existing files too.
-    chmodSync(path, 0o600)
-  } catch {
-    // best effort (e.g. filesystems without POSIX permissions)
-  }
+  writeJsonAtomic(storePath(), file, { mode: 0o600 })
 }
 
 function toPublic(record: StoredRecord): SavedConnection {
