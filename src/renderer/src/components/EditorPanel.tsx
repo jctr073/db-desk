@@ -278,7 +278,7 @@ export function EditorPanel({
       files.selectFile(id)
       leavePreview()
     },
-    [files.selectFile, leavePreview]
+    [files, leavePreview]
   )
 
   // A stale file selection from another connection is never left standing:
@@ -290,7 +290,7 @@ export function EditorPanel({
     if (!selected || selected.connId === activeConnId) return
     const firstVisible = groups[0]?.files[0]
     if (firstVisible) files.selectFile(firstVisible.id)
-  }, [files.selectedFileId, files.files, activeConnId, groups, files.selectFile])
+  }, [files, activeConnId, groups])
 
   const activeFileNameRef = useRef<string | null>(null)
   activeFileNameRef.current = activeFile?.name ?? null
@@ -556,7 +556,7 @@ export function EditorPanel({
       })
       return true
     },
-    [files.saveFile]
+    [files]
   )
 
   // Cmd+S is registered once on mount; route it through a ref so it always
@@ -678,7 +678,7 @@ export function EditorPanel({
       setTabMenu((menu) => (menu && closing.fileIds.includes(menu.fileId) ? null : menu))
       setPendingClose(null)
     },
-    [files.closeFiles, runner]
+    [files, runner]
   )
 
   const requestClose = useCallback(
@@ -744,7 +744,7 @@ export function EditorPanel({
     const name = renameDraft
     setRenamingFileId(null)
     void files.renameFile(id, name)
-  }, [files.renameFile, renameDraft, renamingFileId])
+  }, [files, renameDraft, renamingFileId])
 
   const createFile = useCallback(
     (kind: FileKind) => {
@@ -756,14 +756,7 @@ export function EditorPanel({
       setNewFileMenuOpen(false)
       leavePreview()
     },
-    [
-      activeGroup?.connId,
-      activeGroup?.database,
-      target?.connId,
-      target?.database,
-      files.createFile,
-      leavePreview
-    ]
+    [activeGroup, target, files, leavePreview]
   )
 
   const startResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {

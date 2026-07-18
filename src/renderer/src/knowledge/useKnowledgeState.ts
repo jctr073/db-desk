@@ -342,6 +342,10 @@ export function useKnowledgeIndexes(targets: KnowledgeTarget[]): Map<string, Usa
       offChanged()
       offStructure()
     }
+    // Keyed on the sorted membership signature by design: `targets` is a
+    // fresh array every render, and re-subscribing on every render would
+    // tear down and re-create the IPC listeners without cause.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature])
 
   return indexes

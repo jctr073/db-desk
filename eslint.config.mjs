@@ -1,5 +1,6 @@
 import js from '@eslint/js'
 import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
@@ -28,6 +29,18 @@ export default tseslint.config(
       globals: {
         ...globals.browser
       }
+    }
+  },
+  {
+    // rules-of-hooks and exhaustive-deps only: the rest of the plugin's
+    // recommended set (set-state-in-effect etc.) targets React-Compiler
+    // readiness and flags the deliberate, documented state-sync idioms this
+    // codebase uses; adopting those rules is a refactor, not a lint fix.
+    files: ['src/renderer/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'error'
     }
   },
   {

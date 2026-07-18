@@ -785,7 +785,7 @@ export function AgentPanel({
       }
     })
     return unsubscribe
-  }, [])
+  }, [editorBridge])
 
   // Follow the stream: keep the transcript pinned to the bottom.
   useEffect(() => {

@@ -135,6 +135,10 @@ export function KnowledgePanel({
       openEditor({ record: null, kind: 'annotation', prefillTarget: nav.ref })
     }
     onNavConsumed()
+    // One-shot nav consumption: re-firing on unrelated `state` changes could
+    // double-open the editor before the parent clears `nav`, so only the
+    // fields the body reads (and setSelectedKbId, stable) are dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nav, onNavConsumed, state.loadedKey, state.loadError, state.groups])
 
   // Tab bar "+" while this tab is active: open the new-record kind chooser.
