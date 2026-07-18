@@ -27,8 +27,13 @@ import { promisify } from 'node:util'
 import { dialog, ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 
-import { getBaseRepoRoot, setBaseRepoRoot } from './knowledge'
-import type { RepoStatus } from '../shared/repo'
+import { addLink, createBase, getBaseRepoRoot, listBases, setBaseRepoRoot } from './knowledge'
+import type {
+  MonorepoCreateInput,
+  MonorepoCreateResult,
+  MonorepoPick,
+  RepoStatus
+} from '../shared/repo'
 
 const execFileAsync = promisify(execFile)
 
@@ -439,6 +444,105 @@ export async function readRepoFile(
   }
 }
 
+// --- Monorepo setup -----------------------------------------------------------
+
+/**
+ * The latest monorepo root pick, held main-side so mapping creation can refer
+ * to it by id — the renderer never sends a filesystem path back over IPC
+ * (same trust model as `repo:choose`). Single slot: a new pick invalidates
+ * the previous one, and the slot dies with the process.
+ */
+let monorepoPick: MonorepoPick | null = null
+
+/**
+ * Immediate child folders of a monorepo root that could be deployable
+ * services: plain directories only — symlinks, dot-directories, and
+ * vendored/output directories (IGNORED_DIRS) are excluded. One level deep by
+ * design; the user picks the folder whose children are the services.
+ */
+export async function listMonorepoFolders(root: string): Promise<string[]> {
+  const entries = await readdir(root, { withFileTypes: true })
+  return entries
+    .filter(
+      (e) =>
+        e.isDirectory() && !e.name.startsWith('.') && !IGNORED_DIRS.has(e.name)
+    )
+    .map((e) => e.name)
+    .sort((a, b) => a.localeCompare(b))
+}
+
+/**
+ * Store a fresh pick and mint its id — the seam between the native dialog
+ * (IPC handler) and the mapping-creation state, exported so tests can seed a
+ * pick without a dialog.
+ */
+export function registerMonorepoPick(
+  root: string,
+  folders: string[]
+): MonorepoPick {
+  monorepoPick = {
+    pickId: `mp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    root,
+    folders
+  }
+  return monorepoPick
+}
+
+/**
+ * Create the requested folder → schema mappings from the current pick: one
+ * knowledge base per folder (root + subPath) plus a link to the target
+ * schema. A folder that already has a base for this exact root + subPath
+ * reuses it instead of minting a duplicate, and `addLink` dedupes existing
+ * links — so a failed batch (e.g. one invalid schema name) is safely
+ * re-runnable rather than pre-validated to death here.
+ */
+export function createMonorepoMappings(
+  input: MonorepoCreateInput
+): MonorepoCreateResult {
+  if (!input || typeof input !== 'object' || !Array.isArray(input.mappings)) {
+    throw new Error('Invalid monorepo mapping request.')
+  }
+  const pick = monorepoPick
+  if (!pick || input.pickId !== pick.pickId) {
+    throw new Error('The monorepo pick has expired — choose the root again.')
+  }
+  for (const m of input.mappings) {
+    if (!m || typeof m !== 'object' || !pick.folders.includes(m.folder)) {
+      throw new Error(
+        `Not a folder of the picked root: ${JSON.stringify(m?.folder)}`
+      )
+    }
+  }
+  /** folder → kbId for this root, seeded from disk, grown as we create. */
+  const baseByFolder = new Map<string, string>()
+  for (const b of listBases()) {
+    if (b.repoRoot === pick.root && b.subPath) baseByFolder.set(b.subPath, b.id)
+  }
+  let created = 0
+  let reused = 0
+  const kbIds: string[] = []
+  for (const m of input.mappings) {
+    let kbId = baseByFolder.get(m.folder)
+    if (kbId) {
+      reused++
+    } else {
+      const base = createBase(m.name)
+      setBaseRepoRoot(base.id, pick.root, m.folder)
+      baseByFolder.set(m.folder, base.id)
+      kbId = base.id
+      created++
+    }
+    addLink({
+      kbId,
+      connId: input.connId,
+      database: input.database,
+      schema: m.schema
+    })
+    kbIds.push(kbId)
+  }
+  return { created, reused, kbIds }
+}
+
 // --- IPC ----------------------------------------------------------------------
 
 async function statusFor(kbId: string): Promise<RepoStatus> {
@@ -472,5 +576,32 @@ export function registerRepoHandlers(getWindow: () => BrowserWindow | null): voi
   ipcMain.handle('repo:clear', (_event, kbId: string) => {
     clearRepoRoot(kbId)
     return statusFor(kbId)
+  })
+
+  // Monorepo setup: the root path enters (and stays in) the main process
+  // here; the renderer gets the folder list plus a pickId to refer back to.
+  ipcMain.handle('repo:monorepoPick', async (): Promise<MonorepoPick | null> => {
+    const win = getWindow()
+    const result = win
+      ? await dialog.showOpenDialog(win, {
+          title: 'Choose monorepo root',
+          buttonLabel: 'Choose',
+          properties: ['openDirectory']
+        })
+      : await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    const picked = result.canceled ? null : result.filePaths[0]
+    if (!picked) return null
+    return registerMonorepoPick(picked, await listMonorepoFolders(picked))
+  })
+
+  ipcMain.handle('repo:monorepoCreate', (_event, input: MonorepoCreateInput) => {
+    const result = createMonorepoMappings(input)
+    // Bases and links changed shape outside registerKnowledgeHandlers, so
+    // push the same coarse structure signal it would have sent.
+    const win = getWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('knowledge:structureChanged')
+    }
+    return result
   })
 }

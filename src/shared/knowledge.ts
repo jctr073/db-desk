@@ -27,6 +27,15 @@ export interface KnowledgeBase {
    * the main-process directory picker — never renderer-supplied.
    */
   repoRoot: string | null
+  /**
+   * Monorepo service folder relative to `repoRoot`, or null/absent for a
+   * whole-repo base. The base's effective codebase root is
+   * `repoRoot/subPath`; agent repo tools, scans, and status displays all
+   * operate on the joined path. Set only main-side (monorepo setup validates
+   * it against the picked root's real child folders) — never
+   * renderer-supplied.
+   */
+  subPath?: string | null
   createdAt: number
   updatedAt: number
 }

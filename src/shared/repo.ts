@@ -20,6 +20,78 @@ export interface RepoStatus {
 }
 
 /**
+ * The result of picking a monorepo root for the multi-service setup flow:
+ * the chosen root plus its immediate child folders (the service candidates).
+ * The pick lives main-side under `pickId`; the renderer refers back to it by
+ * id when creating mappings, so no filesystem path ever travels
+ * renderer → main. `root` is display-only.
+ */
+export interface MonorepoPick {
+  pickId: string
+  root: string
+  /** Immediate child folder names, sorted; dot/vendored dirs excluded. */
+  folders: string[]
+}
+
+/** One requested folder → schema mapping from the monorepo setup dialog. */
+export interface MonorepoMappingInput {
+  /** Must be one of the pick's listed folders. */
+  folder: string
+  schema: string
+  /** Name for the created base (ignored when the folder is already mapped). */
+  name: string
+}
+
+export interface MonorepoCreateInput {
+  pickId: string
+  connId: string
+  database: string
+  mappings: MonorepoMappingInput[]
+}
+
+export interface MonorepoCreateResult {
+  /** Bases newly created by this call. */
+  created: number
+  /** Mappings that reused an existing base for the same root + folder. */
+  reused: number
+  /** kbIds in mapping order, for post-create selection. */
+  kbIds: string[]
+}
+
+/** Case/separator-insensitive key for folder ↔ schema auto-matching. */
+function matchKey(value: string): string {
+  return value.toLowerCase().replace(/[-_ ]/g, '')
+}
+
+/** Suffixes commonly appended to a service folder name but not its schema
+ * (`billing-service` → schema `billing`). Tried only after an exact match. */
+const SERVICE_SUFFIXES = ['service', 'svc', 'api', 'app', 'worker', 'server']
+
+/**
+ * The schema a monorepo service folder most likely maps to, or null when
+ * nothing matches. Purely a convenience prefill for the setup dialog — the
+ * suggestion is always user-overridable and never creates a mapping by
+ * itself. Matching is case- and separator-insensitive (`billing-svc` ↔
+ * `billing_svc`), with common service suffixes stripped as a fallback.
+ */
+export function suggestSchema(
+  folder: string,
+  schemas: string[]
+): string | null {
+  const byKey = new Map(schemas.map((s) => [matchKey(s), s]))
+  const key = matchKey(folder)
+  const direct = byKey.get(key)
+  if (direct) return direct
+  for (const suffix of SERVICE_SUFFIXES) {
+    if (key.endsWith(suffix) && key.length > suffix.length) {
+      const stripped = byKey.get(key.slice(0, -suffix.length))
+      if (stripped) return stripped
+    }
+  }
+  return null
+}
+
+/**
  * Sections shared by the full scan and the targeted follow-up scan, so the
  * two prompts cannot drift on what to record and how.
  */

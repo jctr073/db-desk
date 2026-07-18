@@ -17,6 +17,7 @@ import {
   SearchIcon
 } from './icons'
 import { LinkBaseDialog } from './LinkBaseDialog'
+import { MonorepoSetupDialog } from './MonorepoSetupDialog'
 import { TargetedScanDialog } from './TargetedScanDialog'
 import type { QueryTarget } from './useQueryRunner'
 
@@ -59,6 +60,7 @@ type SubDialog =
   | { kind: 'new' }
   | { kind: 'rename' }
   | { kind: 'link'; candidates: KnowledgeBaseSummary[] }
+  | { kind: 'monorepo' }
   | { kind: 'targeted-scan' }
   | { kind: 'detach' }
   | { kind: 'confirm-unlink' }
@@ -300,6 +302,45 @@ export function ManageKnowledgeDialog({
     [selectedGroup, pendingSchemas, target.connId, target.database]
   )
 
+  /**
+   * The master list, clustered by shared repo root: bases created by the
+   * monorepo setup all carry the same `repoRoot` (differing only in
+   * `subPath`), so two or more of them linked here render under one repo
+   * header instead of as unrelated bases. Solo bases keep their original
+   * order in headerless sections.
+   */
+  interface ListSection {
+    /** Repo display name for a monorepo cluster; null for solo bases. */
+    header: string | null
+    items: KnowledgeTargetGroup[]
+  }
+
+  const listSections = useMemo((): ListSection[] => {
+    const rootCount = new Map<string, number>()
+    for (const g of groups) {
+      const root = g.base.repoRoot
+      if (root) rootCount.set(root, (rootCount.get(root) ?? 0) + 1)
+    }
+    const sections: ListSection[] = []
+    const clustered = new Set<string>()
+    for (const g of groups) {
+      const root = g.base.repoRoot
+      if (root && (rootCount.get(root) ?? 0) > 1) {
+        if (clustered.has(root)) continue
+        clustered.add(root)
+        sections.push({
+          header: repoRootName(root),
+          items: groups.filter((x) => x.base.repoRoot === root)
+        })
+      } else {
+        const last = sections[sections.length - 1]
+        if (last && last.header === null) last.items.push(g)
+        else sections.push({ header: null, items: [g] })
+      }
+    }
+    return sections
+  }, [groups])
+
   /** " · schema: a, b" — same shape as the panel's base-selector labels. */
   const schemasLabel = (groupLinks: Array<{ schema?: string }>): string => {
     const scopes = groupLinks
@@ -349,38 +390,56 @@ export function ManageKnowledgeDialog({
           <div className="dialog__body manage-kb__body">
             <div className="manage-kb__list">
               <div className="manage-kb__items">
-                {groups.map((g) => {
-                  const gRoot =
-                    repoStatuses[g.base.id]?.root ?? g.base.repoRoot
-                  const scopes = schemasLabel(g.links)
-                  return (
-                    <button
-                      key={g.base.id}
-                      type="button"
-                      className={`manage-kb__item${
-                        g.base.id === selectedKbId ? ' is-selected' : ''
-                      }`}
-                      onClick={() => setSelectedKbId(g.base.id)}
-                    >
-                      <span className="manage-kb__item-name">
-                        {g.base.name}
-                        {gRoot && (
-                          <span
-                            className="manage-kb__item-repo"
-                            title={`Codebase attached — ${repoRootName(gRoot)}`}
-                          >
-                            <FolderIcon size={11} />
+                {listSections.map((section, index) => (
+                  <div key={section.header ?? `·solo·${index}`}>
+                    {section.header && (
+                      <div
+                        className="manage-kb__group-header"
+                        title={section.items[0]?.base.repoRoot ?? undefined}
+                      >
+                        <FolderIcon size={10} />
+                        {section.header}
+                      </div>
+                    )}
+                    {section.items.map((g) => {
+                      const gRoot =
+                        repoStatuses[g.base.id]?.root ?? g.base.repoRoot
+                      const scopes = schemasLabel(g.links)
+                      return (
+                        <button
+                          key={g.base.id}
+                          type="button"
+                          className={`manage-kb__item${
+                            g.base.id === selectedKbId ? ' is-selected' : ''
+                          }`}
+                          onClick={() => setSelectedKbId(g.base.id)}
+                        >
+                          <span className="manage-kb__item-name">
+                            {g.base.name}
+                            {gRoot && !section.header && (
+                              <span
+                                className="manage-kb__item-repo"
+                                title={`Codebase attached — ${repoRootName(gRoot)}`}
+                              >
+                                <FolderIcon size={11} />
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </span>
-                      <span className="manage-kb__item-meta">
-                        {scopes && <span title={scopes}>{scopes} · </span>}
-                        {g.records.length} record
-                        {g.records.length === 1 ? '' : 's'}
-                      </span>
-                    </button>
-                  )
-                })}
+                          <span className="manage-kb__item-meta">
+                            {g.base.subPath && (
+                              <span title={g.base.subPath}>
+                                {g.base.subPath} ·{' '}
+                              </span>
+                            )}
+                            {scopes && <span title={scopes}>{scopes} · </span>}
+                            {g.records.length} record
+                            {g.records.length === 1 ? '' : 's'}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
                 {groups.length === 0 && (
                   <div className="manage-kb__list-empty">
                     No knowledge bases are linked to this database yet.
@@ -403,6 +462,15 @@ export function ManageKnowledgeDialog({
                 >
                   <BookIcon size={11} />
                   Link existing base…
+                </button>
+                <button
+                  type="button"
+                  className="manage-kb__action"
+                  title="Map service folders of one repository to the schemas they own"
+                  onClick={() => setSubDialog({ kind: 'monorepo' })}
+                >
+                  <FolderIcon size={11} />
+                  Set up monorepo…
                 </button>
               </div>
             </div>
@@ -427,15 +495,27 @@ export function ManageKnowledgeDialog({
                         No codebase attached.
                       </div>
                     )}
+                    {selectedGroup.base.subPath && (
+                      <div className="manage-kb__repo-sub">
+                        Monorepo folder{' '}
+                        <strong>{selectedGroup.base.subPath}</strong>
+                        {selectedGroup.base.repoRoot && (
+                          <> of {repoRootName(selectedGroup.base.repoRoot)}</>
+                        )}{' '}
+                        — repo tools and scans see only this folder.
+                      </div>
+                    )}
                     <div className="manage-kb__row-actions">
                       <button
                         type="button"
                         className="manage-kb__btn"
                         disabled={attaching}
                         title={
-                          repoRoot
-                            ? 'Pick a different codebase directory for this base'
-                            : 'Attach a local codebase to this base'
+                          selectedGroup.base.subPath
+                            ? 'Pick a different directory (replaces the monorepo folder scope)'
+                            : repoRoot
+                              ? 'Pick a different codebase directory for this base'
+                              : 'Attach a local codebase to this base'
                         }
                         onClick={() => void attach()}
                       >
@@ -607,6 +687,21 @@ export function ManageKnowledgeDialog({
           bases={subDialog.candidates}
           schemaOptions={schemaOptions}
           onLink={linkExistingBase}
+          onClose={() => setSubDialog(null)}
+        />
+      )}
+      {subDialog?.kind === 'monorepo' && (
+        <MonorepoSetupDialog
+          targetLabel={targetLabel}
+          connId={target.connId}
+          database={target.database}
+          schemaOptions={schemaOptions}
+          onDone={(kbId) => {
+            if (kbId) {
+              setSelectedKbId(kbId)
+              onSelectBase(kbId)
+            }
+          }}
           onClose={() => setSubDialog(null)}
         />
       )}
