@@ -20,6 +20,13 @@ import { startAdmin, stopAdmin } from '../support/db'
 
 const WRITER = 'dbdesk_priv_writer'
 const NOINHERIT = 'dbdesk_priv_noinherit'
+const COLGRANT = 'dbdesk_priv_colgrant'
+const SEQGRANT = 'dbdesk_priv_seqgrant'
+// A three-link membership chain (leaf -> mid -> writer), NOINHERIT throughout
+// so the writable grant is two SET ROLEs away and only the recursive closure
+// can reach it.
+const CHAIN_LEAF = 'dbdesk_priv_chain_leaf'
+const CHAIN_MID = 'dbdesk_priv_chain_mid'
 
 let connSeq = 0
 const openConns: string[] = []
@@ -36,24 +43,42 @@ async function probeAs(user: string, password: string): Promise<PgWriteCapabilit
   )
 }
 
+const ALL_ROLES = [WRITER, NOINHERIT, COLGRANT, SEQGRANT, CHAIN_LEAF, CHAIN_MID]
+
 beforeAll(async () => {
   const admin = await startAdmin()
+  const ensureRole = (name: string, extra = '') =>
+    `IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${name}') THEN
+       CREATE ROLE ${name} LOGIN ${extra} PASSWORD '${name}';
+     END IF;`
   await admin.query(`
     DO $$
     BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${WRITER}') THEN
-        CREATE ROLE ${WRITER} LOGIN PASSWORD '${WRITER}';
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${NOINHERIT}') THEN
-        CREATE ROLE ${NOINHERIT} LOGIN NOINHERIT PASSWORD '${NOINHERIT}';
-      END IF;
+      ${ensureRole(WRITER)}
+      ${ensureRole(NOINHERIT, 'NOINHERIT')}
+      ${ensureRole(COLGRANT)}
+      ${ensureRole(SEQGRANT)}
+      ${ensureRole(CHAIN_LEAF, 'NOINHERIT')}
+      ${ensureRole(CHAIN_MID, 'NOINHERIT')}
     END
     $$;
-    GRANT CONNECT ON DATABASE ${PG_DATABASE} TO ${WRITER}, ${NOINHERIT};
-    GRANT USAGE ON SCHEMA public TO ${WRITER}, ${NOINHERIT};
-    GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${WRITER}, ${NOINHERIT};
+    GRANT CONNECT ON DATABASE ${PG_DATABASE} TO ${ALL_ROLES.join(', ')};
+    GRANT USAGE ON SCHEMA public TO ${ALL_ROLES.join(', ')};
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${ALL_ROLES.join(', ')};
     GRANT INSERT ON customers TO ${WRITER};
     GRANT ${WRITER} TO ${NOINHERIT};
+
+    -- Column-only UPDATE: invisible to has_table_privilege, seen only by
+    -- has_any_column_privilege.
+    GRANT UPDATE (status) ON orders TO ${COLGRANT};
+
+    -- Sequence USAGE/UPDATE: lets the role advance a sequence (nextval/setval),
+    -- a persistent-state write the table sweep never inspects.
+    GRANT USAGE ON SEQUENCE customers_id_seq TO ${SEQGRANT};
+
+    -- Two-hop writable chain: only the recursive closure reaches ${WRITER}.
+    GRANT ${WRITER} TO ${CHAIN_MID};
+    GRANT ${CHAIN_MID} TO ${CHAIN_LEAF};
   `)
 })
 
@@ -80,6 +105,24 @@ describe('pg write-capability probe (real server)', () => {
 
   it('calls a NOINHERIT member of a writer role writable (SET ROLE escalation)', async () => {
     expect(await probeAs(NOINHERIT, NOINHERIT)).toBe('writable')
+  })
+
+  it('calls a role with only a column-level UPDATE grant writable', async () => {
+    // has_table_privilege(...,'UPDATE') is false here; only
+    // has_any_column_privilege sees the grant.
+    expect(await probeAs(COLGRANT, COLGRANT)).toBe('writable')
+  })
+
+  it('calls a role with only a sequence USAGE grant writable', async () => {
+    // Advancing a sequence (nextval/setval) mutates persistent state and is
+    // outside the relkind r/p/v/f table sweep.
+    expect(await probeAs(SEQGRANT, SEQGRANT)).toBe('writable')
+  })
+
+  it('calls a two-hop NOINHERIT chain to a writer role writable', async () => {
+    // Guards the recursive closure: a single flat pg_auth_members join would
+    // reach CHAIN_MID but not the writable WRITER one hop further.
+    expect(await probeAs(CHAIN_LEAF, CHAIN_LEAF)).toBe('writable')
   })
 
   it('is indeterminate when the connection is gone (fail closed)', async () => {

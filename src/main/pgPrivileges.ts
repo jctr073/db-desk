@@ -32,6 +32,13 @@ export type PgWriteCapability = 'readonly' | 'writable' | 'indeterminate'
  *    when auto-updatable — and foreign tables). Materialized views are
  *    excluded: writing one takes ownership, and owners already hold DML on
  *    it anyway. pg_catalog writes are superuser-only, covered by rolsuper.
+ *    has_table_privilege only sees table-level (relacl) grants, so the same
+ *    sweep also calls has_any_column_privilege for INSERT/UPDATE — a
+ *    column-only grant (GRANT UPDATE (col) ON t) is a real write the
+ *    table-level check is blind to. (DELETE/TRUNCATE have no column form.)
+ *  - Sequences (relkind 'S') are a distinct probe: USAGE or UPDATE lets a
+ *    role advance one via nextval/setval, which mutates persistent state
+ *    (nextval even survives rollback), so either grant counts as writable.
  *  - Schema CREATE skips pg_temp and pg_toast namespaces: every role may create
  *    session-local temp objects, and counting that would classify everyone
  *    as writable. On PG <= 14 PUBLIC holds CREATE on schema "public", so
@@ -64,8 +71,21 @@ SELECT
       AND (has_table_privilege(rc2.oid, c.oid, 'INSERT')
         OR has_table_privilege(rc2.oid, c.oid, 'UPDATE')
         OR has_table_privilege(rc2.oid, c.oid, 'DELETE')
-        OR has_table_privilege(rc2.oid, c.oid, 'TRUNCATE'))
+        OR has_table_privilege(rc2.oid, c.oid, 'TRUNCATE')
+        OR has_any_column_privilege(rc2.oid, c.oid, 'INSERT')
+        OR has_any_column_privilege(rc2.oid, c.oid, 'UPDATE'))
   ) AS any_table_write,
+  EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_class s
+    JOIN pg_catalog.pg_namespace ns ON ns.oid = s.relnamespace
+    CROSS JOIN role_closure rcs
+    WHERE s.relkind = 'S'
+      AND ns.nspname NOT LIKE 'pg\\_%'
+      AND ns.nspname <> 'information_schema'
+      AND (has_sequence_privilege(rcs.oid, s.oid, 'USAGE')
+        OR has_sequence_privilege(rcs.oid, s.oid, 'UPDATE'))
+  ) AS any_sequence_write,
   EXISTS (
     SELECT 1
     FROM pg_catalog.pg_namespace n2
@@ -88,6 +108,7 @@ const PROBE_COLUMNS = [
   'any_bypassrls',
   'any_createdb',
   'any_table_write',
+  'any_sequence_write',
   'any_schema_create',
   'any_db_create'
 ] as const

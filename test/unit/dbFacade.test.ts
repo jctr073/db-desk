@@ -393,6 +393,7 @@ function probeRow(overrides: Record<string, boolean> = {}): { ok: true; data: Qu
     'any_bypassrls',
     'any_createdb',
     'any_table_write',
+    'any_sequence_write',
     'any_schema_create',
     'any_db_create'
   ]
