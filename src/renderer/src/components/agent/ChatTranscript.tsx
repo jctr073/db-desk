@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import type { ReactElement } from 'react'
 
 import type { AgentMode } from '../../../../shared/agent'
@@ -74,7 +74,12 @@ function toolDetail(name: string, sql: string): string {
   }
 }
 
-function AssistantText({
+/**
+ * Memoized so streaming deltas re-run splitFences only for the message being
+ * streamed: `text` is a primitive and the callbacks are identity-stable, so
+ * completed messages' props always compare equal.
+ */
+const AssistantText = memo(function AssistantText({
   text,
   onInsert,
   onSaveExemplar
@@ -121,7 +126,127 @@ function AssistantText({
       )}
     </>
   )
+})
+
+interface TranscriptMessageProps {
+  msg: ChatMessage
+  onInsert: (sql: string) => void
+  /** Present only when a target is connected: adds a "Save as exemplar" action. */
+  onSaveExemplar?: (sql: string) => void
+  /** "Load final query" on a recap: same review path as write_to_editor. */
+  onLoadFinalSql: (recap: TurnRecap) => void
 }
+
+/**
+ * One transcript message, memoized: useChatSession updates messages
+ * immutably and rebuilds only the message it touches (the streaming tail, or
+ * the one holding an updated tool part), so every other message keeps its
+ * identity and skips re-rendering during streaming. The callbacks are
+ * identity-stable in AgentPanel/useChatSession.
+ */
+const TranscriptMessage = memo(function TranscriptMessage({
+  msg,
+  onInsert,
+  onSaveExemplar,
+  onLoadFinalSql
+}: TranscriptMessageProps): ReactElement {
+  return (
+    <div className={`chat-msg chat-msg--${msg.role}`}>
+      {msg.parts.map((part, i) => {
+        if (part.kind === 'text') {
+          return msg.role === 'assistant' ? (
+            <AssistantText
+              key={i}
+              text={part.text}
+              onInsert={onInsert}
+              onSaveExemplar={onSaveExemplar}
+            />
+          ) : (
+            <div key={i} className="chat-prose">
+              {part.text}
+            </div>
+          )
+        }
+        if (part.kind === 'tool') {
+          const meta = toolMeta(part.name)
+          const detail = toolDetail(part.name, part.sql)
+          return (
+            <div key={i} className={`chat-tool chat-tool--${part.status}`} title={part.sql}>
+              <span className="chat-tool__kind">
+                <meta.Icon size={10} />
+                {meta.label}
+              </span>
+              <code>
+                {meta.sqlish ? (
+                  <SqlCode
+                    sql={stripSqlComments(detail).replace(/\s+/g, ' ').trim().slice(0, 60)}
+                  />
+                ) : (
+                  detail.slice(0, 60)
+                )}
+              </code>
+              <span className="chat-tool__summary">
+                {part.status === 'running' ? 'running…' : part.summary}
+              </span>
+              {part.status !== 'running' && (
+                <span className="chat-tool__status">
+                  {part.status === 'ok' ? <CheckIcon size={11} /> : <CloseIcon size={11} />}
+                </span>
+              )}
+            </div>
+          )
+        }
+        if (part.kind === 'notice') {
+          return (
+            <div key={i} className="chat-notice">
+              {part.text}
+            </div>
+          )
+        }
+        if (part.kind === 'recap') {
+          const label =
+            part.status === 'done' ? 'Done' : part.status === 'stopped' ? 'Stopped' : 'Failed'
+          const editorNote =
+            part.editor === 'applied'
+              ? 'final query in editor'
+              : part.editor === 'pending'
+                ? 'editor diff awaiting review'
+                : part.editor === 'already'
+                  ? 'query already in editor'
+                  : null
+          const segments = [
+            formatElapsed(part.elapsedMs),
+            part.toolCount > 0 && `${part.toolCount} tool call${part.toolCount === 1 ? '' : 's'}`,
+            part.queryCount > 0 &&
+              `${part.queryCount} quer${part.queryCount === 1 ? 'y' : 'ies'} run`,
+            editorNote
+          ].filter((s): s is string => Boolean(s))
+          return (
+            <div key={i} className={`chat-recap chat-recap--${part.status}`}>
+              <span className="chat-recap__label">{label}</span>
+              <span className="chat-recap__meta">{segments.join(' · ')}</span>
+              {part.finalSql && (
+                <button
+                  type="button"
+                  className="chat-recap__load"
+                  title="Load the final query into the active SQL editor (review as a diff when the editor has content)"
+                  onClick={() => onLoadFinalSql(part)}
+                >
+                  Load final query
+                </button>
+              )}
+            </div>
+          )
+        }
+        return (
+          <div key={i} className="chat-error">
+            {part.text}
+          </div>
+        )
+      })}
+    </div>
+  )
+})
 
 const GAUGE_RADIUS = 11
 const GAUGE_CIRCUMFERENCE = 2 * Math.PI * GAUGE_RADIUS
@@ -208,101 +333,13 @@ export function ChatTranscript({
         </div>
       )}
       {transcript.map((msg) => (
-        <div key={msg.id} className={`chat-msg chat-msg--${msg.role}`}>
-          {msg.parts.map((part, i) => {
-            if (part.kind === 'text') {
-              return msg.role === 'assistant' ? (
-                <AssistantText
-                  key={i}
-                  text={part.text}
-                  onInsert={onInsert}
-                  onSaveExemplar={onSaveExemplar}
-                />
-              ) : (
-                <div key={i} className="chat-prose">
-                  {part.text}
-                </div>
-              )
-            }
-            if (part.kind === 'tool') {
-              const meta = toolMeta(part.name)
-              const detail = toolDetail(part.name, part.sql)
-              return (
-                <div key={i} className={`chat-tool chat-tool--${part.status}`} title={part.sql}>
-                  <span className="chat-tool__kind">
-                    <meta.Icon size={10} />
-                    {meta.label}
-                  </span>
-                  <code>
-                    {meta.sqlish ? (
-                      <SqlCode
-                        sql={stripSqlComments(detail).replace(/\s+/g, ' ').trim().slice(0, 60)}
-                      />
-                    ) : (
-                      detail.slice(0, 60)
-                    )}
-                  </code>
-                  <span className="chat-tool__summary">
-                    {part.status === 'running' ? 'running…' : part.summary}
-                  </span>
-                  {part.status !== 'running' && (
-                    <span className="chat-tool__status">
-                      {part.status === 'ok' ? <CheckIcon size={11} /> : <CloseIcon size={11} />}
-                    </span>
-                  )}
-                </div>
-              )
-            }
-            if (part.kind === 'notice') {
-              return (
-                <div key={i} className="chat-notice">
-                  {part.text}
-                </div>
-              )
-            }
-            if (part.kind === 'recap') {
-              const label =
-                part.status === 'done' ? 'Done' : part.status === 'stopped' ? 'Stopped' : 'Failed'
-              const editorNote =
-                part.editor === 'applied'
-                  ? 'final query in editor'
-                  : part.editor === 'pending'
-                    ? 'editor diff awaiting review'
-                    : part.editor === 'already'
-                      ? 'query already in editor'
-                      : null
-              const segments = [
-                formatElapsed(part.elapsedMs),
-                part.toolCount > 0 &&
-                  `${part.toolCount} tool call${part.toolCount === 1 ? '' : 's'}`,
-                part.queryCount > 0 &&
-                  `${part.queryCount} quer${part.queryCount === 1 ? 'y' : 'ies'} run`,
-                editorNote
-              ].filter((s): s is string => Boolean(s))
-              return (
-                <div key={i} className={`chat-recap chat-recap--${part.status}`}>
-                  <span className="chat-recap__label">{label}</span>
-                  <span className="chat-recap__meta">{segments.join(' · ')}</span>
-                  {part.finalSql && (
-                    <button
-                      type="button"
-                      className="chat-recap__load"
-                      title="Load the final query into the active SQL editor (review as a diff when the editor has content)"
-                      onClick={() => onLoadFinalSql(part)}
-                    >
-                      Load final query
-                    </button>
-                  )}
-                </div>
-              )
-            }
-            return (
-              <div key={i} className="chat-error">
-                {part.text}
-              </div>
-            )
-          })}
-        </div>
+        <TranscriptMessage
+          key={msg.id}
+          msg={msg}
+          onInsert={onInsert}
+          onSaveExemplar={onSaveExemplar}
+          onLoadFinalSql={onLoadFinalSql}
+        />
       ))}
       {thinking && busy && <div className="chat__thinking">Thinking…</div>}
       {compacting && <div className="chat__thinking">Compacting context…</div>}

@@ -6,6 +6,7 @@ import type { ReactElement } from 'react'
 import type { Theme } from '../../theme'
 import { SparkleIcon } from '../icons'
 import { defineThemes, resolveTheme } from '../SqlEditor'
+import { useEscapeKey } from '../../useEscapeKey'
 
 /** An agent-proposed replacement for one file's contents, awaiting review. */
 export interface EditorProposal {
@@ -55,14 +56,7 @@ export function ProposalOverlay({
   onAccept,
   onReject
 }: ProposalOverlayProps): ReactElement | null {
-  useEffect(() => {
-    if (!show) return
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onReject()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [show, onReject])
+  useEscapeKey(show, onReject)
 
   // The DiffEditor wrapper disposes its TextModels before the widget resets
   // them, which throws on unmount. keepCurrent*Model makes the wrapper leave

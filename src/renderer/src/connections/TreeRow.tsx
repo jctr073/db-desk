@@ -1,4 +1,5 @@
-import type { CSSProperties, MouseEvent, ReactElement } from 'react'
+import { memo } from 'react'
+import type { MouseEvent, ReactElement } from 'react'
 
 import { KeyIcon, ChevronRightIcon } from '../components/icons'
 import { NodeIcon } from './NodeIcon'
@@ -13,73 +14,6 @@ const STATUS_COLOR: Record<string, string> = {
   offline: 'var(--text-faint)'
 }
 
-const labelWrap: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  justifyContent: 'center',
-  minWidth: 0,
-  flex: '1 1 auto',
-  overflow: 'hidden'
-}
-
-const subStyle: CSSProperties = {
-  fontSize: 10.5,
-  lineHeight: 1.2,
-  color: 'var(--text-faint)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-  marginTop: 1
-}
-
-const pkStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  color: 'var(--amber)',
-  marginLeft: 6,
-  flex: '0 0 auto'
-}
-
-const fkStyle: CSSProperties = {
-  fontSize: 8.5,
-  fontWeight: 700,
-  letterSpacing: '.04em',
-  color: 'var(--text-faint)',
-  border: '1px solid var(--border)',
-  borderRadius: 3,
-  padding: '0 3px',
-  marginLeft: 6,
-  lineHeight: '13px',
-  flex: '0 0 auto'
-}
-
-/** Inferred (naming-convention) foreign key: like FK but dashed to read as a guess. */
-const lfkStyle: CSSProperties = {
-  ...fkStyle,
-  borderStyle: 'dashed',
-  opacity: 0.85
-}
-
-/** Subtle marker for nodes that have local knowledge attached. */
-const knowledgeDotStyle: CSSProperties = {
-  width: 5,
-  height: 5,
-  minWidth: 5,
-  borderRadius: '50%',
-  background: 'var(--accent)',
-  opacity: 0.85,
-  marginLeft: 6,
-  flex: '0 0 auto'
-}
-
-const monoRight: CSSProperties = {
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 11,
-  color: 'var(--text-faint)',
-  marginLeft: 8,
-  flex: '0 0 auto'
-}
-
 interface TreeRowProps {
   node: TreeNode
   depth: number
@@ -91,12 +25,19 @@ interface TreeRowProps {
   showStatusDots: boolean
   /** Show the knowledge dot: local knowledge is attached to this node. */
   hasKnowledge?: boolean
-  onClick: () => void
-  onDoubleClick?: () => void
-  onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void
+  onRowClick: (id: string, expandable: boolean) => void
+  onRowDoubleClick?: (node: TreeNode) => void
+  onRowContextMenu: (node: TreeNode, event: MouseEvent<HTMLDivElement>) => void
 }
 
-export function TreeRow({
+/**
+ * One tree row, memoized: the callbacks take the row's node/id (and are
+ * identity-stable in the parent), so filter keystrokes and selection clicks
+ * re-render only the rows whose props actually changed. Static styling lives
+ * in the `.tree-row*` classes; only per-row values (indent, row height,
+ * status color) stay inline.
+ */
+export const TreeRow = memo(function TreeRow({
   node,
   depth,
   expandable,
@@ -106,27 +47,17 @@ export function TreeRow({
   rowHeight,
   showStatusDots,
   hasKnowledge = false,
-  onClick,
-  onDoubleClick,
-  onContextMenu
+  onRowClick,
+  onRowDoubleClick,
+  onRowContextMenu
 }: TreeRowProps): ReactElement {
   const isContainer = CONTAINER_KINDS.has(node.kind)
   const isCatHeaderB = mode === 'B' && node.kind === 'category'
   const indentPx = 8 + depth * 13
 
-  const guides: CSSProperties[] = []
+  const guideLefts: number[] = []
   if (mode === 'A') {
-    for (let i = 0; i < depth; i++) {
-      guides.push({
-        position: 'absolute',
-        top: 0,
-        bottom: 0,
-        left: 8 + i * 13 + 6.5,
-        width: 1,
-        background: 'var(--border-soft)',
-        pointerEvents: 'none'
-      })
-    }
+    for (let i = 0; i < depth; i++) guideLefts.push(8 + i * 13 + 6.5)
   }
 
   const iconColor = selected
@@ -135,112 +66,59 @@ export function TreeRow({
       ? 'var(--text-dim)'
       : 'var(--text-faint)'
 
-  const labelStyle: CSSProperties = isCatHeaderB
-    ? {
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        textTransform: 'uppercase',
-        letterSpacing: '.08em',
-        fontSize: 10,
-        fontWeight: 700,
-        color: 'var(--text-faint)'
-      }
-    : {
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        lineHeight: 1.3,
-        fontSize: 13,
-        fontWeight: node.kind === 'connection' ? 600 : isContainer ? 500 : 400,
-        color: selected ? 'var(--accent-strong)' : isContainer ? 'var(--text)' : 'var(--text-dim)'
-      }
+  const labelClass = isCatHeaderB
+    ? 'tree-row__label--cat'
+    : [
+        'tree-row__label',
+        isContainer ? 'tree-row__label--container' : '',
+        node.kind === 'connection' ? 'tree-row__label--connection' : ''
+      ]
+        .filter(Boolean)
+        .join(' ')
 
   const showSub = mode === 'B' && node.kind === 'connection' && !!node.subtitle
 
   let rightText = ''
-  let rightStyle: CSSProperties | undefined
+  let rightClass = ''
   if (node.kind === 'connection' && node.loading) {
     rightText = 'Connecting…'
-    rightStyle = { fontSize: 10.5, color: 'var(--text-faint)', marginLeft: 8, flex: '0 0 auto' }
+    rightClass = 'tree-row__right'
   } else if (node.kind === 'database' && node.loading) {
     rightText = 'Loading…'
-    rightStyle = { fontSize: 10.5, color: 'var(--text-faint)', marginLeft: 8, flex: '0 0 auto' }
+    rightClass = 'tree-row__right'
   } else if (node.kind === 'database' && node.totalSchemaCount != null) {
     // Schema pinning is in effect: show how much of the catalog is loaded.
     rightText = `${node.pinnedSchemaCount ?? 0} of ${node.totalSchemaCount}`
-    rightStyle = { fontSize: 10.5, color: 'var(--text-faint)', marginLeft: 8, flex: '0 0 auto' }
+    rightClass = 'tree-row__right'
   } else if (node.kind === 'column') {
     rightText = node.dtype ?? ''
-    rightStyle = monoRight
+    rightClass = 'tree-row__right tree-row__right--mono'
   } else if (node.kind === 'function') {
     rightText = `→ ${node.returnType ?? 'void'}`
-    rightStyle = monoRight
+    rightClass = 'tree-row__right tree-row__right--mono'
   } else if (node.kind === 'type') {
     rightText = node.meta ?? ''
-    rightStyle = { fontSize: 10.5, color: 'var(--text-faint)', marginLeft: 8, flex: '0 0 auto' }
+    rightClass = 'tree-row__right'
   } else if (node.kind === 'category') {
     rightText = String(node.children?.length ?? 0)
-    rightStyle =
+    rightClass =
       mode === 'A'
-        ? {
-            fontSize: 10,
-            color: 'var(--text-faint)',
-            background: 'var(--panel-hi)',
-            border: '1px solid var(--border-soft)',
-            borderRadius: 8,
-            padding: '0 6px',
-            marginLeft: 8,
-            flex: '0 0 auto',
-            lineHeight: '15px'
-          }
-        : { fontSize: 10, color: 'var(--text-faint)', marginLeft: 8, flex: '0 0 auto' }
+        ? 'tree-row__right tree-row__right--count-badge'
+        : 'tree-row__right tree-row__right--count'
   }
 
   const showDot = node.kind === 'connection' && showStatusDots && !!node.status
   const dotColor = node.status ? (STATUS_COLOR[node.status] ?? 'var(--red)') : 'var(--red)'
 
-  let boxShadow = 'none'
-  if (selected) {
-    boxShadow =
-      mode === 'B'
-        ? 'inset 2px 0 0 0 var(--accent), inset 0 0 0 2000px var(--accent-soft)'
-        : 'inset 0 0 0 2000px var(--accent-soft)'
-  }
-
-  const rowStyle: CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    minHeight: rowHeight,
-    height: showSub ? 'auto' : rowHeight,
-    paddingTop: showSub ? 4 : 0,
-    paddingBottom: showSub ? 4 : 0,
-    paddingLeft: indentPx,
-    paddingRight: 10,
-    position: 'relative',
-    cursor: 'pointer',
-    userSelect: 'none',
-    boxShadow,
-    whiteSpace: 'nowrap',
-    marginTop: isCatHeaderB ? 3 : 0
-  }
-
-  const chevBox: CSSProperties = {
-    display: 'inline-flex',
-    width: 14,
-    minWidth: 14,
-    height: rowHeight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: 'var(--text-faint)'
-  }
-
-  const chevStyle: CSSProperties = {
-    display: 'inline-flex',
-    transition: 'transform .12s ease',
-    transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
-    color: 'var(--text-faint)'
-  }
+  const rowClass = [
+    'tree-row',
+    mode === 'B' ? 'tree-row--mode-b' : '',
+    showSub ? 'tree-row--sub' : '',
+    isCatHeaderB ? 'tree-row--cat-b' : '',
+    selected ? 'is-selected' : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <div
@@ -248,64 +126,58 @@ export function TreeRow({
       aria-expanded={expandable ? expanded : undefined}
       aria-selected={selected}
       data-node-id={node.id}
-      className="tree-row"
-      style={rowStyle}
+      className={rowClass}
+      style={{
+        minHeight: rowHeight,
+        height: showSub ? 'auto' : rowHeight,
+        paddingLeft: indentPx
+      }}
       onClick={(event) => {
         // A double-click also emits two click events. Keep the first click's
         // normal selection/expansion behavior without immediately undoing it.
-        if (event.detail === 1) onClick()
+        if (event.detail === 1) onRowClick(node.id, expandable)
       }}
-      onDoubleClick={onDoubleClick}
-      onContextMenu={onContextMenu}
+      onDoubleClick={onRowDoubleClick && (() => onRowDoubleClick(node))}
+      onContextMenu={(event) => onRowContextMenu(node, event)}
     >
-      {guides.map((g, i) => (
-        <div key={i} style={g} />
+      {guideLefts.map((left, i) => (
+        <div key={i} className="tree-row__guide" style={{ left }} />
       ))}
-      <span style={chevBox}>
+      <span className="tree-row__chev-box" style={{ height: rowHeight }}>
         {expandable && (
-          <span style={chevStyle}>
+          <span className={`tree-row__chev${expanded ? ' is-expanded' : ''}`}>
             <ChevronRightIcon />
           </span>
         )}
       </span>
-      {showDot && (
-        <span
-          style={{
-            width: 7,
-            height: 7,
-            minWidth: 7,
-            borderRadius: '50%',
-            background: dotColor,
-            marginRight: 7,
-            flex: '0 0 auto',
-            boxShadow: '0 0 0 2px var(--panel)'
-          }}
-        />
-      )}
+      {showDot && <span className="tree-row__status-dot" style={{ background: dotColor }} />}
       {!isCatHeaderB && <NodeIcon node={node} color={iconColor} />}
-      <span style={labelWrap}>
-        <span style={labelStyle}>{node.label}</span>
-        {showSub && <span style={subStyle}>{node.subtitle}</span>}
+      <span className="tree-row__label-wrap">
+        <span className={labelClass}>{node.label}</span>
+        {showSub && <span className="tree-row__sub">{node.subtitle}</span>}
       </span>
       {hasKnowledge && (
         <span
           title={node.kind === 'schema' ? 'Has linked knowledge bases' : 'Has local knowledge'}
-          style={knowledgeDotStyle}
+          className="tree-row__knowledge-dot"
         />
       )}
       {node.kind === 'column' && node.badge === 'pk' && (
-        <span style={pkStyle} title="Primary key">
+        <span className="tree-row__pk" title="Primary key">
           <KeyIcon />
         </span>
       )}
       {node.kind === 'column' && node.badge === 'fk' && (
-        <span style={fkStyle} title={node.fkRef ? `Foreign key → ${node.fkRef}` : 'Foreign key'}>
+        <span
+          className="tree-row__fk"
+          title={node.fkRef ? `Foreign key → ${node.fkRef}` : 'Foreign key'}
+        >
           FK
         </span>
       )}
       {node.kind === 'column' && node.badge === 'lfk' && (
         <span
-          style={lfkStyle}
+          className="tree-row__fk tree-row__fk--inferred"
           title={
             node.fkRef
               ? `Logical foreign key (inferred) → ${node.fkRef}`
@@ -315,7 +187,7 @@ export function TreeRow({
           LFK
         </span>
       )}
-      {rightText && rightStyle && <span style={rightStyle}>{rightText}</span>}
+      {rightText && rightClass && <span className={rightClass}>{rightText}</span>}
     </div>
   )
-}
+})

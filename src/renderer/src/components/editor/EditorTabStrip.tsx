@@ -18,6 +18,7 @@ import {
   SqlFileIcon
 } from '../icons'
 import type { QueryTarget, ResultTab } from '../useQueryRunner'
+import { useEscapeKey } from '../../useEscapeKey'
 
 /** Open files bucketed by (connection, database) — one top-tier tab each. */
 export interface FileGroup {
@@ -285,13 +286,7 @@ export function TabContextMenu({
   onRename: () => void
   onClose: () => void
 }): ReactElement {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeKey(true, onClose)
 
   return (
     <div
@@ -326,13 +321,7 @@ export function NewFileMenu({
   onCreate: (kind: FileKind) => void
   onClose: () => void
 }): ReactElement {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeKey(true, onClose)
 
   return (
     <>
@@ -386,13 +375,7 @@ export function ActionsMenu({
   onExemplar: () => void
   onClose: () => void
 }): ReactElement {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeKey(true, onClose)
 
   return (
     <>

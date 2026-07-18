@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { buildUsageIndex, pickDefaultLink } from '../../../shared/knowledge'
+import { listForTargetCoalesced } from './listForTarget'
 import type {
   ColumnRef,
   KnowledgeBaseSummary,
@@ -92,7 +93,7 @@ export function useKnowledgeState(connId: string | null, database: string | null
     let cancelled = false
     const load = async (): Promise<void> => {
       try {
-        const loaded = await window.dbDesk.knowledge.listForTarget(connId, database)
+        const loaded = await listForTargetCoalesced(connId, database)
         if (!cancelled) {
           setGroups(loaded)
           setLoadedKey(knowledgeTargetKeyOf(connId, database))
@@ -299,8 +300,7 @@ export function useKnowledgeIndexes(targets: KnowledgeTarget[]): Map<string, Usa
 
     const load = (connId: string, database: string): void => {
       const key = knowledgeTargetKeyOf(connId, database)
-      window.dbDesk.knowledge
-        .listForTarget(connId, database)
+      listForTargetCoalesced(connId, database)
         .then((groups) => {
           if (!cancelled) {
             const records = groups.flatMap((g) => g.records)
