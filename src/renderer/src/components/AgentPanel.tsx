@@ -9,7 +9,7 @@ import type {
   AgentModelOption,
   AgentPromptIntent
 } from '../../../shared/agent'
-import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
+import type { AgentCapability, DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import type { McpServerStatus } from '../../../shared/mcp'
 import { REPO_SCAN_PROMPT, repoTargetedScanPrompt } from '../../../shared/repo'
 import {
@@ -47,6 +47,12 @@ interface AgentPanelProps {
   targets: QueryTarget[]
   /** The app-wide active connection + database; the panel follows this, it never picks its own. */
   activeTarget: QueryTarget | null
+  /**
+   * Agent access decided for the active connection; null when there is none
+   * or it isn't connected. Main enforces the clamp authoritatively — this
+   * only drives the picker's greyed-out state and the outgoing request.
+   */
+  agentCapability: AgentCapability | null
   editorBridge: MutableRefObject<EditorBridge | null>
   /** Mirrors an agent-executed query into the results grid. */
   onAgentQuery: (
@@ -94,6 +100,7 @@ export function AgentPanel({
   connNames,
   targets,
   activeTarget,
+  agentCapability,
   editorBridge,
   onAgentQuery,
   onAgentTurnEnd,
@@ -155,7 +162,8 @@ export function AgentPanel({
     editorBridge,
     onAgentQuery,
     onAgentTurnEnd,
-    repoStatusFor
+    repoStatusFor,
+    agentCapability
   })
   const {
     messages,
@@ -165,7 +173,7 @@ export function AgentPanel({
     busy,
     thinking,
     compacting,
-    mode,
+    effectiveMode,
     setModelId,
     setEffort,
     setMode,
@@ -178,6 +186,21 @@ export function AgentPanel({
     openChat,
     loadFinalSql
   } = session
+
+  // Truth-telling only: main enforces the clamp (agentCapabilityFor + the
+  // runAgentQuery belt). The picker greys out Read-Only and the pill reflects
+  // effectiveMode; the stored `mode` preference is left untouched so it's
+  // restored the moment the active connection stops being clamped.
+  const readOnlyClamp = useMemo(
+    () =>
+      agentCapability != null && !agentCapability.readOnlyAvailable
+        ? {
+            reason:
+              agentCapability.reason ?? 'Read-Only mode is unavailable for this connection.'
+          }
+        : null,
+    [agentCapability]
+  )
 
   /** Introspected schema names of the knowledge target, for the manage dialog. */
   const knowledgeSchemaOptions = useMemo(() => {
@@ -318,6 +341,7 @@ export function AgentPanel({
   const pickMode = useCallback(
     (next: AgentModeOption) => {
       if (!next.enabled) return
+      if (next.id === 'read-only' && readOnlyClamp) return
       setMode(next.id)
       try {
         localStorage.setItem(MODE_STORAGE_KEY, next.id)
@@ -326,7 +350,7 @@ export function AgentPanel({
       }
       setModeOpen(false)
     },
-    [setMode]
+    [setMode, readOnlyClamp]
   )
 
   const insertSql = useCallback(
@@ -525,10 +549,11 @@ export function AgentPanel({
           <span className="agent-target-row__hint">follows app context</span>
           <span className="agent-target-row__spacer" />
           <ModeControl
-            mode={mode}
+            mode={effectiveMode}
             modeOpen={modeOpen}
             setModeOpen={setModeOpen}
             onPickMode={pickMode}
+            readOnlyClamp={readOnlyClamp}
           />
         </div>
       )}
@@ -590,7 +615,7 @@ export function AgentPanel({
               busy={busy}
               thinking={thinking}
               compacting={compacting}
-              mode={mode}
+              mode={effectiveMode}
               onInsert={insertSql}
               onSaveExemplar={target ? onSaveExemplar : undefined}
               onLoadFinalSql={loadFinalSql}

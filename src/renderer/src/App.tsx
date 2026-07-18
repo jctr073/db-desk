@@ -229,6 +229,11 @@ export function App(): ReactElement {
     activeTargets[0] ??
     null
   const activeAccent = activeConnId ? accents.get(activeConnId) : undefined
+  /** Agent access for the active connection; null with no active connection
+   * or before its capability arrives (main enforces the clamp regardless). */
+  const activeAgentCapability = activeConnId
+    ? (connections.agentCaps[activeConnId] ?? null)
+    : null
 
   // Query files used to be creatable without a connection, which stranded them
   // in a group of their own. Re-home any leftovers on the active context.
@@ -427,6 +432,7 @@ export function App(): ReactElement {
           connNames={connNames}
           targets={activeTargets}
           activeTarget={activeTarget}
+          agentCapability={activeAgentCapability}
           editorBridge={editorBridge}
           onAgentQuery={runner.showResult}
           onAgentTurnEnd={runner.finalizeAiRun}

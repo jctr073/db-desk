@@ -159,12 +159,18 @@ export function ModeControl({
   mode,
   modeOpen,
   setModeOpen,
-  onPickMode
+  onPickMode,
+  readOnlyClamp
 }: {
+  /** The effective mode: the pill and the active/checked row reflect what
+   * actually runs, not the raw stored preference. */
   mode: ChatSession['mode']
   modeOpen: boolean
   setModeOpen: Dispatch<SetStateAction<boolean>>
   onPickMode: (next: AgentModeOption) => void
+  /** Set when the active connection's prod privilege check blocks Read-Only
+   * mode; the reason is shown as the row's tooltip and the footer note. */
+  readOnlyClamp: { reason: string } | null
 }): ReactElement {
   const modeOption = AGENT_MODES.find((m) => m.id === mode) ?? AGENT_MODES[0]
   return (
@@ -183,28 +189,35 @@ export function ModeControl({
         <>
           <div className="ctx-overlay" onMouseDown={() => setModeOpen(false)} />
           <div className="model-pop mode-pop">
-            {AGENT_MODES.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                className={`model-pop__row mode-pop__row${m.id === mode ? ' is-active' : ''}`}
-                disabled={!m.enabled}
-                title={
-                  m.id === 'write-admin'
-                    ? 'Structure and data changes by the agent are disabled in this version.'
-                    : undefined
-                }
-                onClick={() => onPickMode(m)}
-              >
-                <span className="mode-pop__text">
-                  <span className="mode-pop__label">{m.label}</span>
-                  <span className="mode-pop__desc">{m.description}</span>
-                </span>
-                {m.id === mode && <CheckIcon size={13} />}
-              </button>
-            ))}
+            {AGENT_MODES.map((m) => {
+              const readOnlyClamped = m.id === 'read-only' && readOnlyClamp != null
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={`model-pop__row mode-pop__row${m.id === mode ? ' is-active' : ''}`}
+                  disabled={!m.enabled || readOnlyClamped}
+                  title={
+                    m.id === 'write-admin'
+                      ? 'Structure and data changes by the agent are disabled in this version.'
+                      : readOnlyClamped
+                        ? readOnlyClamp.reason
+                        : undefined
+                  }
+                  onClick={() => onPickMode(m)}
+                >
+                  <span className="mode-pop__text">
+                    <span className="mode-pop__label">{m.label}</span>
+                    <span className="mode-pop__desc">{m.description}</span>
+                  </span>
+                  {m.id === mode && <CheckIcon size={13} />}
+                </button>
+              )
+            })}
             <div className="mode-pop__note">
-              For maximum safety, connect with a read-only database role.
+              {readOnlyClamp
+                ? readOnlyClamp.reason
+                : 'For maximum safety, connect with a read-only database role.'}
             </div>
           </div>
         </>
