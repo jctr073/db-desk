@@ -1,3 +1,17 @@
+/**
+ * One saved query file's metadata, as it travels over IPC (`files:*`) and
+ * sits in the main process's metadata index. Content is stored separately
+ * and fetched via files:read.
+ */
+export interface QueryFile {
+  id: string
+  name: string
+  connId: string | null
+  database: string | null
+  createdAt: number
+  updatedAt: number
+}
+
 export const FILE_KINDS = ['sql', 'markdown', 'json', 'text'] as const
 
 export type FileKind = (typeof FILE_KINDS)[number]

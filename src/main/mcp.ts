@@ -20,10 +20,14 @@ import {
   StdioClientTransport,
   getDefaultEnvironment
 } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { app, ipcMain, safeStorage } from 'electron'
+import { app, safeStorage } from 'electron'
 import type { BrowserWindow } from 'electron'
 
+import { typedHandle, typedSend } from './ipc'
+import { validateMcpServerConfig } from './ipcGuards'
+
 import type { McpServerConfig, McpServerState, McpServerStatus, McpToolInfo } from '../shared/mcp'
+import { log } from './log'
 
 /** Ceiling on one MCP tool call; slow servers should not wedge a turn. */
 const MCP_CALL_TIMEOUT_MS = 60_000
@@ -200,6 +204,7 @@ async function startServer(config: McpServerConfig): Promise<void> {
 
   rt.starting = run()
     .catch((err: unknown) => {
+      log.error('mcp', `server "${config.name}" failed to start`, err)
       rt.client = null
       rt.state = 'error'
       rt.error = err instanceof Error ? err.message : String(err)
@@ -356,25 +361,25 @@ export async function callMcpTool(
 
 export function registerMcpHandlers(getWindow: () => BrowserWindow | null): void {
   notify = () => {
-    const win = getWindow()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('mcp:changed', listMcpStatuses())
-    }
+    typedSend(getWindow(), 'mcp:changed', listMcpStatuses())
   }
 
-  ipcMain.handle('mcp:list', (): McpServerStatus[] => listMcpStatuses())
+  typedHandle('mcp:list', (): McpServerStatus[] => listMcpStatuses())
 
-  ipcMain.handle('mcp:save', async (_event, config: McpServerConfig) => {
+  typedHandle('mcp:save', async (_event, config) => {
+    // This config is persisted and spawned as a child process; validate it
+    // strictly at the boundary rather than trusting the renderer payload.
+    validateMcpServerConfig(config)
     await saveServer(config)
     return listMcpStatuses()
   })
 
-  ipcMain.handle('mcp:delete', async (_event, id: string) => {
+  typedHandle('mcp:delete', async (_event, id) => {
     await deleteServer(id)
     return listMcpStatuses()
   })
 
-  ipcMain.handle('mcp:restart', async (_event, id: string) => {
+  typedHandle('mcp:restart', async (_event, id) => {
     const record = load().find((candidate) => candidate.id === id)
     if (!record) return listMcpStatuses()
     await stopServer(id)

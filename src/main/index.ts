@@ -1,8 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import type { SchemaSelectionConfig } from '../shared/schemaSelection'
+import { typedHandle, typedSend } from './ipc'
+import { validateSchemaSelectionConfig, validateStoreSavePayload } from './ipcGuards'
 import {
   connect,
   disconnect,
@@ -74,10 +75,8 @@ import {
   discardExportDestination,
   writeExportDestination
 } from './dataExport'
-import type { ConnectParams } from '../shared/db'
 import { dialectFor } from '../shared/dialect'
-import type { DataExportFormat } from '../shared/export'
-import type { KnowledgeLinkInput, KnowledgeRecordInput } from '../shared/knowledge'
+import type { KnowledgeChangeEvent } from '../shared/knowledge'
 
 // In development Electron otherwise uses the executable name ("Electron") for
 // the macOS application menu. Set this before the app becomes ready so dev and
@@ -150,6 +149,13 @@ function createWindow(): void {
     openExternalChecked(url)
   })
 
+  // Without this, the darwin all-windows-closed state leaves a destroyed
+  // window behind the reference, and dialog-opening handlers that pass it
+  // as a parent (chooseSqlDir, export:choose) would throw.
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+
   const rendererUrl = getRendererUrl()
 
   if (rendererUrl) {
@@ -160,58 +166,49 @@ function createWindow(): void {
 }
 
 function registerDbHandlers(): void {
-  ipcMain.handle('db:test', (_event, params: ConnectParams) => testConnection(params))
-  ipcMain.handle('db:connect', (_event, connId: string, params: ConnectParams) =>
-    connect(connId, params)
+  typedHandle('db:test', (_event, params) => testConnection(params))
+  typedHandle('db:connect', (_event, connId, params) => connect(connId, params))
+  typedHandle('db:introspect', (_event, connId, database) => introspectDatabase(connId, database))
+  typedHandle('db:disconnect', (_event, connId) => disconnect(connId))
+  typedHandle('db:query', (_event, connId, database, sql, limit) =>
+    runQuery(connId, database, sql, limit)
   )
-  ipcMain.handle('db:introspect', (_event, connId: string, database: string) =>
-    introspectDatabase(connId, database)
-  )
-  ipcMain.handle('db:disconnect', (_event, connId: string) => disconnect(connId))
-  ipcMain.handle(
-    'db:query',
-    (_event, connId: string, database: string, sql: string, limit: number | null) =>
-      runQuery(connId, database, sql, limit)
-  )
-  ipcMain.handle('db:queryForExport', (_event, connId: string, database: string, sql: string) =>
+  typedHandle('db:queryForExport', (_event, connId, database, sql) =>
     runQuery(connId, database, sql, null, { readOnly: true })
   )
-  ipcMain.handle('db:connectSaved', (_event, connId: string) => {
+  typedHandle('db:connectSaved', (_event, connId) => {
     const params = savedParams(connId)
     if (!params) return { ok: false as const, error: 'Saved connection not found' }
     return connect(connId, params)
   })
-  ipcMain.handle('db:listSchemas', (_event, connId: string, database: string) =>
-    listSchemas(connId, database)
-  )
-  ipcMain.handle('db:listCatalogs', (_event, connId: string) => listCatalogs(connId))
+  typedHandle('db:listSchemas', (_event, connId, database) => listSchemas(connId, database))
+  typedHandle('db:listCatalogs', (_event, connId) => listCatalogs(connId))
 
-  ipcMain.handle('store:list', () => listSaved())
-  ipcMain.handle(
-    'store:save',
-    (_event, id: string, name: string, params: ConnectParams, savePassword: boolean) =>
-      saveConnection(id, name, params, savePassword)
-  )
-  ipcMain.handle('store:getSchemaConfig', (_event, id: string) => getSchemaConfig(id))
-  ipcMain.handle('store:setSchemaConfig', (_event, id: string, config: SchemaSelectionConfig) => {
+  typedHandle('store:list', () => listSaved())
+  typedHandle('store:save', (_event, id, name, params, savePassword) => {
+    // Persists to the connection store (and keychain); shapes are enforced
+    // at the boundary because the renderer payload cannot be trusted.
+    validateStoreSavePayload(id, name, params, savePassword)
+    return saveConnection(id, name, params, savePassword)
+  })
+  typedHandle('store:getSchemaConfig', (_event, id) => getSchemaConfig(id))
+  typedHandle('store:setSchemaConfig', (_event, id, config) => {
+    validateSchemaSelectionConfig(id, config)
     setSchemaConfig(id, config)
     invalidateAgentSchemaCache(id)
   })
-  ipcMain.handle('store:setCatalogSelection', (_event, id: string, catalogs: string[] | null) => {
+  typedHandle('store:setCatalogSelection', (_event, id, catalogs) => {
     setCatalogSelection(id, catalogs)
     invalidateAgentSchemaCache(id)
   })
-  ipcMain.handle(
-    'store:setSchemaSelection',
-    (_event, id: string, catalog: string, schemas: string[] | null) => {
-      setSchemaSelection(id, catalog, schemas)
-      invalidateAgentSchemaCache(id, catalog)
-      // The persisted introspection was taken under the old pinning; the
-      // selection stamp would reject it anyway, dropping keeps the file lean.
-      dropIntrospection(id, catalog)
-    }
-  )
-  ipcMain.handle('store:delete', (_event, id: string) => {
+  typedHandle('store:setSchemaSelection', (_event, id, catalog, schemas) => {
+    setSchemaSelection(id, catalog, schemas)
+    invalidateAgentSchemaCache(id, catalog)
+    // The persisted introspection was taken under the old pinning; the
+    // selection stamp would reject it anyway, dropping keeps the file lean.
+    dropIntrospection(id, catalog)
+  })
+  typedHandle('store:delete', (_event, id) => {
     // Deleting a connection drops its knowledge *links*, never the bases
     // themselves — a base may be shared with other connections (prod/staging/
     // dev), and an orphaned one can be relinked or deleted from the UI.
@@ -226,14 +223,12 @@ function registerSettingsHandlers(): void {
   // Any mutation pushes settings:changed so open views (the settings dialog,
   // the agent panel's missing-key notice) refresh without polling.
   const broadcast = (): void => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('settings:changed')
-    }
+    typedSend(mainWindow, 'settings:changed')
   }
 
-  ipcMain.handle('settings:get', () => appSettingsInfo())
+  typedHandle('settings:get', () => appSettingsInfo())
 
-  ipcMain.handle('settings:chooseSqlDir', async () => {
+  typedHandle('settings:chooseSqlDir', async () => {
     if (!mainWindow) return { status: 'canceled' as const }
     const picked = await dialog.showOpenDialog(mainWindow, {
       title: 'Choose SQL Files Directory',
@@ -255,19 +250,19 @@ function registerSettingsHandlers(): void {
     }
   })
 
-  ipcMain.handle('settings:setApiKeyVar', (_event, name: string) => {
+  typedHandle('settings:setApiKeyVar', (_event, name) => {
     setApiKeyVarName(name)
     broadcast()
     return appSettingsInfo()
   })
 
-  ipcMain.handle('settings:setStoredApiKey', (_event, key: string, label: string) => {
+  typedHandle('settings:setStoredApiKey', (_event, key, label) => {
     setStoredApiKey(key, label)
     broadcast()
     return appSettingsInfo()
   })
 
-  ipcMain.handle('settings:clearStoredApiKey', () => {
+  typedHandle('settings:clearStoredApiKey', () => {
     clearStoredApiKey()
     broadcast()
     return appSettingsInfo()
@@ -275,41 +270,30 @@ function registerSettingsHandlers(): void {
 }
 
 function registerExportHandlers(): void {
-  ipcMain.handle('export:choose', (_event, suggestedName: string, format: DataExportFormat) =>
+  typedHandle('export:choose', (_event, suggestedName, format) =>
     chooseExportDestination(mainWindow, suggestedName, format)
   )
-  ipcMain.handle('export:write', (_event, token: string, contents: string) =>
-    writeExportDestination(token, contents)
-  )
-  ipcMain.handle('export:discard', (_event, token: string) => discardExportDestination(token))
+  typedHandle('export:write', (_event, token, contents) => writeExportDestination(token, contents))
+  typedHandle('export:discard', (_event, token) => discardExportDestination(token))
 }
 
 function registerFileHandlers(): void {
-  ipcMain.handle('files:list', () => listQueries())
-  ipcMain.handle(
-    'files:create',
-    (_event, connId: string, database: string | null, requestedKind: unknown = 'sql') => {
-      if (!connId) throw new Error('A query file needs a connection')
-      const kind = isFileKind(requestedKind) ? requestedKind : 'sql'
-      const name = getNextFileName(connId, database, kind)
-      return createQuery(name, connId, database)
-    }
-  )
-  ipcMain.handle('files:reassign', (_event, id: string, connId: string, database: string | null) =>
+  typedHandle('files:list', () => listQueries())
+  typedHandle('files:create', (_event, connId, database, requestedKind) => {
+    if (!connId) throw new Error('A query file needs a connection')
+    const kind = isFileKind(requestedKind) ? requestedKind : 'sql'
+    const name = getNextFileName(connId, database, kind)
+    return createQuery(name, connId, database)
+  })
+  typedHandle('files:reassign', (_event, id, connId, database) =>
     reassignQuery(id, connId, database)
   )
-  ipcMain.handle('files:read', (_event, id: string) => loadQueryContent(id))
-  ipcMain.handle('files:save', (_event, id: string, content: string) =>
-    saveQueryContent(id, content)
-  )
-  ipcMain.handle('files:rename', (_event, id: string, name: string) => renameQuery(id, name))
-  ipcMain.handle('files:delete', (_event, id: string) => deleteQuery(id))
-  ipcMain.handle('files:getNextName', (_event, connId: string | null, database: string | null) =>
-    getNextQueryName(connId, database)
-  )
-  ipcMain.handle('files:deleteForConnection', (_event, connId: string) =>
-    deleteQueriesForConnection(connId)
-  )
+  typedHandle('files:read', (_event, id) => loadQueryContent(id))
+  typedHandle('files:save', (_event, id, content) => saveQueryContent(id, content))
+  typedHandle('files:rename', (_event, id, name) => renameQuery(id, name))
+  typedHandle('files:delete', (_event, id) => deleteQuery(id))
+  typedHandle('files:getNextName', (_event, connId, database) => getNextQueryName(connId, database))
+  typedHandle('files:deleteForConnection', (_event, connId) => deleteQueriesForConnection(connId))
 }
 
 function registerKnowledgeHandlers(getWindow: () => BrowserWindow | null): void {
@@ -317,104 +301,86 @@ function registerKnowledgeHandlers(getWindow: () => BrowserWindow | null): void 
   // (connection, database) target linked to it, so target-keyed views can
   // match without knowing the link table.
   const broadcastRecords = (kbId: string): void => {
-    const win = getWindow()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('knowledge:changed', {
-        kbId,
-        targets: targetsForBase(kbId)
-      })
-    }
+    const change: KnowledgeChangeEvent = { kbId, targets: targetsForBase(kbId) }
+    typedSend(getWindow(), 'knowledge:changed', change)
   }
   // Bases or links changed shape (create/rename/delete/link/unlink): coarse
   // on purpose — these are rare, user-initiated operations, and the renderer
   // reloads its base/link state wholesale.
   const broadcastStructure = (): void => {
-    const win = getWindow()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('knowledge:structureChanged')
-    }
+    typedSend(getWindow(), 'knowledge:structureChanged')
   }
 
   // --- Bases ---
-  ipcMain.handle('knowledge:listBases', () => listBases())
-  ipcMain.handle('knowledge:createBase', (_event, name: string) => {
+  typedHandle('knowledge:listBases', () => listBases())
+  typedHandle('knowledge:createBase', (_event, name) => {
     const base = createBase(name)
     broadcastStructure()
     return base
   })
-  ipcMain.handle('knowledge:renameBase', (_event, kbId: string, name: string) => {
+  typedHandle('knowledge:renameBase', (_event, kbId, name) => {
     const base = renameBase(kbId, name)
     broadcastStructure()
     return base
   })
-  ipcMain.handle('knowledge:deleteBase', (_event, kbId: string) => {
+  typedHandle('knowledge:deleteBase', (_event, kbId) => {
     deleteBase(kbId)
     broadcastStructure()
   })
 
   // --- Links ---
-  ipcMain.handle('knowledge:listLinks', () => listLinks())
-  ipcMain.handle('knowledge:addLink', (_event, input: KnowledgeLinkInput) => {
+  typedHandle('knowledge:listLinks', () => listLinks())
+  typedHandle('knowledge:addLink', (_event, input) => {
     const link = addLink(input)
     broadcastStructure()
     return link
   })
-  ipcMain.handle('knowledge:removeLink', (_event, linkId: string) => {
+  typedHandle('knowledge:removeLink', (_event, linkId) => {
     removeLink(linkId)
     broadcastStructure()
   })
 
   // --- Records ---
-  ipcMain.handle('knowledge:list', (_event, kbId: string) => listRecords(kbId))
-  ipcMain.handle('knowledge:listForTarget', (_event, connId: string, database: string) =>
+  typedHandle('knowledge:list', (_event, kbId) => listRecords(kbId))
+  typedHandle('knowledge:listForTarget', (_event, connId, database) =>
     groupsForTarget(connId, database)
   )
-  ipcMain.handle('knowledge:save', (_event, kbId: string, record: KnowledgeRecordInput) => {
+  typedHandle('knowledge:save', (_event, kbId, record) => {
     const saved = saveRecord(kbId, record)
     broadcastRecords(kbId)
     return saved
   })
-  ipcMain.handle(
-    'knowledge:saveExemplar',
-    async (
-      _event,
-      kbId: string | null,
-      connId: string,
-      database: string,
-      question: string,
-      sql: string
-    ) => {
-      // Reference extraction happens once, here at save time (never at click
-      // time): the LLM path when a key is available, else text matching. The
-      // (connId, database) pair is the live connection to extract against;
-      // the record itself lands in the named base.
-      const references = await extractExemplarReferences(connId, database, sql)
-      if (!kbId) {
-        // First knowledge for this target: create a base named after the
-        // database, linked at the schema the exemplar's own references name
-        // (else the engine's default schema — links are schema-scoped).
-        // Done here, after extraction, so the renderer never has to guess.
-        const base = createBase(database)
-        const conn = listSaved().find((c) => c.id === connId)
-        const schema =
-          references.find((ref) => typeof ref.schema === 'string' && ref.schema.trim() !== '')
-            ?.schema ?? dialectFor(conn?.type).defaultSchema
-        addLink({ kbId: base.id, connId, database, schema })
-        kbId = base.id
-        broadcastStructure()
-      }
-      const saved = saveRecord(kbId, {
-        kind: 'exemplar',
-        source: 'human',
-        question,
-        sql,
-        references
-      })
-      broadcastRecords(kbId)
-      return saved
+  typedHandle('knowledge:saveExemplar', async (_event, kbId, connId, database, question, sql) => {
+    // Reference extraction happens once, here at save time (never at click
+    // time): the LLM path when a key is available, else text matching. The
+    // (connId, database) pair is the live connection to extract against;
+    // the record itself lands in the named base.
+    const references = await extractExemplarReferences(connId, database, sql)
+    if (!kbId) {
+      // First knowledge for this target: create a base named after the
+      // database, linked at the schema the exemplar's own references name
+      // (else the engine's default schema — links are schema-scoped).
+      // Done here, after extraction, so the renderer never has to guess.
+      const base = createBase(database)
+      const conn = listSaved().find((c) => c.id === connId)
+      const schema =
+        references.find((ref) => typeof ref.schema === 'string' && ref.schema.trim() !== '')
+          ?.schema ?? dialectFor(conn?.type).defaultSchema
+      addLink({ kbId: base.id, connId, database, schema })
+      kbId = base.id
+      broadcastStructure()
     }
-  )
-  ipcMain.handle('knowledge:delete', (_event, kbId: string, id: string) => {
+    const saved = saveRecord(kbId, {
+      kind: 'exemplar',
+      source: 'human',
+      question,
+      sql,
+      references
+    })
+    broadcastRecords(kbId)
+    return saved
+  })
+  typedHandle('knowledge:delete', (_event, kbId, id) => {
     deleteRecord(kbId, id)
     broadcastRecords(kbId)
   })
@@ -452,9 +418,7 @@ app.whenReady().then(() => {
 
   // Background schema revalidation progress → renderer status/tree updates.
   setSchemaEventSink((evt) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('db:schema-refresh', evt)
-    }
+    typedSend(mainWindow, 'db:schema-refresh', evt)
   })
 
   registerDbHandlers()
@@ -481,7 +445,21 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('will-quit', () => {
-  void disconnectAll()
-  void stopAllMcpServers()
+/**
+ * Give pools and MCP child processes a bounded window to shut down cleanly
+ * instead of firing the teardown and letting the process exit under it.
+ * `app.quit()` re-fires will-quit, so the flag lets the second pass through.
+ * The 2s cap keeps a wedged server from holding the quit hostage; the OS
+ * reaps anything still alive after that.
+ */
+let quitCleanupDone = false
+app.on('will-quit', (event) => {
+  if (quitCleanupDone) return
+  event.preventDefault()
+  const cleanup = Promise.allSettled([disconnectAll(), stopAllMcpServers()])
+  const cap = new Promise((resolve) => setTimeout(resolve, 2000))
+  void Promise.race([cleanup, cap]).then(() => {
+    quitCleanupDone = true
+    app.quit()
+  })
 })
