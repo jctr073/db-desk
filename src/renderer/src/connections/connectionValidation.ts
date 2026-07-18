@@ -5,6 +5,7 @@
  */
 
 import { parseConnectionUrl } from '../../../shared/connectionUrl'
+import type { ConnectionEnvironment } from '../../../shared/db'
 import type { DialectInfo } from '../../../shared/dialect'
 
 /**
@@ -32,4 +33,14 @@ export function databaseFieldError(
   return parsed.database.trim()
     ? null
     : `Connection URL must include a ${dialect.databaseTerm} (e.g. ${dialect.urlExample}).`
+}
+
+/**
+ * Inline error for the ENVIRONMENT control, or null once one is picked.
+ * There is no default selection (dev/stage/prod carry real behavioral
+ * consequences for the agent), so this gates the Connect button the same
+ * way `databaseFieldError` does.
+ */
+export function environmentFieldError(environment: ConnectionEnvironment | null): string | null {
+  return environment == null ? 'Choose an environment.' : null
 }

@@ -17,6 +17,7 @@ import type { EditorBridge } from './components/editorBridge'
 import { useQueryRunner } from './components/useQueryRunner'
 import type { QueryTarget } from './components/useQueryRunner'
 import { ConnectionPanel } from './connections/ConnectionPanel'
+import { EnvironmentPromptDialog } from './connections/EnvironmentPromptDialog'
 import { ManageObjectsDialog } from './connections/ManageObjectsDialog'
 import { NewConnectionDialog } from './connections/NewConnectionDialog'
 import { connAccents } from './connections/connColors'
@@ -463,6 +464,12 @@ export function App(): ReactElement {
         />
       )}
       <NewConnectionDialog state={connections} />
+      {connections.envPrompt && (
+        <EnvironmentPromptDialog
+          onChoose={connections.chooseEnvironment}
+          onCancel={connections.dismissEnvPrompt}
+        />
+      )}
       {connections.manageDialog &&
         (() => {
           const dialog = connections.manageDialog

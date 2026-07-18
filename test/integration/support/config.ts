@@ -45,6 +45,9 @@ export function connectParams(readOnlyRole = false): ConnectParams {
     password: readOnlyRole ? PG_RO_PASSWORD : PG_PASSWORD,
     httpPath: '',
     url: '',
-    useUrl: false
+    useUrl: false,
+    // Integration tests exercise the driver directly; the ENV_REQUIRED belt
+    // is Phase 1 renderer/store plumbing, orthogonal to what these cover.
+    environment: 'dev'
   }
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   validateMcpServerConfig,
   validateSchemaSelectionConfig,
+  validateSetEnvironmentPayload,
   validateStoreSavePayload
 } from '../../src/main/ipcGuards'
 import type { ConnectParams } from '../../src/shared/db'
@@ -18,7 +19,8 @@ const validParams: ConnectParams = {
   password: 'secret',
   httpPath: '',
   url: '',
-  useUrl: false
+  useUrl: false,
+  environment: 'dev'
 }
 
 describe('validateStoreSavePayload', () => {
@@ -81,6 +83,54 @@ describe('validateStoreSavePayload', () => {
     expect(() =>
       validateStoreSavePayload('conn-1', 'Name', { ...validParams, useUrl: 'true' }, true)
     ).toThrow('Connection useUrl must be a boolean')
+  })
+
+  it.each(['dev', 'stage', 'prod'])('accepts a valid environment %s', (environment) => {
+    expect(() =>
+      validateStoreSavePayload('conn-1', 'Name', { ...validParams, environment }, true)
+    ).not.toThrow()
+  })
+
+  it.each([null, undefined])('accepts a missing/null environment (legacy callers)', (environment) => {
+    expect(() =>
+      validateStoreSavePayload('conn-1', 'Name', { ...validParams, environment }, true)
+    ).not.toThrow()
+  })
+
+  it('rejects an out-of-enum environment string', () => {
+    expect(() =>
+      validateStoreSavePayload('conn-1', 'Name', { ...validParams, environment: 'production' }, true)
+    ).toThrow('Unknown connection environment: production')
+  })
+
+  it('rejects a non-string environment', () => {
+    expect(() =>
+      validateStoreSavePayload('conn-1', 'Name', { ...validParams, environment: 3 }, true)
+    ).toThrow('Unknown connection environment: 3')
+  })
+})
+
+describe('validateSetEnvironmentPayload', () => {
+  it.each(['dev', 'stage', 'prod'])('accepts a valid environment %s', (environment) => {
+    expect(() => validateSetEnvironmentPayload('conn-1', environment)).not.toThrow()
+  })
+
+  it('rejects a missing id', () => {
+    expect(() => validateSetEnvironmentPayload('', 'dev')).toThrow(
+      'Connection id must be a non-empty string'
+    )
+  })
+
+  it('rejects an out-of-enum environment string', () => {
+    expect(() => validateSetEnvironmentPayload('conn-1', 'production')).toThrow(
+      'Unknown connection environment: production'
+    )
+  })
+
+  it.each([null, undefined, 42])('rejects a missing/wrong-typed environment %j', (environment) => {
+    expect(() => validateSetEnvironmentPayload('conn-1', environment)).toThrow(
+      'Unknown connection environment'
+    )
   })
 })
 

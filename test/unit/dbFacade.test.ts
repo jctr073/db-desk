@@ -78,7 +78,8 @@ const dbxParams = {
   password: 'token',
   httpPath: '/sql/1.0/warehouses/abc',
   url: '',
-  useUrl: false
+  useUrl: false,
+  environment: 'dev'
 } as ConnectParams
 
 const pgParams = { ...dbxParams, type: 'postgres' } as ConnectParams
@@ -151,6 +152,26 @@ describe('connect', () => {
     await db.connect('pg', pgParams)
     const [, , options] = vi.mocked(postgresDriver.connect).mock.calls[0]
     expect(options).toEqual({ skipIntrospection: false })
+  })
+
+  it('rejects a missing/invalid environment with ENV_REQUIRED, never touching the driver', async () => {
+    const res = await db.connect('pg', { ...pgParams, environment: null })
+    expect(res).toEqual({
+      ok: false,
+      error: 'This connection needs an environment (dev / stage / prod) before it can connect.',
+      code: 'ENV_REQUIRED'
+    })
+    expect(postgresDriver.connect).not.toHaveBeenCalled()
+  })
+
+  it('rejects an out-of-enum environment string the same way', async () => {
+    const res = await db.connect('pg', {
+      ...pgParams,
+      environment: 'production' as unknown as ConnectParams['environment']
+    })
+    expect(res.ok).toBe(false)
+    expect(!res.ok && res.code).toBe('ENV_REQUIRED')
+    expect(postgresDriver.connect).not.toHaveBeenCalled()
   })
 })
 

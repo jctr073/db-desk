@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { parseConnectionUrl } from '../../../shared/connectionUrl'
 import type {
+  ConnectionEnvironment,
   ConnectParams,
   DatabaseIntrospection,
   SavedConnection,
@@ -97,6 +98,12 @@ export interface ConnectionState {
   reveal: (expandIds: string[], selectId: string) => void
 
   connectSaved: (id: string) => void
+  /** Set when a saved connection needs its environment picked before it can connect. */
+  envPrompt: { connId: string } | null
+  /** Persist the chosen environment for `envPrompt`'s connection, then resume connecting it. */
+  chooseEnvironment: (environment: ConnectionEnvironment) => void
+  /** Close the prompt without connecting. */
+  dismissEnvPrompt: () => void
   disconnectConnection: (id: string) => void
   removeConnection: (id: string) => void
   /** Re-introspect every loaded database of an online connection. */
@@ -110,6 +117,7 @@ export interface ConnectionState {
   togglePwd: () => void
   toggleSavePwd: () => void
   updateForm: (key: keyof ConnectionForm, value: string) => void
+  setFormEnvironment: (environment: ConnectionEnvironment) => void
   testConnection: () => void
   connect: () => void
 }
@@ -126,7 +134,8 @@ function toParams(form: ConnectionForm, useUrl: boolean): ConnectParams {
     password: form.password,
     httpPath: form.httpPath,
     url: form.url,
-    useUrl: useUrl && dialectFor(form.type).supportsUrl
+    useUrl: useUrl && dialectFor(form.type).supportsUrl,
+    environment: form.environment
   }
 }
 
@@ -175,6 +184,7 @@ export function useConnectionState(): ConnectionState {
   const [form, setForm] = useState<ConnectionForm>(() => defaultForm())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [manageDialog, setManageDialog] = useState<ManageDialogState | null>(null)
+  const [envPrompt, setEnvPrompt] = useState<{ connId: string } | null>(null)
 
   /** Bumped whenever an in-flight test's result should be discarded. */
   const testSeq = useRef(0)
@@ -584,8 +594,13 @@ export function useConnectionState(): ConnectionState {
     [manageDialog, tree, dropSchema, loadDatabase]
   )
 
-  /** Connect a saved (offline) connection; on failure, reopen the dialog to fix credentials. */
-  const connectSaved = useCallback(
+  /**
+   * Actually connect a saved (offline) connection; on failure, reopen the
+   * dialog to fix credentials. Split out from `connectSaved` so the
+   * legacy-environment prompt can run its pre-flight check first and resume
+   * this once the user has picked one.
+   */
+  const doConnectSaved = useCallback(
     async (id: string) => {
       const profile = profiles[id]
       if (!profile) return
@@ -629,6 +644,47 @@ export function useConnectionState(): ConnectionState {
     },
     [profiles, tree, cacheSchema, openManageCatalogs]
   )
+
+  /**
+   * Connect a saved (offline) connection. Pre-flight: a profile saved before
+   * environments existed has none — forced choice, not a default, so this
+   * blocks on `EnvironmentPromptDialog` (via `envPrompt`) instead of
+   * connecting straight away.
+   */
+  const connectSaved = useCallback(
+    (id: string) => {
+      const profile = profiles[id]
+      if (!profile) return
+      if (profile.environment == null) {
+        setEnvPrompt({ connId: id })
+        return
+      }
+      void doConnectSaved(id)
+    },
+    [profiles, doConnectSaved]
+  )
+
+  /** Persist the envPrompt connection's environment, then resume connecting it. */
+  const chooseEnvironment = useCallback(
+    (environment: ConnectionEnvironment) => {
+      const prompt = envPrompt
+      if (!prompt) return
+      const id = prompt.connId
+      setEnvPrompt(null)
+      void (async () => {
+        await window.dbDesk.store.setEnvironment(id, environment)
+        setProfiles((prev) => {
+          const profile = prev[id]
+          if (!profile) return prev
+          return { ...prev, [id]: { ...profile, environment } }
+        })
+        await doConnectSaved(id)
+      })()
+    },
+    [envPrompt, doConnectSaved]
+  )
+
+  const dismissEnvPrompt = useCallback(() => setEnvPrompt(null), [])
 
   const disconnectConnection = useCallback(
     (id: string) => {
@@ -775,6 +831,11 @@ export function useConnectionState(): ConnectionState {
     setTestMsg('')
   }, [])
 
+  /** Dedicated setter: `environment` isn't a string field, unlike updateForm's. */
+  const setFormEnvironment = useCallback((environment: ConnectionEnvironment) => {
+    setForm((prev) => ({ ...prev, environment }))
+  }, [])
+
   const testConnection = useCallback(async () => {
     const seq = ++testSeq.current
     setTestState('testing')
@@ -823,7 +884,8 @@ export function useConnectionState(): ConnectionState {
         httpPath: form.httpPath,
         url: form.url,
         useUrl: params.useUrl,
-        hasPassword: false
+        hasPassword: false,
+        environment: form.environment
       }
     }
     setConnecting(false)
@@ -894,7 +956,10 @@ export function useConnectionState(): ConnectionState {
     removeSelected,
     clearLoadError,
     reveal,
-    connectSaved: (id: string) => void connectSaved(id),
+    connectSaved,
+    envPrompt,
+    chooseEnvironment,
+    dismissEnvPrompt,
     disconnectConnection,
     removeConnection,
     refreshConnection,
@@ -905,6 +970,7 @@ export function useConnectionState(): ConnectionState {
     togglePwd,
     toggleSavePwd,
     updateForm,
+    setFormEnvironment,
     testConnection: () => void testConnection(),
     connect: () => void connect()
   }

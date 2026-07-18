@@ -19,6 +19,7 @@ import type {
   AgentSendRequest
 } from './agent'
 import type {
+  ConnectionEnvironment,
   ConnectParams,
   ConnectResult,
   DatabaseIntrospection,
@@ -90,6 +91,10 @@ export interface IpcInvokeContract {
   'store:getSchemaConfig': { args: [id: string]; result: SchemaSelectionConfig }
   'store:setSchemaConfig': { args: [id: string, config: SchemaSelectionConfig]; result: void }
   'store:setCatalogSelection': { args: [id: string, catalogs: string[] | null]; result: void }
+  'store:setEnvironment': {
+    args: [id: string, environment: ConnectionEnvironment]
+    result: boolean
+  }
   'store:setSchemaSelection': {
     args: [id: string, catalog: string, schemas: string[] | null]
     result: void

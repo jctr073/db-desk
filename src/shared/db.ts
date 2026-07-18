@@ -5,6 +5,15 @@
 
 import type { ConnectionType } from './dialect'
 
+/** Deployment tier a connection is tagged with; drives agent safety behavior. */
+export type ConnectionEnvironment = 'dev' | 'stage' | 'prod'
+
+export const CONNECTION_ENVIRONMENTS: readonly ConnectionEnvironment[] = [
+  'dev',
+  'stage',
+  'prod'
+] as const
+
 export interface ConnectParams {
   /** Engine the connection targets; selects the main-process driver. */
   type: ConnectionType
@@ -20,6 +29,12 @@ export interface ConnectParams {
   /** Full connection URL; used instead of the discrete fields when useUrl is set. */
   url: string
   useUrl: boolean
+  /**
+   * Deployment tier; null for legacy connections that predate this field
+   * (or an in-progress new-connection form). The facade `connect()` rejects
+   * a null/invalid environment — every live connection has one.
+   */
+  environment: ConnectionEnvironment | null
 }
 
 export interface ColumnInfo {
@@ -164,4 +179,6 @@ export interface SavedConnection {
   url: string
   useUrl: boolean
   hasPassword: boolean
+  /** Deployment tier; null for connections saved before this field existed. */
+  environment: ConnectionEnvironment | null
 }
