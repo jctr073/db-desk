@@ -23,6 +23,7 @@ import { typedHandle, typedSend } from './ipc'
 
 import { builtinSkillById, isBuiltinSkillId, matchesBuiltin, resolveSkills } from '../shared/skills'
 import type { Skill, SkillSaveInput, StoredSkill } from '../shared/skills'
+import { log } from './log'
 
 /** Current on-disk file format version. */
 const FILE_VERSION = 1
@@ -99,7 +100,7 @@ function load(): StoredSkill[] {
         // scope would otherwise hide the built-in from resolveSkills.
         .map((s) => (isBuiltinSkillId(s.id) && s.connId !== null ? { ...s, connId: null } : s))
     } else {
-      console.error(`skills: unreadable file quarantined: ${path}`)
+      log.error('skills', `unreadable file quarantined: ${path}`)
       quarantineCorruptFile(path)
     }
   }

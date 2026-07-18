@@ -42,6 +42,7 @@ import type {
   KnowledgeRecordInput,
   KnowledgeTargetGroup
 } from '../shared/knowledge'
+import { log } from './log'
 
 /** Current on-disk version of a base file (v1 = per-(conn, db) files). */
 const BASE_FILE_VERSION = 2
@@ -178,7 +179,7 @@ function loadBase(kbId: string): LoadedBase | null {
     readable = false
   }
   if (!readable) {
-    console.error(`knowledge: unreadable base file quarantined: ${path}`)
+    log.error('knowledge', `unreadable base file quarantined: ${path}`)
     quarantineCorruptFile(path)
     return null
   }
@@ -237,7 +238,7 @@ function loadLinks(): KnowledgeLink[] {
     if (readable) {
       links = (parsed as LinksFile).links.filter(isLoadableLink)
     } else {
-      console.error(`knowledge: unreadable links file quarantined: ${path}`)
+      log.error('knowledge', `unreadable links file quarantined: ${path}`)
       quarantineCorruptFile(path)
     }
   }
@@ -826,7 +827,7 @@ export function migrateLegacyKnowledge(
       try {
         parsed = JSON.parse(readFileSync(join(connDir, fileName), 'utf8'))
       } catch {
-        console.error(`knowledge: unreadable v1 file left in backup: ${connId}/${fileName}`)
+        log.error('knowledge', `unreadable v1 file left in backup: ${connId}/${fileName}`)
         continue
       }
       if (
@@ -867,7 +868,7 @@ export function migrateLegacyKnowledge(
       if (!existsSync(legacyBackupDir)) mkdirSync(legacyBackupDir, { recursive: true })
       renameSync(connDir, join(legacyBackupDir, connId))
     } catch (err) {
-      console.error(`knowledge: could not move v1 dir ${connId} to backup:`, err)
+      log.error('knowledge', `could not move v1 dir ${connId} to backup:`, err)
     }
   }
 
@@ -902,7 +903,7 @@ export function migrateLegacyKnowledge(
     try {
       renameSync(repoRootsPath, join(app.getPath('userData'), 'repo-roots.legacy-v1.json'))
     } catch (err) {
-      console.error('knowledge: could not rename legacy repo-roots.json:', err)
+      log.error('knowledge', 'could not rename legacy repo-roots.json:', err)
     }
   }
 }

@@ -31,6 +31,7 @@ import {
   saveIntrospection
 } from './schemaCache'
 import { catalogSelectionFor, schemaSelectionFor } from './store'
+import { log } from './log'
 
 export type { RunQueryOptions } from './drivers/types'
 
@@ -309,6 +310,19 @@ export function queueRevalidate(connId: string, database: string): void {
         introspection: changed ? res.data : undefined,
         unchanged: !changed
       })
+    } catch (err) {
+      // Every awaited call returns a DbResult, so a throw here is a driver
+      // bug — but without this catch it would be an unhandled rejection and
+      // the renderer would sit on 'validating' with no terminal event.
+      log.error('db', `revalidation failed for ${connId}/${database}`, err)
+      if (connTypes.has(connId)) {
+        schemaEventSink({
+          connId,
+          database,
+          state: 'error',
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
     } finally {
       revalidating.delete(key)
     }

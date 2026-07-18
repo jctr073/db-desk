@@ -27,6 +27,7 @@ import { typedHandle, typedSend } from './ipc'
 import { validateMcpServerConfig } from './ipcGuards'
 
 import type { McpServerConfig, McpServerState, McpServerStatus, McpToolInfo } from '../shared/mcp'
+import { log } from './log'
 
 /** Ceiling on one MCP tool call; slow servers should not wedge a turn. */
 const MCP_CALL_TIMEOUT_MS = 60_000
@@ -203,6 +204,7 @@ async function startServer(config: McpServerConfig): Promise<void> {
 
   rt.starting = run()
     .catch((err: unknown) => {
+      log.error('mcp', `server "${config.name}" failed to start`, err)
       rt.client = null
       rt.state = 'error'
       rt.error = err instanceof Error ? err.message : String(err)

@@ -149,6 +149,13 @@ function createWindow(): void {
     openExternalChecked(url)
   })
 
+  // Without this, the darwin all-windows-closed state leaves a destroyed
+  // window behind the reference, and dialog-opening handlers that pass it
+  // as a parent (chooseSqlDir, export:choose) would throw.
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+
   const rendererUrl = getRendererUrl()
 
   if (rendererUrl) {
@@ -438,7 +445,21 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('will-quit', () => {
-  void disconnectAll()
-  void stopAllMcpServers()
+/**
+ * Give pools and MCP child processes a bounded window to shut down cleanly
+ * instead of firing the teardown and letting the process exit under it.
+ * `app.quit()` re-fires will-quit, so the flag lets the second pass through.
+ * The 2s cap keeps a wedged server from holding the quit hostage; the OS
+ * reaps anything still alive after that.
+ */
+let quitCleanupDone = false
+app.on('will-quit', (event) => {
+  if (quitCleanupDone) return
+  event.preventDefault()
+  const cleanup = Promise.allSettled([disconnectAll(), stopAllMcpServers()])
+  const cap = new Promise((resolve) => setTimeout(resolve, 2000))
+  void Promise.race([cleanup, cap]).then(() => {
+    quitCleanupDone = true
+    app.quit()
+  })
 })
