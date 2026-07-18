@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { CSSProperties, MouseEvent, ReactElement } from 'react'
 
 import type { AgentDbObjectItem } from '../../../shared/agent'
@@ -26,6 +26,7 @@ import type { ColumnEndpoint } from './references'
 import { findNode } from './treeData'
 import type { NodeKind, TreeNode } from './types'
 import type { ConnectionState } from './useConnectionState'
+import { useEscapeKey } from '../useEscapeKey'
 
 /** Design props baked to their defaults (see the DB Desk sketch). */
 const ROW_HEIGHT = 24 // compact
@@ -244,32 +245,39 @@ export function ConnectionPanel({
     setRefsView(null)
   }
 
-  useEffect(() => {
-    if (!menu) return
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setMenu(null)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [menu])
+  useEscapeKey(!!menu, () => setMenu(null))
 
-  const onRowContextMenu = (node: TreeNode, event: MouseEvent<HTMLDivElement>): void => {
-    const isMenuKind =
-      node.kind === 'connection' ||
-      node.kind === 'database' ||
-      node.kind === 'column' ||
-      AGENT_CONTEXT_KINDS.has(node.kind)
-    if (!isMenuKind) return
-    event.preventDefault()
-    state.toggleRow(node.id, false)
-    setKbSubOpen(false)
-    setMenu({
-      x: event.clientX,
-      y: event.clientY,
-      nodeId: node.id,
-      nodeKind: node.kind as MenuKind
-    })
-  }
+  // Identity-stable across renders (toggleRow only changes when the tree
+  // does), so the memoized tree rows it is passed to are left alone.
+  const { toggleRow } = state
+  const onRowContextMenu = useCallback(
+    (node: TreeNode, event: MouseEvent<HTMLDivElement>): void => {
+      const isMenuKind =
+        node.kind === 'connection' ||
+        node.kind === 'database' ||
+        node.kind === 'column' ||
+        AGENT_CONTEXT_KINDS.has(node.kind)
+      if (!isMenuKind) return
+      event.preventDefault()
+      toggleRow(node.id, false)
+      setKbSubOpen(false)
+      setMenu({
+        x: event.clientX,
+        y: event.clientY,
+        nodeId: node.id,
+        nodeKind: node.kind as MenuKind
+      })
+    },
+    [toggleRow]
+  )
+
+  const onRowDoubleClick = useCallback(
+    (node: TreeNode): void => {
+      const item = contextItemFor(node)
+      if (item && item.kind !== 'schema') onOpenDataPreview?.(item)
+    },
+    [onOpenDataPreview]
+  )
 
   return (
     <section className="conn-panel">
@@ -366,10 +374,7 @@ export function ConnectionPanel({
                           showStatusDots={SHOW_STATUS_DOTS}
                           knowledgeIds={knowledgeIds}
                           onRowClick={state.toggleRow}
-                          onRowDoubleClick={(node) => {
-                            const item = contextItemFor(node)
-                            if (item && item.kind !== 'schema') onOpenDataPreview?.(item)
-                          }}
+                          onRowDoubleClick={onRowDoubleClick}
                           onRowContextMenu={onRowContextMenu}
                         />
                       ) : (

@@ -479,8 +479,173 @@ textarea {
   padding: 5px 0;
 }
 
+/* One schema-tree row; indent, row height and status color stay inline. */
+.tree-row {
+  display: flex;
+  align-items: center;
+  padding-right: 10px;
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
 .tree-row:hover {
   background: var(--row-hover);
+}
+.tree-row.is-selected {
+  box-shadow: inset 0 0 0 2000px var(--accent-soft);
+}
+.tree-row--mode-b.is-selected {
+  box-shadow:
+    inset 2px 0 0 0 var(--accent),
+    inset 0 0 0 2000px var(--accent-soft);
+}
+/* Connection row with a subtitle line (mode B): grows past the row height. */
+.tree-row--sub {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+/* Category header in mode B. */
+.tree-row--cat-b {
+  margin-top: 3px;
+}
+.tree-row__guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-soft);
+  pointer-events: none;
+}
+.tree-row__chev-box {
+  display: inline-flex;
+  width: 14px;
+  min-width: 14px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+.tree-row__chev {
+  display: inline-flex;
+  transition: transform 0.12s ease;
+  transform: rotate(0deg);
+  color: var(--text-faint);
+}
+.tree-row__chev.is-expanded {
+  transform: rotate(90deg);
+}
+.tree-row__status-dot {
+  width: 7px;
+  height: 7px;
+  min-width: 7px;
+  border-radius: 50%;
+  margin-right: 7px;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.tree-row__label-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.tree-row__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.tree-row__label--container {
+  font-weight: 500;
+  color: var(--text);
+}
+.tree-row__label--connection {
+  font-weight: 600;
+}
+.tree-row.is-selected .tree-row__label {
+  color: var(--accent-strong);
+}
+/* Category header label (mode B); unaffected by selection color. */
+.tree-row__label--cat {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+.tree-row__sub {
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+/* Subtle marker for nodes that have local knowledge attached. */
+.tree-row__knowledge-dot {
+  width: 5px;
+  height: 5px;
+  min-width: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.85;
+  margin-left: 6px;
+  flex: 0 0 auto;
+}
+.tree-row__pk {
+  display: inline-flex;
+  align-items: center;
+  color: var(--amber);
+  margin-left: 6px;
+  flex: 0 0 auto;
+}
+.tree-row__fk {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+  margin-left: 6px;
+  line-height: 13px;
+  flex: 0 0 auto;
+}
+/* Inferred (naming-convention) foreign key: dashed to read as a guess. */
+.tree-row__fk--inferred {
+  border-style: dashed;
+  opacity: 0.85;
+}
+/* Right-aligned detail text (loading notes, counts, dtypes). */
+.tree-row__right {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-left: 8px;
+  flex: 0 0 auto;
+}
+.tree-row__right--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.tree-row__right--count-badge {
+  font-size: 10px;
+  background: var(--panel-hi);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 0 6px;
+  line-height: 15px;
+}
+.tree-row__right--count {
+  font-size: 10px;
 }
 
 .empty-state {
@@ -546,118 +711,6 @@ textarea {
 }
 .editor-tabbar__tabs::-webkit-scrollbar {
   height: 0;
-}
-/* One tab per (connection, database) that has open files. */
-.conn-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 30px;
-  padding: 0 11px;
-  flex: 0 0 auto;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  user-select: none;
-  border-radius: 8px;
-  color: var(--text-dim);
-  background: transparent;
-  border: 1px solid transparent;
-}
-.conn-tab:hover {
-  background: var(--panel-hi);
-}
-.conn-tab:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
-}
-.conn-tab.is-active {
-  color: var(--text);
-  background: var(--panel-hi);
-  border-color: var(--accent);
-}
-.conn-tab__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-  box-shadow: 0 0 0 2px var(--titlebar);
-}
-.conn-tab__icon {
-  display: inline-flex;
-  color: var(--text-faint);
-}
-.conn-tab.is-active .conn-tab__icon {
-  color: var(--accent-strong);
-}
-.conn-tab__name {
-  font-weight: 600;
-}
-.conn-tab__sep {
-  color: var(--text-faint);
-}
-.conn-tab__db {
-  color: var(--text-dim);
-}
-.conn-tab.is-active .conn-tab__db {
-  color: var(--text);
-}
-.conn-tab__count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 15px;
-  padding: 0 4px;
-  border-radius: 7px;
-  background: var(--panel-hi);
-  color: var(--text-faint);
-  font-size: 9.5px;
-  font-weight: 700;
-}
-.conn-tab.is-active .conn-tab__count {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-}
-.conn-tab__close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 17px;
-  height: 17px;
-  margin-right: -5px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-}
-.conn-tab__close:hover,
-.conn-tab__close:focus-visible {
-  background: var(--row-hover);
-  color: var(--text);
-}
-
-/* Tier 2: file tabs for the active connection tab. */
-.file-tabbar {
-  height: var(--rail2-h);
-  flex: 0 0 auto;
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  padding: 0 10px;
-  background: var(--titlebar);
-  border-bottom: 1px solid var(--border);
-  overflow: hidden;
-}
-.file-tabbar__hint {
-  align-self: center;
-  font-size: 11px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .editor-tab {
   display: flex;
@@ -3528,36 +3581,6 @@ body.is-grid-col-resizing {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, var(--panel));
   color: var(--accent-strong);
-}
-/* Split control shared by codebase attachment and its options menu. */
-.mcp-ctl {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-}
-.mcp-ctl__plug {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-}
-.mcp-ctl__chev {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 28px;
-  flex: 0 0 auto;
-  border-radius: 0 8px 8px 0;
-  border: 1px solid var(--border);
-  border-left: none;
-  background: var(--panel);
-  color: var(--text-faint);
-  cursor: pointer;
-  padding: 0;
-}
-.mcp-ctl__chev:hover {
-  border-color: var(--accent);
-  color: var(--text);
 }
 .mcp-pop {
   left: auto;

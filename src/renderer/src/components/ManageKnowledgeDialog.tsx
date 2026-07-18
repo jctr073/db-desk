@@ -14,6 +14,7 @@ import { LinkBaseDialog } from './LinkBaseDialog'
 import { MonorepoSetupDialog } from './MonorepoSetupDialog'
 import { TargetedScanDialog } from './TargetedScanDialog'
 import type { QueryTarget } from './useQueryRunner'
+import { useEscapeKey } from '../useEscapeKey'
 
 /** Last path segment of a repo root, for display — renderer never parses paths. */
 function repoRootName(root: string): string {
@@ -107,15 +108,9 @@ export function ManageKnowledgeDialog({
     [groups, selectedKbId]
   )
 
-  // Sub-dialogs register their own document-level Escape handlers, so guard
-  // this one: one Escape must close only the topmost layer.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !subDialog && !attaching) onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [subDialog, attaching, onClose])
+  // Sub-dialogs register their own Escape handlers, so this one is inactive
+  // while a sub-dialog is up: one Escape must close only the topmost layer.
+  useEscapeKey(!subDialog && !attaching, onClose)
 
   const targetLabel = `${target.connName} / ${target.database}`
 
@@ -770,13 +765,7 @@ function ConfirmBaseDialog({
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !pending) onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [pending, onClose])
+  useEscapeKey(!pending, onClose)
 
   const run = useCallback(async (): Promise<void> => {
     if (pending) return
