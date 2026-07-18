@@ -6,7 +6,11 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { classifyStatement, guardAgentStatement } from '../../src/shared/sql'
+import {
+  applyAutoLimit,
+  classifyStatement,
+  guardAgentStatement
+} from '../../src/shared/sql'
 import { ALL_CASES, ESCAPE_CASES } from '../support/statements'
 
 describe('classifyStatement', () => {
@@ -109,4 +113,33 @@ describe('guardAgentStatement (the wall)', () => {
       }
     })
   }
+})
+
+describe('applyAutoLimit', () => {
+  it('appends LIMIT to a bare row-returning query', () => {
+    expect(applyAutoLimit('SELECT * FROM t;', 500)).toEqual({
+      text: 'SELECT * FROM t\nLIMIT 500',
+      applied: true
+    })
+  })
+
+  it('leaves a query with a top-level LIMIT alone', () => {
+    const sql = 'SELECT * FROM t LIMIT 10'
+    expect(applyAutoLimit(sql, 500)).toEqual({ text: sql, applied: false })
+  })
+
+  // The limit is interpolated into SQL text; the IPC layer types it as a
+  // number but nothing enforces that at runtime. Anything but a positive
+  // integer must leave the statement untouched.
+  it.each([
+    ['float', 1.5],
+    ['zero', 0],
+    ['negative', -10],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['smuggled string', '500; DROP TABLE t' as unknown as number]
+  ])('refuses non-positive-integer limit (%s)', (_name, limit) => {
+    const sql = 'SELECT * FROM t'
+    expect(applyAutoLimit(sql, limit)).toEqual({ text: sql, applied: false })
+  })
 })

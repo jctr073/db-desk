@@ -11,14 +11,10 @@
  * that runs when a connection is removed.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync
-} from 'node:fs'
+import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
+
+import { writeJsonAtomic } from './atomicJson'
 
 import { app, ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
@@ -120,14 +116,10 @@ function load(): StoredSkill[] {
 
 function persist(records: StoredSkill[]): void {
   cache = records
-  const path = storePath()
-  mkdirSync(join(path, '..'), { recursive: true })
   const file: SkillsFile = { version: FILE_VERSION, skills: records }
-  // Temp-file + rename: prompts are user-authored content a crash mid-write
-  // must not truncate (same rule as the knowledge store).
-  const tmp = `${path}.tmp`
-  writeFileSync(tmp, JSON.stringify(file, null, 2), 'utf8')
-  renameSync(tmp, path)
+  // Atomic write: prompts are user-authored content a crash mid-write must
+  // not truncate (same rule as the knowledge store).
+  writeJsonAtomic(storePath(), file)
   notifyChanged?.()
 }
 

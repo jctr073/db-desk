@@ -8,10 +8,11 @@
  */
 
 import { app, safeStorage } from 'electron'
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 
+import { writeJsonAtomic } from './atomicJson'
 import { API_KEY_VAR } from '../shared/agent'
 import { isValidVarName } from '../shared/settings'
 import type { ApiKeyConfig, ApiKeySource, AppSettingsInfo } from '../shared/settings'
@@ -49,19 +50,8 @@ function load(): StoredSettings {
 
 function persist(settings: StoredSettings): void {
   cache = settings
-  const path = settingsPath()
-  mkdirSync(dirname(path), { recursive: true })
   // Owner-only: the file holds the encrypted API key.
-  writeFileSync(path, JSON.stringify(settings, null, 2), {
-    encoding: 'utf8',
-    mode: 0o600
-  })
-  try {
-    // mode above only applies on creation; tighten pre-existing files too.
-    chmodSync(path, 0o600)
-  } catch {
-    // best effort (e.g. filesystems without POSIX permissions)
-  }
+  writeJsonAtomic(settingsPath(), settings, { mode: 0o600 })
 }
 
 // --- SQL files directory ---

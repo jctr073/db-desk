@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -110,5 +116,37 @@ describe('moveQueryStorage', () => {
       kept.id,
       ghost.id
     ])
+  })
+})
+
+describe('path traversal guards', () => {
+  // Ids arrive over IPC; a hostile renderer must not be able to read or
+  // unlink `.sql` files outside the queries directory.
+  it.each(['../outside', '..', 'a/b', 'a\\b', ''])(
+    'rejects unsafe id %j on read, save, and delete',
+    (id) => {
+      expect(() => files.loadQueryContent(id)).toThrow(/Invalid query file id/)
+      // save rejects at the metadata lookup, before any path is built
+      expect(() => files.saveQueryContent(id, 'SELECT 1')).toThrow()
+      expect(() => files.deleteQuery(id)).toThrow(/Invalid query file id/)
+    }
+  )
+
+  it('cannot delete a .sql file outside the queries directory', () => {
+    const outside = join(userDataDir, 'outside.sql')
+    writeFileSync(outside, 'SELECT 1', 'utf8')
+
+    expect(() => files.deleteQuery('../outside')).toThrow()
+
+    expect(existsSync(outside)).toBe(true)
+    expect(readFileSync(outside, 'utf8')).toBe('SELECT 1')
+  })
+
+  it('accepts house-minted ids end to end', () => {
+    const file = files.createQuery('query1.sql', 'conn-1', 'analytics')
+    files.saveQueryContent(file.id, 'SELECT 1')
+    expect(files.loadQueryContent(file.id)).toBe('SELECT 1')
+    files.deleteQuery(file.id)
+    expect(files.listQueries()).toEqual([])
   })
 })

@@ -103,6 +103,26 @@ function isAllowedNavigation(url: string): boolean {
   return url.startsWith('file://')
 }
 
+/**
+ * Hand a link off to the OS browser/mail client only for schemes that open a
+ * document. Anything else (file:, smb:, app-registered custom schemes) could
+ * launch local handlers with an attacker-chosen payload, so it is dropped —
+ * links in query results and agent output are untrusted content.
+ */
+const EXTERNAL_URL_SCHEMES = new Set(['http:', 'https:', 'mailto:'])
+
+function openExternalChecked(url: string): void {
+  let scheme: string
+  try {
+    scheme = new URL(url).protocol
+  } catch {
+    return
+  }
+  if (EXTERNAL_URL_SCHEMES.has(scheme)) {
+    void shell.openExternal(url)
+  }
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -120,7 +140,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    openExternalChecked(url)
     return { action: 'deny' }
   })
 
@@ -130,7 +150,7 @@ function createWindow(): void {
     }
 
     event.preventDefault()
-    void shell.openExternal(url)
+    openExternalChecked(url)
   })
 
   const rendererUrl = getRendererUrl()

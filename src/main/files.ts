@@ -8,6 +8,8 @@ import {
 } from 'node:fs'
 import { join, resolve } from 'node:path'
 
+import { assertSafeId } from './safeId'
+import { writeJsonAtomic } from './atomicJson'
 import {
   defaultExtension,
   fileKindFromName,
@@ -46,6 +48,9 @@ function metadataPath(): string {
 }
 
 function queryPath(id: string): string {
+  // Ids are renderer-supplied over IPC; without this, files:read could read
+  // and files:delete could unlink any `.sql`-suffixed path on disk.
+  assertSafeId(id, 'query file')
   return join(queriesDir(), `${id}.sql`)
 }
 
@@ -76,7 +81,7 @@ function loadMetadata(): StoredQueryMetadata[] {
 function persistMetadata(metadata: StoredQueryMetadata[]): void {
   metadataCache = metadata
   ensureDir()
-  writeFileSync(metadataPath(), JSON.stringify(metadata, null, 2), 'utf8')
+  writeJsonAtomic(metadataPath(), metadata)
 }
 
 export function listQueries(): QueryFile[] {
@@ -293,11 +298,7 @@ export function moveQueryStorage(newDir: string): number {
     copyFileSync(src, join(newDir, `${file.id}.sql`))
     moved.push(src)
   }
-  writeFileSync(
-    join(newDir, 'metadata.json'),
-    JSON.stringify(metadata, null, 2),
-    'utf8'
-  )
+  writeJsonAtomic(join(newDir, 'metadata.json'), metadata)
 
   // The new directory is complete; switch over, then clean up the old one.
   setSqlFilesDir(newDir)
