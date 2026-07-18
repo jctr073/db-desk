@@ -108,6 +108,42 @@ export function App(): ReactElement {
     }))
   }, [])
 
+  // Background schema-revalidation status of the active connection, folded
+  // to one status-bar segment: any database still validating wins, then any
+  // error, then "up to date".
+  const schemaSync = useMemo(() => {
+    const id = connections.activeConnId
+    if (!id) return null
+    const entries = Object.entries(connections.schemaRefresh).filter(([key]) =>
+      key.startsWith(`${id}/`)
+    )
+    if (entries.length === 0) return null
+    const validating = entries.filter(([, s]) => s.state === 'validating')
+    if (validating.length > 0) {
+      return {
+        text:
+          validating.length > 1
+            ? `Validating schema (${validating.length})…`
+            : 'Validating schema…',
+        state: 'validating' as const,
+        title: undefined as string | undefined
+      }
+    }
+    const failed = entries.find(([, s]) => s.state === 'error')
+    if (failed) {
+      return {
+        text: 'Schema validation failed',
+        state: 'error' as const,
+        title: failed[1].error
+      }
+    }
+    return {
+      text: 'Schema up to date',
+      state: 'ok' as const,
+      title: undefined as string | undefined
+    }
+  }, [connections.schemaRefresh, connections.activeConnId])
+
   // The results panel feeds the app-wide status bar with the active result's
   // summary; the connection half comes from the unified active context.
   const [queryStatus, setQueryStatus] = useState({ text: '', target: '' })
@@ -442,6 +478,9 @@ export function App(): ReactElement {
         onOpenSettings={openSettings}
         connText={activeTarget ? `Connection · ${activeTarget.connName}` : ''}
         queryText={queryStatus.text}
+        schemaText={schemaSync?.text ?? ''}
+        schemaState={schemaSync?.state}
+        schemaTitle={schemaSync?.title}
         queryTarget={
           queryStatus.target ||
           (activeTarget

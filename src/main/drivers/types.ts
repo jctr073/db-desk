@@ -54,6 +54,14 @@ export interface ConnectOptions {
    */
   schemaSelectionFor?: (database: string) => string[] | null
   maxUnpinnedSchemas?: number
+  /**
+   * Establish the session but skip the eager introspection (and, for
+   * multi-database engines, the catalog enumeration): the facade has cached
+   * metadata to serve and will revalidate in the background. The returned
+   * connectedDatabase carries the resolved name with empty schemas, and
+   * `databases` lists just that name.
+   */
+  skipIntrospection?: boolean
 }
 
 export interface Driver {

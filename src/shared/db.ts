@@ -102,6 +102,26 @@ export interface ConnectResult {
   databases: string[]
 }
 
+export type SchemaRefreshState = 'validating' | 'ok' | 'error'
+
+/**
+ * Pushed from main while a background schema revalidation runs. `validating`
+ * fires when one starts (typically right after cached metadata was served);
+ * `ok` carries the fresh introspection only when it differs from the cache,
+ * so an unchanged database costs no renderer work. On `error` the cached
+ * metadata stays in use.
+ */
+export interface SchemaRefreshEvent {
+  connId: string
+  database: string
+  state: SchemaRefreshState
+  /** Fresh introspection; present on `ok` when the structure changed. */
+  introspection?: DatabaseIntrospection
+  /** True on `ok` when the fresh result matched the cache exactly. */
+  unchanged?: boolean
+  error?: string
+}
+
 /** All db IPC calls resolve to this shape; errors travel as values, not throws. */
 export type DbResult<T> =
   { ok: true; data: T } | { ok: false; error: string; code?: string }

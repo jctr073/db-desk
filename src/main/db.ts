@@ -12,6 +12,7 @@ import type {
   DatabaseIntrospection,
   DbResult,
   QueryResult,
+  SchemaRefreshEvent,
   TestResult
 } from '../shared/db'
 import { LARGE_CATALOG_SCHEMA_THRESHOLD } from '../shared/schemaSelection'
@@ -20,6 +21,15 @@ import { databricksDriver } from './drivers/databricks'
 import { postgresDriver, PG_READ_ONLY_VIOLATION_CODES } from './drivers/postgres'
 import type { Driver, RunQueryOptions } from './drivers/types'
 import { WRITE_REQUIRED_CODE } from './drivers/types'
+import {
+  cacheIdentityFor,
+  cachedIntrospection,
+  dropIntrospection,
+  loadCacheFile,
+  sameSelection,
+  saveDatabases,
+  saveIntrospection
+} from './schemaCache'
 import { catalogSelectionFor, schemaSelectionFor } from './store'
 
 export type { RunQueryOptions } from './drivers/types'
@@ -31,6 +41,21 @@ const DRIVERS: Record<ConnectionType, Driver> = {
 
 /** Live connId → engine type, recorded at connect time. */
 const connTypes = new Map<string, ConnectionType>()
+
+/** Live connId → schema-cache identity fingerprint, recorded at connect time. */
+const connIdentities = new Map<string, string>()
+
+/** connId + database pairs with a background revalidation in flight. */
+const revalidating = new Set<string>()
+
+type SchemaEventSink = (evt: SchemaRefreshEvent) => void
+
+/** Where background revalidation progress goes (index.ts wires the window). */
+let schemaEventSink: SchemaEventSink = () => {}
+
+export function setSchemaEventSink(sink: SchemaEventSink): void {
+  schemaEventSink = sink
+}
 
 /**
  * Live connId → the database the connection was opened against. Recorded so
@@ -110,19 +135,67 @@ export async function connect(
     return { ok: false, error: `Connection "${connId}" already exists` }
   }
   const type: ConnectionType = params.type ?? 'postgres'
-  const res = await DRIVERS[type].connect(
-    connId,
-    params,
-    type === 'databricks'
+  const identity = cacheIdentityFor(params)
+  // A usable cache flips connect into cache-first mode: the driver skips its
+  // eager introspection, the cached metadata is served instead, and a
+  // background revalidation is queued. First-ever connects (no cache) block
+  // on the full introspection exactly as before.
+  const cached = loadCacheFile(connId, identity)
+  const res = await DRIVERS[type].connect(connId, params, {
+    ...(type === 'databricks'
       ? {
           schemaSelectionFor: (catalog) => schemaSelectionFor(connId, catalog),
           maxUnpinnedSchemas: LARGE_CATALOG_SCHEMA_THRESHOLD
         }
-      : undefined
-  )
+      : {}),
+    skipIntrospection: !!cached
+  })
   if (res.ok) {
     connTypes.set(connId, type)
     connDatabases.set(connId, res.data.connectedDatabase.name)
+    connIdentities.set(connId, identity)
+    const connectedName = res.data.connectedDatabase.name
+    if (cached) {
+      const selection =
+        type === 'databricks' ? schemaSelectionFor(connId, connectedName) : null
+      const entry = cachedIntrospection(
+        connId,
+        identity,
+        connectedName,
+        selection
+      )
+      if (cached.databases.length > 0 && dialectFor(type).multiDatabase) {
+        res.data.databases = cached.databases
+      }
+      if (entry) {
+        res.data.connectedDatabase = entry
+        queueRevalidate(connId, connectedName)
+      } else {
+        // Cache exists but has nothing usable for the connected database
+        // (name changed, pinning changed): fall back to a foreground
+        // introspection so the result is as complete as a fresh connect.
+        const intro = await introspectDatabase(connId, connectedName)
+        if (!intro.ok) {
+          await disconnect(connId)
+          return intro
+        }
+        res.data.connectedDatabase = intro.data
+      }
+    } else {
+      // Fresh full introspection: seed the cache for the next connect.
+      saveDatabases(connId, identity, res.data.databases)
+      if (!res.data.connectedDatabase.needsSchemaSelection) {
+        saveIntrospection(
+          connId,
+          identity,
+          connectedName,
+          type === 'databricks'
+            ? schemaSelectionFor(connId, connectedName)
+            : null,
+          res.data.connectedDatabase
+        )
+      }
+    }
     if (type === 'databricks') {
       const pinnedCatalogs = catalogSelectionFor(connId)
       if (pinnedCatalogs) {
@@ -138,12 +211,14 @@ export async function disconnect(connId: string): Promise<DbResult<null>> {
   const driver = driverFor(connId)
   connTypes.delete(connId)
   connDatabases.delete(connId)
+  connIdentities.delete(connId)
   return driver.disconnect(connId)
 }
 
 export async function disconnectAll(): Promise<void> {
   connTypes.clear()
   connDatabases.clear()
+  connIdentities.clear()
   await Promise.allSettled(
     Object.values(DRIVERS).map((driver) => driver.disconnectAll())
   )
@@ -153,12 +228,11 @@ export function getServerVersion(connId: string): string | null {
   return driverFor(connId).getServerVersion(connId)
 }
 
-export function introspectDatabase(
+/** Driver introspection with the connection's pinning applied; no cache. */
+function rawIntrospect(
   connId: string,
   database: string
 ): Promise<DbResult<DatabaseIntrospection>> {
-  const blocked = guardDatabase(connId, database)
-  if (blocked) return Promise.resolve(blocked)
   if (connTypes.get(connId) === 'databricks') {
     return driverFor(connId).introspectDatabase(connId, database, {
       allowedSchemas: allowedSchemasFor(connId, database),
@@ -166,6 +240,104 @@ export function introspectDatabase(
     })
   }
   return driverFor(connId).introspectDatabase(connId, database)
+}
+
+/**
+ * Cache-first introspection: a valid cached entry returns immediately and
+ * queues a background revalidation (progress lands on the schema event
+ * sink); otherwise the live introspection runs and seeds the cache.
+ */
+export async function introspectDatabase(
+  connId: string,
+  database: string
+): Promise<DbResult<DatabaseIntrospection>> {
+  const blocked = guardDatabase(connId, database)
+  if (blocked) return blocked
+  const target = database.trim() || connDatabases.get(connId) || database
+  const identity = connIdentities.get(connId)
+  const selection = allowedSchemasFor(connId, target)
+  if (identity) {
+    const entry = cachedIntrospection(connId, identity, target, selection)
+    if (entry) {
+      queueRevalidate(connId, target)
+      return { ok: true, data: entry }
+    }
+  }
+  const res = await rawIntrospect(connId, target)
+  if (res.ok && !res.data.needsSchemaSelection && identity) {
+    saveIntrospection(connId, identity, target, selection, res.data)
+  }
+  return res
+}
+
+/**
+ * Re-introspect one database in the background and reconcile the cache.
+ * Progress goes to the schema event sink: `validating` immediately, then
+ * `ok` (carrying the fresh introspection only when it differs from the
+ * cache) or `error` (cached metadata stays in use). Deduped per
+ * (connection, database); safe to call opportunistically.
+ */
+export function queueRevalidate(connId: string, database: string): void {
+  const key = `${connId}\u0000${database}`
+  if (revalidating.has(key)) return
+  revalidating.add(key)
+  schemaEventSink({ connId, database, state: 'validating' })
+  void (async () => {
+    try {
+      const selectionBefore = allowedSchemasFor(connId, database)
+      const res = await rawIntrospect(connId, database)
+      // Disconnected mid-flight: results and events would be about a
+      // connection that no longer exists.
+      if (!connTypes.has(connId)) return
+      if (!res.ok) {
+        schemaEventSink({ connId, database, state: 'error', error: res.error })
+        return
+      }
+      const identity = connIdentities.get(connId)
+      const selection = allowedSchemasFor(connId, database)
+      if (
+        res.data.needsSchemaSelection ||
+        !sameSelection(selectionBefore, selection)
+      ) {
+        // The pinning changed under us (or vanished): this result is not
+        // trustworthy under the current selection. Drop the stale entry and
+        // leave the tree alone — the selection-change flow reloads it.
+        if (identity) dropIntrospection(connId, database)
+        schemaEventSink({ connId, database, state: 'ok', unchanged: true })
+        return
+      }
+      const previous = identity
+        ? cachedIntrospection(connId, identity, database, selection)
+        : null
+      const changed =
+        !previous || JSON.stringify(previous) !== JSON.stringify(res.data)
+      if (identity) {
+        saveIntrospection(connId, identity, database, selection, res.data)
+      }
+      // While we're here, refresh the cached catalog list so the next
+      // launch's tree shows current siblings (multi-database engines only,
+      // and only from the connected catalog's revalidation).
+      const type = connTypes.get(connId)
+      if (
+        identity &&
+        type &&
+        dialectFor(type).multiDatabase &&
+        connDatabases.get(connId) === database
+      ) {
+        const catalogs = await driverFor(connId).listCatalogs?.(connId)
+        if (catalogs?.ok) saveDatabases(connId, identity, catalogs.data)
+      }
+      schemaEventSink({
+        connId,
+        database,
+        state: 'ok',
+        introspection: changed ? res.data : undefined,
+        unchanged: !changed
+      })
+    } finally {
+      revalidating.delete(key)
+    }
+  })()
 }
 
 /**
@@ -200,7 +372,14 @@ export function listCatalogs(connId: string): Promise<DbResult<string[]>> {
   return list(connId)
 }
 
-export function runQuery(
+/**
+ * Command tags whose success means the database's structure likely changed
+ * (best-effort — matches both Postgres tags like "CREATE TABLE" and the
+ * first-keyword tags Databricks statements report).
+ */
+const DDL_COMMAND = /^(CREATE|ALTER|DROP|RENAME)\b/i
+
+export async function runQuery(
   connId: string,
   database: string,
   sql: string,
@@ -208,8 +387,22 @@ export function runQuery(
   options: RunQueryOptions = {}
 ): Promise<DbResult<QueryResult>> {
   const blocked = guardDatabase(connId, database)
-  if (blocked) return Promise.resolve(blocked)
-  return driverFor(connId).runQuery(connId, database, sql, limit, options)
+  if (blocked) return blocked
+  const res = await driverFor(connId).runQuery(
+    connId,
+    database,
+    sql,
+    limit,
+    options
+  )
+  // Successful DDL invalidates the cached metadata immediately; revalidate
+  // now so the tree (and the cache on disk) catch up without a manual
+  // refresh.
+  if (res.ok && DDL_COMMAND.test(res.data.command)) {
+    const target = database.trim() || connDatabases.get(connId) || ''
+    if (target) queueRevalidate(connId, target)
+  }
+  return res
 }
 
 /** Options the agent channel accepts — deliberately no readOnly escape. */

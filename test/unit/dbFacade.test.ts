@@ -8,7 +8,11 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ConnectParams } from '../../src/shared/db'
+import type {
+  ConnectParams,
+  QueryResult,
+  SchemaRefreshEvent
+} from '../../src/shared/db'
 import { LARGE_CATALOG_SCHEMA_THRESHOLD } from '../../src/shared/schemaSelection'
 
 vi.mock('../../src/main/drivers/databricks', () => ({
@@ -47,10 +51,27 @@ vi.mock('../../src/main/store', () => ({
   schemaSelectionFor: vi.fn(() => null)
 }))
 
+// The persistent schema cache touches Electron's app paths; unit tests run
+// the facade against a mock of it (default: empty cache, everything misses).
+vi.mock('../../src/main/schemaCache', () => ({
+  cacheIdentityFor: vi.fn(() => 'identity'),
+  loadCacheFile: vi.fn(() => null),
+  cachedIntrospection: vi.fn(() => null),
+  saveIntrospection: vi.fn(),
+  saveDatabases: vi.fn(),
+  dropIntrospection: vi.fn(),
+  deleteCacheFor: vi.fn(),
+  sameSelection: (a: string[] | null, b: string[] | null): boolean => {
+    if (!a || !b) return !a && !b
+    return a.length === b.length && a.every((name) => b.includes(name))
+  }
+}))
+
 let db: typeof import('../../src/main/db')
 let databricksDriver: typeof import('../../src/main/drivers/databricks')['databricksDriver']
 let postgresDriver: typeof import('../../src/main/drivers/postgres')['postgresDriver']
 let store: typeof import('../../src/main/store')
+let schemaCache: typeof import('../../src/main/schemaCache')
 
 const dbxParams = {
   type: 'databricks',
@@ -85,11 +106,15 @@ beforeEach(async () => {
   postgresDriver = (await import('../../src/main/drivers/postgres'))
     .postgresDriver
   store = await import('../../src/main/store')
+  schemaCache = await import('../../src/main/schemaCache')
   // The mock factories' results are cached across resetModules, so call
   // history and per-test return values would otherwise leak between tests.
   vi.clearAllMocks()
   vi.mocked(store.catalogSelectionFor).mockReset().mockReturnValue(null)
   vi.mocked(store.schemaSelectionFor).mockReset().mockReturnValue(null)
+  vi.mocked(schemaCache.cacheIdentityFor).mockReset().mockReturnValue('identity')
+  vi.mocked(schemaCache.loadCacheFile).mockReset().mockReturnValue(null)
+  vi.mocked(schemaCache.cachedIntrospection).mockReset().mockReturnValue(null)
 })
 
 async function connectDatabricks(connId = 'dbx'): Promise<void> {
@@ -127,11 +152,11 @@ describe('connect', () => {
     expect(store.catalogSelectionFor).toHaveBeenCalledWith('dbx')
   })
 
-  it('passes Postgres no connect options', async () => {
+  it('passes Postgres only the cache flag, no pinning options', async () => {
     vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
     await db.connect('pg', pgParams)
     const [, , options] = vi.mocked(postgresDriver.connect).mock.calls[0]
-    expect(options).toBeUndefined()
+    expect(options).toEqual({ skipIntrospection: false })
   })
 })
 
@@ -251,5 +276,121 @@ describe('listSchemas / listCatalogs', () => {
     const catalogs = await db.listCatalogs('pg')
     expect(schemas.ok).toBe(false)
     expect(catalogs.ok).toBe(false)
+  })
+})
+
+function okQuery(command: string): { ok: true; data: QueryResult } {
+  return {
+    ok: true,
+    data: {
+      command,
+      fields: [],
+      rows: [],
+      rowCount: null,
+      durationMs: 1,
+      limitApplied: null,
+      truncated: false
+    }
+  }
+}
+
+describe('schema cache', () => {
+  it('serves cached metadata on reconnect and revalidates in the background', async () => {
+    const cachedDb = {
+      name: 'main',
+      schemas: [
+        {
+          name: 'sales',
+          tables: [],
+          views: [],
+          matviews: [],
+          indexes: [],
+          functions: [],
+          sequences: [],
+          types: [],
+          aggregates: []
+        }
+      ]
+    }
+    vi.mocked(schemaCache.loadCacheFile).mockReturnValue({
+      version: 1,
+      identity: 'identity',
+      savedAt: 0,
+      databases: ['main', 'dev'],
+      introspections: {}
+    })
+    vi.mocked(schemaCache.cachedIntrospection).mockReturnValue(cachedDb)
+    vi.mocked(databricksDriver.connect).mockResolvedValue(
+      okConnect('main', ['main'])
+    )
+    vi.mocked(databricksDriver.introspectDatabase).mockResolvedValue({
+      ok: true,
+      data: { name: 'main', schemas: [] }
+    })
+    vi.mocked(databricksDriver.listCatalogs!).mockResolvedValue({
+      ok: true,
+      data: ['main', 'dev']
+    })
+    const events: SchemaRefreshEvent[] = []
+    db.setSchemaEventSink((evt) => events.push(evt))
+
+    const res = await db.connect('dbx', dbxParams)
+    const [, , options] = vi.mocked(databricksDriver.connect).mock.calls[0]
+    expect(options?.skipIntrospection).toBe(true)
+    expect(res.ok && res.data.connectedDatabase).toBe(cachedDb)
+    expect(res.ok && res.data.databases).toEqual(['main', 'dev'])
+
+    await vi.waitFor(() => {
+      expect(events.map((evt) => evt.state)).toEqual(['validating', 'ok'])
+    })
+    // The fresh introspection differs from the cache, so the ok event
+    // carries it and the cache entry gets rewritten.
+    expect(events[1].introspection).toEqual({ name: 'main', schemas: [] })
+    expect(schemaCache.saveIntrospection).toHaveBeenCalled()
+  })
+
+  it('serves db:introspect from the cache and revalidates in the background', async () => {
+    await connectDatabricks()
+    const cachedDev = { name: 'dev', schemas: [] }
+    vi.mocked(schemaCache.cachedIntrospection).mockReturnValue(cachedDev)
+    vi.mocked(databricksDriver.introspectDatabase).mockResolvedValue({
+      ok: true,
+      data: { name: 'dev', schemas: [] }
+    })
+    const events: SchemaRefreshEvent[] = []
+    db.setSchemaEventSink((evt) => events.push(evt))
+
+    const res = await db.introspectDatabase('dbx', 'dev')
+    expect(res.ok && res.data).toBe(cachedDev)
+    await vi.waitFor(() => {
+      expect(events.map((evt) => evt.state)).toEqual(['validating', 'ok'])
+    })
+    // Fresh result matches the cache: no introspection payload pushed.
+    expect(events[1].unchanged).toBe(true)
+    expect(events[1].introspection).toBeUndefined()
+  })
+
+  it('revalidates after successful DDL, but not after reads', async () => {
+    vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
+    await db.connect('pg', pgParams)
+    vi.mocked(postgresDriver.introspectDatabase).mockResolvedValue({
+      ok: true,
+      data: { name: 'app', schemas: [] }
+    })
+    const events: SchemaRefreshEvent[] = []
+    db.setSchemaEventSink((evt) => events.push(evt))
+
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(okQuery('SELECT'))
+    await db.runQuery('pg', 'app', 'SELECT 1', null)
+    expect(events).toEqual([])
+
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(
+      okQuery('CREATE TABLE')
+    )
+    await db.runQuery('pg', 'app', 'CREATE TABLE t (x int)', null)
+    await vi.waitFor(() => {
+      expect(events.map((evt) => evt.state)).toEqual(['validating', 'ok'])
+    })
+    expect(postgresDriver.introspectDatabase).toHaveBeenCalledWith('pg', 'app')
   })
 })

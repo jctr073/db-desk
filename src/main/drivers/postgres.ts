@@ -23,7 +23,7 @@ import {
   parseConnectionUrl
 } from '../../shared/connectionUrl'
 import { applyAutoLimit } from '../../shared/sql'
-import type { Driver, RunQueryOptions } from './types'
+import type { ConnectOptions, Driver, RunQueryOptions } from './types'
 
 const CONNECT_TIMEOUT_MS = 8000
 
@@ -486,7 +486,8 @@ export async function testConnection(
 async function connectOnce(
   connId: string,
   params: ConnectParams,
-  ssl: SslOverride
+  ssl: SslOverride,
+  skipIntrospection: boolean
 ): Promise<DbResult<ConnectResult>> {
   const pool = new Pool({ ...clientConfig(params, ssl), max: 4 })
   let client: PoolClient | undefined
@@ -496,7 +497,9 @@ async function connectOnce(
       'SELECT current_database() AS db, version() AS version'
     )
     const database = meta.rows[0].db
-    const connectedDatabase = await introspectWith(client, database)
+    const connectedDatabase: DatabaseIntrospection = skipIntrospection
+      ? { name: database, schemas: [] }
+      : await introspectWith(client, database)
     connections.set(connId, {
       params,
       pool,
@@ -525,7 +528,8 @@ async function connectOnce(
 
 export async function connect(
   connId: string,
-  params: ConnectParams
+  params: ConnectParams,
+  options: ConnectOptions = {}
 ): Promise<DbResult<ConnectResult>> {
   if (connections.has(connId)) {
     return { ok: false, error: `Connection "${connId}" already exists` }
@@ -536,17 +540,18 @@ export async function connect(
       error: 'A database is required for PostgreSQL connections.'
     }
   }
+  const skip = options.skipIntrospection ?? false
   switch (sslStrategy(params)) {
     case 'plain':
     case 'verify':
       // pg enforces the URL's sslmode as written; no override, no retry.
-      return connectOnce(connId, params, null)
+      return connectOnce(connId, params, null, skip)
     case 'tls':
-      return connectOnce(connId, params, true)
+      return connectOnce(connId, params, true, skip)
     case 'auto': {
-      const tls = await connectOnce(connId, params, true)
+      const tls = await connectOnce(connId, params, true, skip)
       if (tls.ok || !plaintextWorthTrying(tls.error)) return tls
-      return connectOnce(connId, params, false)
+      return connectOnce(connId, params, false, skip)
     }
   }
 }
