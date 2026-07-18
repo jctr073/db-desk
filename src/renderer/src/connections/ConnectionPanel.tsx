@@ -24,6 +24,7 @@ import { flattenTree } from './flatten'
 import { buildReferenceIndex, columnPeers, columnReferences, tableReferences } from './references'
 import type { ColumnEndpoint } from './references'
 import { findNode } from './treeData'
+import { ENV_BADGE_LABELS } from './types'
 import type { NodeKind, TreeNode } from './types'
 import type { ConnectionState } from './useConnectionState'
 import { useEscapeKey } from '../useEscapeKey'
@@ -356,6 +357,11 @@ export function ConnectionPanel({
                     <DatabaseIcon size={15} />
                   </span>
                   <span className="conn-active-card__name">{activeNode.label}</span>
+                  {activeNode.environment && (
+                    <span className={`env-badge env-badge--${activeNode.environment}`}>
+                      {ENV_BADGE_LABELS[activeNode.environment]}
+                    </span>
+                  )}
                   <span className="conn-active-card__host">{activeNode.subtitle ?? ''}</span>
                   <span className="conn-active-card__badge">ACTIVE</span>
                   <span
@@ -429,6 +435,11 @@ export function ConnectionPanel({
                   <DatabaseIcon size={14} />
                 </span>
                 <span className="conn-other-row__name">{node.label}</span>
+                {node.environment && (
+                  <span className={`env-badge env-badge--${node.environment}`}>
+                    {ENV_BADGE_LABELS[node.environment]}
+                  </span>
+                )}
                 <span className="conn-other-row__host">{node.subtitle ?? ''}</span>
                 <span className={`conn-other-row__dot is-${node.status ?? 'offline'}`} />
               </div>

@@ -3,6 +3,7 @@ import type { MouseEvent, ReactElement } from 'react'
 
 import { KeyIcon, ChevronRightIcon } from '../components/icons'
 import { NodeIcon } from './NodeIcon'
+import { ENV_BADGE_LABELS } from './types'
 import type { TreeMode, TreeNode } from './types'
 
 const CONTAINER_KINDS = new Set<TreeNode['kind']>(['connection', 'database', 'schema', 'category'])
@@ -156,6 +157,11 @@ export const TreeRow = memo(function TreeRow({
         <span className={labelClass}>{node.label}</span>
         {showSub && <span className="tree-row__sub">{node.subtitle}</span>}
       </span>
+      {node.kind === 'connection' && node.environment && (
+        <span className={`env-badge env-badge--${node.environment}`}>
+          {ENV_BADGE_LABELS[node.environment]}
+        </span>
+      )}
       {hasKnowledge && (
         <span
           title={node.kind === 'schema' ? 'Has linked knowledge bases' : 'Has local knowledge'}

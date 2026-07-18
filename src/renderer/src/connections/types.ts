@@ -39,6 +39,8 @@ export interface TreeNode {
   connectionType?: ConnectionType
   /** Database/catalog the connection was opened against (locked in pickers). */
   connectedDatabase?: string
+  /** Deployment tier the connection is tagged with; drives the env badge. */
+  environment?: ConnectionEnvironment
 
   // database / connection
   /** True when the database's schema has not been introspected yet. */
@@ -64,6 +66,13 @@ export interface TreeNode {
 
   // data type
   meta?: string
+}
+
+/** Short uppercase labels for the env badge (tree rows + titlebar pill). */
+export const ENV_BADGE_LABELS: Record<ConnectionEnvironment, string> = {
+  dev: 'DEV',
+  stage: 'STG',
+  prod: 'PROD'
 }
 
 export type TreeMode = 'A' | 'B'
