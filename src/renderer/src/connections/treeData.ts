@@ -249,7 +249,8 @@ export function formFromSaved(saved: SavedConnection): ConnectionForm {
     password: '',
     httpPath: saved.httpPath || defaults.httpPath,
     savePwd: true,
-    url: saved.url || defaults.url
+    url: saved.url || defaults.url,
+    environment: saved.environment
   }
 }
 
@@ -342,6 +343,7 @@ export function defaultForm(type: ConnectionType = 'postgres'): ConnectionForm {
     password: '',
     httpPath: '',
     savePwd: true,
-    url: defaults.url
+    url: defaults.url,
+    environment: null
   }
 }

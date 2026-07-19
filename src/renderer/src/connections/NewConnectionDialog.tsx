@@ -1,10 +1,18 @@
 import { useEffect } from 'react'
 import type { ReactElement } from 'react'
 
+import { CONNECTION_ENVIRONMENTS } from '../../../shared/db'
+import type { ConnectionEnvironment } from '../../../shared/db'
 import { CONNECTION_TYPES, DIALECTS, dialectFor } from '../../../shared/dialect'
 import { CheckIcon, CloseIcon, DatabaseIcon, EyeIcon } from '../components/icons'
-import { databaseFieldError } from './connectionValidation'
+import { databaseFieldError, environmentFieldError } from './connectionValidation'
 import type { ConnectionState } from './useConnectionState'
+
+const ENVIRONMENT_LABELS: Record<ConnectionEnvironment, string> = {
+  dev: 'Dev',
+  stage: 'Stage',
+  prod: 'Prod'
+}
 
 interface NewConnectionDialogProps {
   state: ConnectionState
@@ -28,6 +36,7 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
   const isParams = state.dialogTab === 'params' || !dialect.supportsUrl
   const editing = state.editingId !== null
   const dbError = databaseFieldError(dialect, isParams, state.form.database, state.form.url)
+  const envError = environmentFieldError(state.form.environment)
 
   const secretField = (
     <div style={{ flex: 1 }}>
@@ -87,6 +96,22 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
                 onClick={() => state.setDialogType(type)}
               >
                 {DIALECTS[type].label}
+              </button>
+            ))}
+          </div>
+
+          <label className="field-label">ENVIRONMENT</label>
+          <div className="dtabs dtabs--type" role="radiogroup" aria-label="Environment">
+            {CONNECTION_ENVIRONMENTS.map((env) => (
+              <button
+                key={env}
+                type="button"
+                role="radio"
+                aria-checked={state.form.environment === env}
+                className={`dtab${state.form.environment === env ? ' is-active' : ''}`}
+                onClick={() => state.setFormEnvironment(env)}
+              >
+                {ENVIRONMENT_LABELS[env]}
               </button>
             ))}
           </div>
@@ -256,8 +281,8 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
           <button
             className="btn-primary"
             onClick={state.connect}
-            disabled={state.connecting || !!dbError}
-            title={dbError ?? undefined}
+            disabled={state.connecting || !!dbError || !!envError}
+            title={dbError ?? envError ?? undefined}
             type="button"
           >
             {state.connecting && <span className="spinner" />}

@@ -1,3 +1,4 @@
+import type { ConnectionEnvironment } from '../../../shared/db'
 import type { ConnectionType } from '../../../shared/dialect'
 
 export type ConnectionStatus = 'online' | 'idle' | 'error' | 'offline'
@@ -88,4 +89,6 @@ export interface ConnectionForm {
   httpPath: string
   savePwd: boolean
   url: string
+  /** No default selection — the Connect button stays disabled until picked. */
+  environment: ConnectionEnvironment | null
 }

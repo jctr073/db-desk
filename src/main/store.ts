@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { writeJsonAtomic } from './atomicJson'
 import { normalizeConnectionUrl } from '../shared/connectionUrl'
 import type { ConnectionType } from '../shared/dialect'
-import type { ConnectParams, SavedConnection } from '../shared/db'
+import type { ConnectionEnvironment, ConnectParams, SavedConnection } from '../shared/db'
 import type { SchemaSelectionConfig } from '../shared/schemaSelection'
 import { wipeAll as wipeKnowledge } from './knowledge'
 
@@ -37,6 +37,11 @@ interface StoredRecord {
   catalogSelection?: string[]
   /** Catalog name → pinned schema names; absent key = all schemas. */
   schemaSelections?: Record<string, string[]>
+  /**
+   * Deployment tier; absent on records saved before this field existed. Also
+   * additive within store version 2 — see the comment above.
+   */
+  environment?: ConnectionEnvironment
 }
 
 /**
@@ -126,7 +131,8 @@ function toPublic(record: StoredRecord): SavedConnection {
     httpPath: record.httpPath ?? '',
     url: record.url,
     useUrl: record.useUrl,
-    hasPassword: !!record.secret
+    hasPassword: !!record.secret,
+    environment: record.environment ?? null
   }
 }
 
@@ -190,6 +196,7 @@ export function saveConnection(
     httpPath: params.httpPath,
     url,
     useUrl: params.useUrl,
+    environment: params.environment ?? undefined,
     secret: savePassword ? encrypt(password) : undefined
   }
   const records = [...load()]
@@ -264,6 +271,21 @@ export function setCatalogSelection(id: string, catalogs: string[] | null): void
   persist(records)
 }
 
+/**
+ * Set a connection's environment; used by the legacy prompt (`store:setEnvironment`)
+ * to fill in the field for connections saved before it existed, without
+ * re-issuing `store:save` (the renderer never holds the password). Returns
+ * false for an unknown connection id.
+ */
+export function setEnvironment(id: string, environment: ConnectionEnvironment): boolean {
+  const records = [...load()]
+  const index = records.findIndex((record) => record.id === id)
+  if (index < 0) return false
+  records[index] = { ...records[index], environment }
+  persist(records)
+  return true
+}
+
 /** Pin the schemas of one catalog; null clears (back to all). */
 export function setSchemaSelection(id: string, catalog: string, schemas: string[] | null): void {
   const records = [...load()]
@@ -303,6 +325,7 @@ export function savedParams(id: string): ConnectParams | null {
     password,
     httpPath: record.httpPath ?? '',
     url,
-    useUrl: record.useUrl
+    useUrl: record.useUrl,
+    environment: record.environment ?? null
   }
 }

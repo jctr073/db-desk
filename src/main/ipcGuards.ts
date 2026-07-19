@@ -13,6 +13,8 @@
 
 import { CONNECTION_TYPES } from '../shared/dialect'
 import type { ConnectionType } from '../shared/dialect'
+import { CONNECTION_ENVIRONMENTS } from '../shared/db'
+import type { ConnectionEnvironment } from '../shared/db'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -68,6 +70,17 @@ export function validateStoreSavePayload(
   ) {
     throw new Error(`Unknown connection type: ${String(params.type)}`)
   }
+  // Missing/null still validates: legacy callers and in-progress forms don't
+  // have one yet, and the connect-time belt (facade connect()) is what
+  // actually enforces that a live connection carries one.
+  if (
+    params.environment !== null &&
+    params.environment !== undefined &&
+    (typeof params.environment !== 'string' ||
+      !CONNECTION_ENVIRONMENTS.includes(params.environment as ConnectionEnvironment))
+  ) {
+    throw new Error(`Unknown connection environment: ${String(params.environment)}`)
+  }
   for (const field of CONNECT_PARAM_STRING_FIELDS) {
     requireString(params[field], `Connection ${field}`)
   }
@@ -91,6 +104,21 @@ export function validateSchemaSelectionConfig(id: unknown, config: unknown): voi
     if (!isStringArray(schemas)) {
       throw new Error(`Schema selection for catalog ${catalog} must be a string array`)
     }
+  }
+}
+
+/**
+ * `store:setEnvironment` payload: persisted directly (the legacy-connection
+ * prompt's belt), so the environment must be one of the known tiers — unlike
+ * `store:save`, there is no "missing is fine" case here.
+ */
+export function validateSetEnvironmentPayload(id: unknown, environment: unknown): void {
+  requireNonEmptyString(id, 'Connection id')
+  if (
+    typeof environment !== 'string' ||
+    !CONNECTION_ENVIRONMENTS.includes(environment as ConnectionEnvironment)
+  ) {
+    throw new Error(`Unknown connection environment: ${String(environment)}`)
   }
 }
 

@@ -64,7 +64,8 @@ const params: ConnectParams = {
   password: 'hunter2',
   httpPath: '',
   url: '',
-  useUrl: false
+  useUrl: false,
+  environment: 'dev'
 }
 
 beforeEach(async () => {
@@ -174,6 +175,45 @@ describe('version-2 file round-trip', () => {
     store.saveConnection('c-1', 'primary', params, true)
     const mode = statSync(storePath()).mode & 0o777
     expect(mode).toBe(0o600)
+  })
+})
+
+describe('environment', () => {
+  it('round-trips through save, list, and savedParams', async () => {
+    const saved = store.saveConnection('c-1', 'primary', params, true)
+    expect(saved.environment).toBe('dev')
+    expect(store.listSaved()[0].environment).toBe('dev')
+    expect(store.savedParams('c-1')?.environment).toBe('dev')
+
+    vi.resetModules()
+    const reloaded = await import('../../src/main/store')
+    expect(reloaded.listSaved()[0].environment).toBe('dev')
+    expect(reloaded.savedParams('c-1')?.environment).toBe('dev')
+  })
+
+  it('a record saved without one yields null from toPublic and savedParams', () => {
+    const saved = store.saveConnection('c-1', 'primary', { ...params, environment: null }, true)
+    expect(saved.environment).toBeNull()
+    expect(store.listSaved()[0].environment).toBeNull()
+    expect(store.savedParams('c-1')?.environment).toBeNull()
+
+    const onDisk = JSON.parse(readFileSync(storePath(), 'utf8'))
+    expect(onDisk.connections[0]).not.toHaveProperty('environment')
+  })
+
+  it('setEnvironment persists the choice and reports success', async () => {
+    store.saveConnection('c-1', 'primary', { ...params, environment: null }, true)
+    expect(store.setEnvironment('c-1', 'prod')).toBe(true)
+    expect(store.listSaved()[0].environment).toBe('prod')
+
+    vi.resetModules()
+    const reloaded = await import('../../src/main/store')
+    expect(reloaded.listSaved()[0].environment).toBe('prod')
+  })
+
+  it('setEnvironment is a no-op returning false for an unknown connection id', () => {
+    expect(store.setEnvironment('nope', 'prod')).toBe(false)
+    expect(store.listSaved()).toEqual([])
   })
 })
 

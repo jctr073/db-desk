@@ -6,6 +6,7 @@
 
 import { dialectFor } from '../shared/dialect'
 import type { ConnectionType } from '../shared/dialect'
+import { CONNECTION_ENVIRONMENTS } from '../shared/db'
 import type {
   ConnectParams,
   ConnectResult,
@@ -118,6 +119,14 @@ export function isReadOnlyViolation(code: string | undefined): boolean {
   )
 }
 
+/** `DbResult.code` for a connect() rejected over a missing/invalid environment. */
+export const ENV_REQUIRED_CODE = 'ENV_REQUIRED'
+
+/**
+ * Testing a connection (the dialog's Test button) is allowed with no
+ * environment picked yet — the form requires one before Connect, but trying
+ * credentials first is fine and shouldn't need it.
+ */
 export function testConnection(params: ConnectParams): Promise<DbResult<TestResult>> {
   return DRIVERS[params.type ?? 'postgres'].test(params)
 }
@@ -128,6 +137,16 @@ export async function connect(
 ): Promise<DbResult<ConnectResult>> {
   if (connTypes.has(connId)) {
     return { ok: false, error: `Connection "${connId}" already exists` }
+  }
+  // Belt for the renderer's legacy-connection prompt (useConnectionState.
+  // connectSaved): a caller that skips it — or a saved record that somehow
+  // still lacks one — cannot connect.
+  if (!params.environment || !CONNECTION_ENVIRONMENTS.includes(params.environment)) {
+    return {
+      ok: false,
+      error: 'This connection needs an environment (dev / stage / prod) before it can connect.',
+      code: ENV_REQUIRED_CODE
+    }
   }
   const type: ConnectionType = params.type ?? 'postgres'
   const identity = cacheIdentityFor(params)

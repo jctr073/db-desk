@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { DIALECTS } from '../../../shared/dialect'
-import { databaseFieldError } from './connectionValidation'
+import { databaseFieldError, environmentFieldError } from './connectionValidation'
 
 const postgres = DIALECTS.postgres
 const databricks = DIALECTS.databricks
@@ -31,5 +31,17 @@ describe('databaseFieldError', () => {
   it('never requires a database for multi-database dialects (Databricks)', () => {
     expect(databaseFieldError(databricks, true, '', '')).toBeNull()
     expect(databaseFieldError(databricks, false, '', '')).toBeNull()
+  })
+})
+
+describe('environmentFieldError', () => {
+  it('requires a pick — there is no default selection', () => {
+    expect(environmentFieldError(null)).toBe('Choose an environment.')
+  })
+
+  it('accepts any of the known tiers', () => {
+    expect(environmentFieldError('dev')).toBeNull()
+    expect(environmentFieldError('stage')).toBeNull()
+    expect(environmentFieldError('prod')).toBeNull()
   })
 })

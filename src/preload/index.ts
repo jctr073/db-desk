@@ -9,6 +9,7 @@ import type {
   AgentSendRequest
 } from '../shared/agent'
 import type {
+  ConnectionEnvironment,
   ConnectParams,
   ConnectResult,
   DatabaseIntrospection,
@@ -135,7 +136,10 @@ const api = Object.freeze({
     setCatalogSelection: (id: string, catalogs: string[] | null): Promise<void> =>
       typedInvoke('store:setCatalogSelection', id, catalogs),
     setSchemaSelection: (id: string, catalog: string, schemas: string[] | null): Promise<void> =>
-      typedInvoke('store:setSchemaSelection', id, catalog, schemas)
+      typedInvoke('store:setSchemaSelection', id, catalog, schemas),
+    /** Fill in the environment on a connection saved before this field existed. */
+    setEnvironment: (id: string, environment: ConnectionEnvironment): Promise<boolean> =>
+      typedInvoke('store:setEnvironment', id, environment)
   }),
   files: Object.freeze({
     list: (): Promise<QueryFile[]> => typedInvoke('files:list'),

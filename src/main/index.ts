@@ -3,7 +3,11 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { typedHandle, typedSend } from './ipc'
-import { validateSchemaSelectionConfig, validateStoreSavePayload } from './ipcGuards'
+import {
+  validateSchemaSelectionConfig,
+  validateSetEnvironmentPayload,
+  validateStoreSavePayload
+} from './ipcGuards'
 import {
   connect,
   disconnect,
@@ -28,6 +32,7 @@ import {
   savedParams,
   setSchemaConfig,
   setCatalogSelection,
+  setEnvironment,
   setSchemaSelection
 } from './store'
 import {
@@ -200,6 +205,10 @@ function registerDbHandlers(): void {
   typedHandle('store:setCatalogSelection', (_event, id, catalogs) => {
     setCatalogSelection(id, catalogs)
     invalidateAgentSchemaCache(id)
+  })
+  typedHandle('store:setEnvironment', (_event, id, environment) => {
+    validateSetEnvironmentPayload(id, environment)
+    return setEnvironment(id, environment)
   })
   typedHandle('store:setSchemaSelection', (_event, id, catalog, schemas) => {
     setSchemaSelection(id, catalog, schemas)
