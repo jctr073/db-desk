@@ -21,7 +21,9 @@ import type {
 import { LARGE_CATALOG_SCHEMA_THRESHOLD } from '../shared/schemaSelection'
 import { guardAgentStatement } from '../shared/sql'
 import { checkPgWriteCapability } from './pgPrivileges'
-import { databricksDriver } from './drivers/databricks'
+import { checkDbxWriteCapability } from './dbxPrivileges'
+import type { DbxFetcher } from './dbxPrivileges'
+import { databricksDriver, databricksRestInfo } from './drivers/databricks'
 import { postgresDriver, PG_READ_ONLY_VIOLATION_CODES } from './drivers/postgres'
 import type { Driver, RunQueryOptions } from './drivers/types'
 import { WRITE_REQUIRED_CODE } from './drivers/types'
@@ -79,6 +81,27 @@ const agentCapabilities = new Map<string, AgentCapability>()
 
 const AGENT_UNRESTRICTED: AgentCapability = { readOnlyAvailable: true, reason: null }
 
+/** Whole-check budget for the prod capability probe (Postgres and Databricks). */
+const CAPABILITY_PROBE_TIMEOUT_MS = 5000
+
+/**
+ * A Databricks REST fetcher bound to one connection's host + PAT. The token
+ * never leaves the main process. Each call is bounded by the shared probe
+ * budget via the passed AbortSignal; a non-2xx status throws so the checker
+ * folds it to indeterminate (fail closed).
+ */
+function databricksFetcher(host: string, token: string, signal: AbortSignal): DbxFetcher {
+  const base = /^https?:\/\//i.test(host) ? host : `https://${host}`
+  return async (path) => {
+    const res = await fetch(new URL(path, base), {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      signal
+    })
+    if (!res.ok) throw new Error(`Databricks API ${path} → ${res.status}`)
+    return res.json()
+  }
+}
+
 /** Agent capability of a live connection; null when the connection is gone. */
 export function agentCapabilityFor(connId: string): AgentCapability | null {
   return agentCapabilities.get(connId) ?? null
@@ -89,9 +112,10 @@ export function agentCapabilityFor(connId: string): AgentCapability | null {
  * stage are always unrestricted — the constant is returned without running
  * anything, so non-prod connects are byte-identical to before this feature.
  * Everything else (prod, or an environment this code no longer recognizes)
- * takes the restrictive path: Postgres earns Read-Only mode by proving the
- * role cannot write; Databricks is clamped unconditionally until its
- * privilege check (Unity Catalog effective permissions over REST) ships.
+ * takes the restrictive path: both engines earn Read-Only mode only by
+ * proving the connecting principal cannot write — Postgres over its grant
+ * catalog, Databricks over the Unity Catalog effective-permissions REST API
+ * for the pinned scope. Anything short of a provable read-only clamps.
  */
 async function computeAgentCapability(
   connId: string,
@@ -100,22 +124,49 @@ async function computeAgentCapability(
   database: string
 ): Promise<AgentCapability> {
   if (environment === 'dev' || environment === 'stage') return AGENT_UNRESTRICTED
-  if (type !== 'postgres') {
-    return {
-      readOnlyAvailable: false,
-      reason: 'Production Databricks connections are metadata-only for the agent in this version.'
-    }
-  }
-  const verdict = await checkPgWriteCapability((sql) =>
-    DRIVERS.postgres.runQuery(connId, database, sql, null, { readOnly: true, timeoutMs: 5000 })
-  )
+  const verdict =
+    type === 'postgres'
+      ? await checkPgWriteCapability((sql) =>
+          DRIVERS.postgres.runQuery(connId, database, sql, null, {
+            readOnly: true,
+            timeoutMs: CAPABILITY_PROBE_TIMEOUT_MS
+          })
+        )
+      : await checkDatabricksCapability(connId, database)
   if (verdict === 'readonly') return AGENT_UNRESTRICTED
+  // "role" (Postgres) vs "principal" (Databricks user/group/service principal).
+  const noun = type === 'postgres' ? 'role' : 'principal'
   return {
     readOnlyAvailable: false,
     reason:
       verdict === 'writable'
-        ? 'The connecting role can write to this production database. Connect with a read-only role to enable agent Read-Only mode.'
-        : 'Could not verify this role’s privileges on this production database; the agent is metadata-only. Connect with a read-only role to enable Read-Only mode.'
+        ? `The connecting ${noun} can write to this production database. Connect with a read-only ${noun} to enable agent Read-Only mode.`
+        : `Could not verify this ${noun}’s privileges on this production database; the agent is metadata-only. Connect with a read-only ${noun} to enable Read-Only mode.`
+  }
+}
+
+/**
+ * Databricks arm of the prod capability probe: build the REST fetcher from the
+ * live connection's host + PAT, check the pinned scope, and bound the whole
+ * thing by the shared probe budget. A missing connection, a check with no
+ * pinned scope, or a timeout all resolve to 'indeterminate' → clamp.
+ */
+async function checkDatabricksCapability(
+  connId: string,
+  database: string
+): Promise<'readonly' | 'writable' | 'indeterminate'> {
+  const info = databricksRestInfo(connId)
+  if (!info) return 'indeterminate'
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), CAPABILITY_PROBE_TIMEOUT_MS)
+  try {
+    return await checkDbxWriteCapability(
+      databricksFetcher(info.host, info.token, controller.signal),
+      database,
+      schemaSelectionFor(connId, database)
+    )
+  } finally {
+    clearTimeout(timer)
   }
 }
 

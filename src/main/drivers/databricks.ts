@@ -628,6 +628,18 @@ function getServerVersion(connId: string): string | null {
   return connections.get(connId)?.serverVersion ?? null
 }
 
+/**
+ * Workspace host + PAT for a live connection, so the facade can build the
+ * REST fetcher for the prod agent-capability check (dbxPrivileges.ts). The
+ * token stays in the main process — this is not exposed over IPC. Null when
+ * the connection is gone.
+ */
+export function databricksRestInfo(connId: string): { host: string; token: string } | null {
+  const managed = connections.get(connId)
+  if (!managed) return null
+  return { host: managed.params.host.trim(), token: managed.params.password }
+}
+
 async function introspectDatabase(
   connId: string,
   database: string,
