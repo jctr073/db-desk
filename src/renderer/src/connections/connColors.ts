@@ -1,3 +1,5 @@
+import type { ConnectionEnvironment } from '../../../shared/db'
+
 /** Per-connection accent color (see the "Unified Connection" design). */
 export interface ConnAccent {
   hex: string
@@ -14,11 +16,32 @@ const PALETTE: ConnAccent[] = [
   { hex: '#7fd18b', rgb: '127, 209, 139' }
 ]
 
-/** Accent per connection id, cycling the palette in the given (tree) order. */
-export function connAccents(connIds: string[]): Map<string, ConnAccent> {
+/** Fixed accent for prod connections — overrides the palette everywhere
+ * accent-derived chrome appears (titlebar pill, tab underline, tree dot). */
+export const PROD_ACCENT: ConnAccent = { hex: '#e5484d', rgb: '229, 72, 77' }
+
+/** The accent a connection should render with: prod always reads red,
+ * regardless of its palette slot; dev/stage keep their assigned color. */
+function accentFor(
+  environment: ConnectionEnvironment | null | undefined,
+  paletteAccent: ConnAccent
+): ConnAccent {
+  return environment === 'prod' ? PROD_ACCENT : paletteAccent
+}
+
+/**
+ * Accent per connection id, cycling the palette in the given (tree) order.
+ * Prod connections are overridden to the fixed red PROD_ACCENT, but still
+ * consume a palette slot so dev/stage accents stay identical to before.
+ */
+export function connAccents(
+  conns: { id: string; environment?: ConnectionEnvironment | null }[]
+): Map<string, ConnAccent> {
   const out = new Map<string, ConnAccent>()
-  for (const id of connIds) {
-    if (!out.has(id)) out.set(id, PALETTE[out.size % PALETTE.length])
+  for (const conn of conns) {
+    if (out.has(conn.id)) continue
+    const paletteAccent = PALETTE[out.size % PALETTE.length]
+    out.set(conn.id, accentFor(conn.environment, paletteAccent))
   }
   return out
 }

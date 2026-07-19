@@ -21,6 +21,7 @@ import { EnvironmentPromptDialog } from './connections/EnvironmentPromptDialog'
 import { ManageObjectsDialog } from './connections/ManageObjectsDialog'
 import { NewConnectionDialog } from './connections/NewConnectionDialog'
 import { connAccents } from './connections/connColors'
+import { ENV_BADGE_LABELS } from './connections/types'
 import { useConnectionState } from './connections/useConnectionState'
 import { useTheme } from './theme'
 import { useFileState } from './files/useFileState'
@@ -206,9 +207,11 @@ export function App(): ReactElement {
     return out
   }, [connections.tree])
 
-  /** Stable accent color per connection, in tree order (unified context UI). */
+  /** Stable accent color per connection, in tree order (unified context UI).
+   * Prod connections render red (PROD_ACCENT) regardless of palette slot. */
   const accents = useMemo(
-    () => connAccents(connections.tree.map((node) => node.id)),
+    () =>
+      connAccents(connections.tree.map((node) => ({ id: node.id, environment: node.environment }))),
     [connections.tree]
   )
 
@@ -367,6 +370,11 @@ export function App(): ReactElement {
               title={`Active context — every panel targets ${activeTarget.connName} / ${activeTarget.database}`}
             >
               <span className="titlebar-pill__dot" />
+              {activeConnNode?.environment && (
+                <span className={`env-badge env-badge--${activeConnNode.environment}`}>
+                  {ENV_BADGE_LABELS[activeConnNode.environment]}
+                </span>
+              )}
               <span className="titlebar-pill__name">{activeTarget.connName}</span>
               <span className="titlebar-pill__sep">/</span>
               <span className="titlebar-pill__db">{activeTarget.database}</span>

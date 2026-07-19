@@ -625,6 +625,38 @@ textarea {
   border-style: dashed;
   opacity: 0.85;
 }
+/* Deployment-tier badge (dev/stage/prod): tree connection rows + titlebar
+   pill and connection rows share this class. Prod uses a fixed red,
+   independent of theme, to match --conn-accent's PROD_ACCENT override. */
+.env-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 13px;
+  padding: 0 3px;
+  border-radius: 3px;
+  border: 1px solid;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.env-badge--dev {
+  color: var(--text-faint);
+  border-color: var(--border);
+  background: var(--panel-hi);
+}
+.env-badge--stage {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 55%, transparent);
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+}
+.env-badge--prod {
+  color: #e5484d;
+  border-color: color-mix(in srgb, #e5484d 55%, transparent);
+  background: color-mix(in srgb, #e5484d 14%, transparent);
+}
 /* Right-aligned detail text (loading notes, counts, dtypes). */
 .tree-row__right {
   font-size: 10.5px;
