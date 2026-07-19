@@ -30,7 +30,7 @@ import type {
   AgentSendRequest,
   AgentTargetRef
 } from '../shared/agent'
-import { AGENT_MODELS, resolveAgentMode } from '../shared/agent'
+import { AGENT_MODELS, clampAgentMode, resolveAgentMode } from '../shared/agent'
 import { apiKeyVarName, loadApiKey } from './settings'
 import { mcpToolsForTurn } from './mcp'
 import type { McpAgentTool } from './mcp'
@@ -279,11 +279,8 @@ async function runAgentTurn(req: AgentSendRequest, send: Sender): Promise<void> 
   // that couldn't be verified. The clamp happens before the system prompt
   // and tool array are built, so a clamped turn is indistinguishable from a
   // Metadata Only one.
-  let mode = resolveAgentMode(req.mode)
-  if (mode === 'read-only' && req.target) {
-    const capability = agentCapabilityFor(req.target.connId)
-    if (!capability || !capability.readOnlyAvailable) mode = 'metadata'
-  }
+  const capability = req.target ? agentCapabilityFor(req.target.connId) : null
+  const mode = clampAgentMode(resolveAgentMode(req.mode), capability)
   const client = new Anthropic({ apiKey: key })
   // Dialect follows the target connection's engine; chats without a target
   // default to PostgreSQL guidance.

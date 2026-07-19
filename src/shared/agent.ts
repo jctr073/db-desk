@@ -3,7 +3,7 @@
  * preload bridge, and the renderer chat UI. Structured-clone friendly.
  */
 
-import type { QueryResult } from './db'
+import type { AgentCapability, QueryResult } from './db'
 
 /** Default name of the shell variable holding the Claude API key. */
 export const API_KEY_VAR = 'CLAUDE_API_KEY'
@@ -51,6 +51,19 @@ export const DEFAULT_AGENT_MODE: AgentMode = 'metadata'
 export function resolveAgentMode(mode: unknown): AgentMode {
   const opt = AGENT_MODES.find((m) => m.id === mode)
   return opt && opt.enabled ? opt.id : DEFAULT_AGENT_MODE
+}
+
+/**
+ * Degrade an already-resolved mode against a connection's agent capability:
+ * Read-Only becomes Metadata Only when the connection is clamped (prod whose
+ * role can write, or couldn't be verified). A null capability — no capability
+ * recorded for the target — also clamps, failing closed. The main process
+ * calls this authoritatively before building the turn; every other mode
+ * (including an already-safe Metadata Only) passes through unchanged.
+ */
+export function clampAgentMode(mode: AgentMode, capability: AgentCapability | null): AgentMode {
+  if (mode !== 'read-only') return mode
+  return capability && capability.readOnlyAvailable ? mode : 'metadata'
 }
 
 export interface AgentModelOption {
