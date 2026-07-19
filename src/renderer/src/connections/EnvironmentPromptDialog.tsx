@@ -56,9 +56,7 @@ export function EnvironmentPromptDialog({
         </div>
 
         <div className="dialog__body">
-          <p className="url-hint">
-            Pick one to connect — prod adds extra agent safeguards.
-          </p>
+          <p className="url-hint">Pick one to connect — prod adds extra agent safeguards.</p>
           <div className="dtabs dtabs--type" role="radiogroup" aria-label="Environment">
             {CONNECTION_ENVIRONMENTS.map((env) => (
               <button

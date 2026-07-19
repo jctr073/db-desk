@@ -91,15 +91,23 @@ describe('validateStoreSavePayload', () => {
     ).not.toThrow()
   })
 
-  it.each([null, undefined])('accepts a missing/null environment (legacy callers)', (environment) => {
-    expect(() =>
-      validateStoreSavePayload('conn-1', 'Name', { ...validParams, environment }, true)
-    ).not.toThrow()
-  })
+  it.each([null, undefined])(
+    'accepts a missing/null environment (legacy callers)',
+    (environment) => {
+      expect(() =>
+        validateStoreSavePayload('conn-1', 'Name', { ...validParams, environment }, true)
+      ).not.toThrow()
+    }
+  )
 
   it('rejects an out-of-enum environment string', () => {
     expect(() =>
-      validateStoreSavePayload('conn-1', 'Name', { ...validParams, environment: 'production' }, true)
+      validateStoreSavePayload(
+        'conn-1',
+        'Name',
+        { ...validParams, environment: 'production' },
+        true
+      )
     ).toThrow('Unknown connection environment: production')
   })
 
