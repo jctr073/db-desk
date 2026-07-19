@@ -24,7 +24,8 @@ vi.mock('../../src/main/drivers/databricks', () => ({
     searchSchema: vi.fn(),
     listSchemas: vi.fn(),
     listCatalogs: vi.fn()
-  }
+  },
+  databricksRestInfo: vi.fn(() => ({ host: 'wh.cloud.databricks.com', token: 'token' }))
 }))
 
 vi.mock('../../src/main/drivers/postgres', () => ({
@@ -147,6 +148,33 @@ describe('connect', () => {
     expect(store.catalogSelectionFor).toHaveBeenCalledWith('dbx')
   })
 
+  it('excludes ungoverned catalogs from a prod Databricks connection', async () => {
+    vi.mocked(databricksDriver.connect).mockResolvedValue(
+      okConnect('main', ['main', 'hive_metastore', 'spark_catalog', 'dev'])
+    )
+    const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
+    expect(res.ok && res.data.databases).toEqual(['main', 'dev'])
+  })
+
+  it("keeps a prod connection's own catalog even when it is ungoverned", async () => {
+    // Explicitly connected to hive_metastore: the tree must not lose the
+    // connected catalog; the agent clamp still covers it.
+    vi.mocked(databricksDriver.connect).mockResolvedValue(
+      okConnect('hive_metastore', ['hive_metastore', 'main'])
+    )
+    const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
+    expect(res.ok && res.data.databases).toEqual(['hive_metastore', 'main'])
+    expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
+  })
+
+  it('leaves ungoverned catalogs visible on non-prod Databricks', async () => {
+    vi.mocked(databricksDriver.connect).mockResolvedValue(
+      okConnect('main', ['main', 'hive_metastore'])
+    )
+    const res = await db.connect('dbx', dbxParams)
+    expect(res.ok && res.data.databases).toEqual(['main', 'hive_metastore'])
+  })
+
   it('passes Postgres only the cache flag, no pinning options', async () => {
     vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
     await db.connect('pg', pgParams)
@@ -263,6 +291,16 @@ describe('listSchemas / listCatalogs', () => {
       ok: true,
       data: ['main', 'dev']
     })
+  })
+
+  it('filter ungoverned catalogs out of listCatalogs on a prod connection', async () => {
+    vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
+    await db.connect('dbx', { ...dbxParams, environment: 'prod' })
+    vi.mocked(databricksDriver.listCatalogs!).mockResolvedValue({
+      ok: true,
+      data: ['main', 'hive_metastore', 'spark_catalog', 'dev']
+    })
+    expect(await db.listCatalogs('dbx')).toEqual({ ok: true, data: ['main', 'dev'] })
   })
 
   it('report "not supported" for engines without the optional methods', async () => {
@@ -411,6 +449,35 @@ function probeRow(overrides: Record<string, boolean> = {}): { ok: true; data: Qu
   }
 }
 
+/**
+ * A stand-in for global fetch that answers the three Databricks REST shapes
+ * the capability probe calls: SCIM /Me, effective-permissions (echoing the
+ * given privileges under the user principal), and the securable metadata
+ * (owner). Every response is a 200.
+ */
+function dbxRest(
+  me: { userName: string; groups?: unknown[] },
+  privileges: string[],
+  owner: string
+): (input: URL | string) => Promise<{ ok: true; json: () => Promise<unknown> }> {
+  return (input) => {
+    const href = String(input)
+    let body: unknown
+    if (href.includes('/scim/v2/Me')) {
+      body = me
+    } else if (href.includes('/effective-permissions/')) {
+      body = {
+        privilege_assignments: [
+          { principal: me.userName, privileges: privileges.map((p) => ({ privilege: p })) }
+        ]
+      }
+    } else {
+      body = { owner }
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
+  }
+}
+
 describe('agent capability', () => {
   it.each(['dev', 'stage'] as const)(
     'grants %s connections Read-Only without running the probe',
@@ -454,11 +521,48 @@ describe('agent capability', () => {
     expect(res.ok && res.data.agentCapability.reason).toMatch(/Could not verify/)
   })
 
-  it('clamps prod Databricks unconditionally, without probing', async () => {
-    vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
-    const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
-    expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
-    expect(databricksDriver.runQuery).not.toHaveBeenCalled()
+  it('clamps prod Databricks with no pinned scope, without hitting the network', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    try {
+      vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
+      // schemaSelectionFor defaults to null: no bounded scope to prove
+      // read-only over, so the check clamps before any REST call.
+      const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
+      expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
+      expect(res.ok && res.data.agentCapability.reason).toMatch(/Could not verify this principal/)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('grants prod Databricks Read-Only when the pinned scope is provably read-only', async () => {
+    vi.stubGlobal('fetch', dbxRest({ userName: 'ro@x', groups: [] }, ['SELECT'], 'owner@x'))
+    try {
+      vi.mocked(store.schemaSelectionFor).mockReturnValue(['sales'])
+      vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
+      const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
+      expect(res.ok && res.data.agentCapability).toEqual({ readOnlyAvailable: true, reason: null })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('clamps prod Databricks when the pinned scope grants a write privilege', async () => {
+    vi.stubGlobal(
+      'fetch',
+      dbxRest({ userName: 'rw@x', groups: [] }, ['SELECT', 'MODIFY'], 'owner@x')
+    )
+    try {
+      vi.mocked(store.schemaSelectionFor).mockReturnValue(['sales'])
+      vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
+      const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
+      expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
+      expect(res.ok && res.data.agentCapability.reason).toMatch(/read-only principal/)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('forgets the capability on disconnect', async () => {
