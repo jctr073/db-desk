@@ -21,7 +21,7 @@ import type {
 import { LARGE_CATALOG_SCHEMA_THRESHOLD } from '../shared/schemaSelection'
 import { guardAgentStatement } from '../shared/sql'
 import { checkPgWriteCapability } from './pgPrivileges'
-import { checkDbxWriteCapability } from './dbxPrivileges'
+import { checkDbxWriteCapability, isUnityGovernedCatalog } from './dbxPrivileges'
 import type { DbxFetcher } from './dbxPrivileges'
 import { databricksDriver, databricksRestInfo } from './drivers/databricks'
 import { postgresDriver, PG_READ_ONLY_VIOLATION_CODES } from './drivers/postgres'
@@ -72,6 +72,13 @@ export function setSchemaEventSink(sink: SchemaEventSink): void {
 const connDatabases = new Map<string, string>()
 
 /**
+ * Live connId → the environment it connected under. Recorded so post-connect
+ * calls (listCatalogs) can apply prod-only filtering without re-reading the
+ * store.
+ */
+const connEnvironments = new Map<string, ConnectionEnvironment>()
+
+/**
  * Live connId → what the agent may do there, decided exactly once per
  * connection in connect(). This map — not the renderer's copy on
  * ConnectResult — is what the enforcement points read (runAgentTurn's mode
@@ -112,10 +119,12 @@ export function agentCapabilityFor(connId: string): AgentCapability | null {
  * stage are always unrestricted — the constant is returned without running
  * anything, so non-prod connects are byte-identical to before this feature.
  * Everything else (prod, or an environment this code no longer recognizes)
- * takes the restrictive path: both engines earn Read-Only mode only by
- * proving the connecting principal cannot write — Postgres over its grant
- * catalog, Databricks over the Unity Catalog effective-permissions REST API
- * for the pinned scope. Anything short of a provable read-only clamps.
+ * takes the restrictive path: Read-Only mode is offered only when the check
+ * finds the connecting principal read-only — Postgres over its grant catalog
+ * (a provable check), Databricks over the Unity Catalog effective-permissions
+ * REST API for the pinned scope (deliberately best-effort; see
+ * dbxPrivileges.ts for the accepted residuals). Anything short of an observed
+ * read-only clamps.
  */
 async function computeAgentCapability(
   connId: string,
@@ -271,6 +280,7 @@ export async function connect(
   if (!res.ok) return res
   connTypes.set(connId, type)
   connDatabases.set(connId, res.data.connectedDatabase.name)
+  connEnvironments.set(connId, params.environment)
   connIdentities.set(connId, identity)
   const connectedName = res.data.connectedDatabase.name
   if (cached) {
@@ -307,6 +317,18 @@ export async function connect(
     }
   }
   if (type === 'databricks') {
+    // On prod, catalogs without Unity Catalog governance (hive_metastore /
+    // spark_catalog) are excluded from the connection outright: the capability
+    // probe cannot reason about them, so they never appear in the tree or the
+    // pin dialog (listCatalogs applies the same filter). The connected catalog
+    // itself is kept so a connection explicitly opened against one doesn't
+    // lose its own tree — the agent clamp still covers it.
+    if (params.environment === 'prod') {
+      const connected = res.data.connectedDatabase.name
+      res.data.databases = res.data.databases.filter(
+        (name) => name === connected || isUnityGovernedCatalog(name)
+      )
+    }
     const pinnedCatalogs = catalogSelectionFor(connId)
     if (pinnedCatalogs) {
       const keep = new Set(pinnedCatalogs)
@@ -330,6 +352,7 @@ export async function disconnect(connId: string): Promise<DbResult<null>> {
   const driver = driverFor(connId)
   connTypes.delete(connId)
   connDatabases.delete(connId)
+  connEnvironments.delete(connId)
   connIdentities.delete(connId)
   agentCapabilities.delete(connId)
   return driver.disconnect(connId)
@@ -338,6 +361,7 @@ export async function disconnect(connId: string): Promise<DbResult<null>> {
 export async function disconnectAll(): Promise<void> {
   connTypes.clear()
   connDatabases.clear()
+  connEnvironments.clear()
   connIdentities.clear()
   agentCapabilities.clear()
   await Promise.allSettled(Object.values(DRIVERS).map((driver) => driver.disconnectAll()))
@@ -480,16 +504,25 @@ export function listSchemas(connId: string, database: string): Promise<DbResult<
   return list(connId, database)
 }
 
-/** All catalogs reachable from a connection, unfiltered by any pinning. */
-export function listCatalogs(connId: string): Promise<DbResult<string[]>> {
+/**
+ * All catalogs reachable from a connection, unfiltered by any pinning. On a
+ * prod Databricks connection, catalogs without Unity Catalog governance are
+ * excluded (same rule as connect()) so they cannot be pinned into a prod
+ * scope.
+ */
+export async function listCatalogs(connId: string): Promise<DbResult<string[]>> {
   const list = driverFor(connId).listCatalogs
   if (!list) {
-    return Promise.resolve({
+    return {
       ok: false,
       error: 'Not supported for this connection type'
-    })
+    }
   }
-  return list(connId)
+  const res = await list(connId)
+  if (res.ok && connTypes.get(connId) === 'databricks' && connEnvironments.get(connId) === 'prod') {
+    return { ok: true, data: res.data.filter(isUnityGovernedCatalog) }
+  }
+  return res
 }
 
 /**

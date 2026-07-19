@@ -5,31 +5,41 @@
  *
  * The Postgres probe (pgPrivileges.ts) can ask the server directly because
  * Postgres grants are visible from SQL. Unity Catalog grants are normally made
- * to *groups*, and a SQL session cannot enumerate its own group memberships —
- * a `SHOW GRANTS` check would miss a group-granted MODIFY and classify a
- * writable principal as read-only, the dangerous fail-open direction. So the
- * check runs over the REST API instead, using the same host + PAT the
+ * to *groups*, and a SQL session cannot enumerate its own group memberships,
+ * so this check runs over the REST API instead, using the same host + PAT the
  * connection already holds:
  *
- *  - SCIM `/Me` resolves the principal's identity (userName/emails) and whether
- *    it is a workspace/account/metastore admin (admins bypass grant checks).
- *  - Unity Catalog "effective permissions", queried *filtered by the user
- *    principal*, returns the privileges the principal effectively holds on a
- *    securable — INCLUDING those inherited through group membership and through
- *    the catalog/metastore hierarchy. A non-admin may always view their own
- *    effective permissions, so this needs no elevated PAT scope.
+ *  - SCIM `/Me` resolves the principal's identity (userName/emails for a user,
+ *    applicationId for a service principal) and whether it is a
+ *    workspace/account admin (admins bypass grant checks).
+ *  - Unity Catalog "effective permissions", queried *filtered by the
+ *    principal*, returns privileges the principal holds on a securable. A
+ *    non-admin may always view their own permissions, so this needs no
+ *    elevated PAT scope.
  *  - The securable's `owner` is fetched separately: owners implicitly hold all
  *    privileges, and ownership is not surfaced as a privilege assignment.
  *
- * As with Postgres, every uncertain path lands on 'writable' or
- * 'indeterminate', never 'readonly': the caller clamps the agent on anything
- * short of a provable read-only.
+ * Every uncertain path lands on 'writable' or 'indeterminate', never
+ * 'readonly': the caller clamps the agent on anything short of an observed
+ * read-only.
  *
- * Known residuals the check cannot see (documented, not defended):
- *  - If "effective permissions" filtered by the user does not expand a nested
- *    group grant, a MODIFY reachable only through that nesting is missed.
- *  - Legacy `hive_metastore` has no Unity Catalog governance to inspect; it is
- *    clamped by construction (see checkDbxWriteCapability).
+ * DELIBERATELY BEST-EFFORT (product decision, 2026-07-18): unlike the
+ * Postgres probe this is a heuristic, not a guarantee. Prod Databricks in the
+ * intended deployment is a CDC replica of the Postgres sources — the
+ * source-of-truth stakes live on the Postgres side, and the agent's other
+ * belts (single-statement guard, statement classifier, no writing-UDF-in-
+ * SELECT idiom in Databricks SQL) stay on regardless. Known residuals the
+ * check may not see (documented, accepted, not defended):
+ *  - Effective permissions filtered by a principal may not expand
+ *    group-INHERITED grants (docs suggest a non-admin sees only its own
+ *    direct grants). A MODIFY held only via a group can be missed.
+ *  - Metastore admins are not surfaced by workspace `/Me`.
+ * The check still clamps the unambiguous cases — workspace admins, securable
+ * owners, directly-granted writers, and every API failure or unrecognized
+ * response shape. Catalogs with no Unity Catalog governance (hive_metastore /
+ * spark_catalog) resolve indeterminate here as a belt; on prod connections
+ * the facade additionally excludes them from the catalog lists entirely (see
+ * isUnityGovernedCatalog).
  */
 
 export type DbxWriteCapability = 'readonly' | 'writable' | 'indeterminate'
@@ -61,7 +71,8 @@ function isWritePrivilege(privilege: string): boolean {
 interface DbxPrincipal {
   /**
    * Every name a grant or ownership might use for this principal, lower-cased:
-   * the userName, each email, and each direct group's display name and id.
+   * the userName, the applicationId (service principals), each email, the
+   * displayName, and each direct group's display name and id.
    * Being liberal here only ever adds matches — the fail-safe direction, since
    * an extra name can turn a missed grant into a caught one but never the
    * reverse.
@@ -96,9 +107,15 @@ export function principalFromMe(me: unknown): DbxPrincipal | null {
   if (!obj) return null
   const names = new Set<string>()
   addName(names, obj.userName)
+  // Service principals have no userName; Unity Catalog grants key on their
+  // applicationId. Insertion order matters: the first name added is what the
+  // orchestrator filters effective-permissions by, so for an SP that must be
+  // the applicationId.
+  addName(names, obj.applicationId)
   for (const email of asArray(obj.emails)) {
     addName(names, asRecord(email)?.value)
   }
+  addName(names, obj.displayName)
   let isAdmin = false
   for (const group of asArray(obj.groups)) {
     const g = asRecord(group)
@@ -181,8 +198,23 @@ export type DbxFetcher = (path: string) => Promise<unknown>
 
 const SCIM_ME_PATH = '/api/2.0/preview/scim/v2/Me'
 
-/** Legacy catalog with no Unity Catalog governance; nothing to inspect. */
-const UNGOVERNED_CATALOG = 'hive_metastore'
+/**
+ * Catalogs with no Unity Catalog governance to inspect: the legacy Hive
+ * metastore, and `spark_catalog` (its alias / the default catalog name on a
+ * non-UC workspace).
+ */
+const UNGOVERNED_CATALOGS = new Set(['hive_metastore', 'spark_catalog'])
+
+/**
+ * True when a catalog is governed by Unity Catalog (so its permissions are
+ * inspectable and the prod capability probe can reason about it). The facade
+ * also uses this to exclude ungoverned catalogs from a prod connection's
+ * catalog lists entirely.
+ */
+export function isUnityGovernedCatalog(name: string): boolean {
+  const catalog = name.trim().toLowerCase()
+  return catalog !== '' && !UNGOVERNED_CATALOGS.has(catalog)
+}
 
 function effectivePermPath(
   securableType: 'catalog' | 'schema',
@@ -209,8 +241,9 @@ function ownerOf(meta: unknown): string | null {
  * Run the REST check through an injected fetcher and fold the result. The
  * scope is the connected catalog plus its pinned schemas; a connection with
  * no schema pinning is left to the caller (there is no bounded scope to prove
- * read-only over, so it stays clamped). Legacy hive_metastore and any fetch
- * failure resolve to indeterminate — fail closed, always.
+ * read-only over, so it stays clamped). An ungoverned catalog (hive_metastore
+ * / spark_catalog) and any fetch failure resolve to indeterminate — fail
+ * closed, always.
  */
 export async function checkDbxWriteCapability(
   fetch: DbxFetcher,
@@ -219,7 +252,7 @@ export async function checkDbxWriteCapability(
 ): Promise<DbxWriteCapability> {
   try {
     const catalogName = catalog.trim()
-    if (!catalogName || catalogName === UNGOVERNED_CATALOG) return 'indeterminate'
+    if (!isUnityGovernedCatalog(catalogName)) return 'indeterminate'
     // No pinned scope to prove read-only over — stay conservative rather than
     // sweep the whole metastore.
     if (!pinnedSchemas || pinnedSchemas.length === 0) return 'indeterminate'

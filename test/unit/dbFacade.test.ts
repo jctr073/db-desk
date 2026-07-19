@@ -148,6 +148,33 @@ describe('connect', () => {
     expect(store.catalogSelectionFor).toHaveBeenCalledWith('dbx')
   })
 
+  it('excludes ungoverned catalogs from a prod Databricks connection', async () => {
+    vi.mocked(databricksDriver.connect).mockResolvedValue(
+      okConnect('main', ['main', 'hive_metastore', 'spark_catalog', 'dev'])
+    )
+    const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
+    expect(res.ok && res.data.databases).toEqual(['main', 'dev'])
+  })
+
+  it("keeps a prod connection's own catalog even when it is ungoverned", async () => {
+    // Explicitly connected to hive_metastore: the tree must not lose the
+    // connected catalog; the agent clamp still covers it.
+    vi.mocked(databricksDriver.connect).mockResolvedValue(
+      okConnect('hive_metastore', ['hive_metastore', 'main'])
+    )
+    const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
+    expect(res.ok && res.data.databases).toEqual(['hive_metastore', 'main'])
+    expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
+  })
+
+  it('leaves ungoverned catalogs visible on non-prod Databricks', async () => {
+    vi.mocked(databricksDriver.connect).mockResolvedValue(
+      okConnect('main', ['main', 'hive_metastore'])
+    )
+    const res = await db.connect('dbx', dbxParams)
+    expect(res.ok && res.data.databases).toEqual(['main', 'hive_metastore'])
+  })
+
   it('passes Postgres only the cache flag, no pinning options', async () => {
     vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
     await db.connect('pg', pgParams)
@@ -264,6 +291,16 @@ describe('listSchemas / listCatalogs', () => {
       ok: true,
       data: ['main', 'dev']
     })
+  })
+
+  it('filter ungoverned catalogs out of listCatalogs on a prod connection', async () => {
+    vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
+    await db.connect('dbx', { ...dbxParams, environment: 'prod' })
+    vi.mocked(databricksDriver.listCatalogs!).mockResolvedValue({
+      ok: true,
+      data: ['main', 'hive_metastore', 'spark_catalog', 'dev']
+    })
+    expect(await db.listCatalogs('dbx')).toEqual({ ok: true, data: ['main', 'dev'] })
   })
 
   it('report "not supported" for engines without the optional methods', async () => {

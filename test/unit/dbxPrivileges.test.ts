@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   checkDbxWriteCapability,
   classifyDbxPermissions,
+  isUnityGovernedCatalog,
   principalFromMe
 } from '../../src/main/dbxPrivileges'
 import type { DbxFetcher, DbxSecurableState } from '../../src/main/dbxPrivileges'
@@ -39,6 +40,18 @@ describe('principalFromMe', () => {
     })
     expect(principal?.names).toEqual(new Set(['reader@x', 'alias@x', 'data_readers', 'g-1']))
     expect(principal?.isAdmin).toBe(false)
+  })
+
+  it('collects a service principal identity, applicationId first', () => {
+    // No userName on a service principal; grants key on its applicationId, so
+    // that must be the first (filter) name.
+    const principal = principalFromMe({
+      applicationId: 'AB12-CD34',
+      displayName: 'ETL Job',
+      groups: [{ display: 'writers' }]
+    })
+    expect(principal?.names).toEqual(new Set(['ab12-cd34', 'etl job', 'writers']))
+    expect([...(principal?.names ?? [])][0]).toBe('ab12-cd34')
   })
 
   it('flags the workspace admins group as admin', () => {
@@ -151,6 +164,19 @@ describe('classifyDbxPermissions', () => {
   )
 })
 
+describe('isUnityGovernedCatalog', () => {
+  it.each(['hive_metastore', 'HIVE_METASTORE', 'spark_catalog', ' spark_catalog ', ''])(
+    'rejects the ungoverned/empty catalog %o',
+    (name) => {
+      expect(isUnityGovernedCatalog(name)).toBe(false)
+    }
+  )
+
+  it.each(['main', 'samples', 'prod_lake'])('accepts the governed catalog %o', (name) => {
+    expect(isUnityGovernedCatalog(name)).toBe(true)
+  })
+})
+
 describe('checkDbxWriteCapability', () => {
   /** Records requested paths and answers them from a path→payload table. */
   function fakeFetcher(table: Record<string, unknown>, seen: string[] = []): DbxFetcher {
@@ -206,8 +232,25 @@ describe('checkDbxWriteCapability', () => {
     expect(seen.filter((p) => p.includes('/effective-permissions/'))).toHaveLength(0)
   })
 
+  it('filters effective permissions by the applicationId for a service principal', async () => {
+    const seen: string[] = []
+    const table = {
+      '/scim/v2/Me': { applicationId: 'AB12-CD34', displayName: 'ETL Job' },
+      '/effective-permissions/': {
+        privilege_assignments: [{ principal: 'ab12-cd34', privileges: [{ privilege: 'MODIFY' }] }]
+      },
+      '/unity-catalog/catalogs/': { owner: 'someone@x' },
+      '/unity-catalog/schemas/': { owner: 'someone@x' }
+    }
+    const verdict = await checkDbxWriteCapability(fakeFetcher(table, seen), 'main', ['sales'])
+    expect(verdict).toBe('writable')
+    const permPaths = seen.filter((p) => p.includes('/effective-permissions/'))
+    expect(permPaths.every((p) => p.includes('principal=ab12-cd34'))).toBe(true)
+  })
+
   it.each([
     ['hive_metastore', ['sales']],
+    ['spark_catalog', ['sales']],
     ['', ['sales']]
   ])(
     'clamps ungoverned/empty catalog %o to indeterminate without fetching',
