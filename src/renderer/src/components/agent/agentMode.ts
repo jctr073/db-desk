@@ -9,12 +9,27 @@
  * restored the moment the active connection stops being clamped.
  */
 
-import type { AgentMode } from '../../../../shared/agent'
+import type { AgentMode, AgentModeOption } from '../../../../shared/agent'
 import type { AgentCapability } from '../../../../shared/db'
 
 /** True when the active connection's agent capability blocks Read-Only mode. */
 export function isReadOnlyClamped(capability: AgentCapability | null): boolean {
   return capability != null && !capability.readOnlyAvailable
+}
+
+/**
+ * Whether a picker selection should take effect. A disabled option (write-admin)
+ * or Read-Only on a clamped connection is a no-op — and, crucially, must leave
+ * the stored preference untouched, so a Read-Only choice survives a detour
+ * through a clamped connection. This is the single rule the pick handler and
+ * its tests share, so the guard and the UX contract cannot drift apart.
+ */
+export function isModeSelectable(
+  option: AgentModeOption,
+  capability: AgentCapability | null
+): boolean {
+  if (!option.enabled) return false
+  return !(option.id === 'read-only' && isReadOnlyClamped(capability))
 }
 
 /**

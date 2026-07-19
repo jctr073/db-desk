@@ -26,6 +26,7 @@ import { KnowledgePanel } from '../knowledge/KnowledgePanel'
 import { knowledgeTargetKeyOf, useKnowledgeState } from '../knowledge/useKnowledgeState'
 import type { KnowledgeNav, KnowledgeState } from '../knowledge/useKnowledgeState'
 import type { FileState } from '../files/useFileState'
+import { isModeSelectable, isReadOnlyClamped } from './agent/agentMode'
 import { ChatTranscript } from './agent/ChatTranscript'
 import { ChatSessionBar, Composer, ModeControl } from './agent/Composer'
 import { MODE_STORAGE_KEY, useChatSession } from './agent/useChatSession'
@@ -193,10 +194,10 @@ export function AgentPanel({
   // restored the moment the active connection stops being clamped.
   const readOnlyClamp = useMemo(
     () =>
-      agentCapability != null && !agentCapability.readOnlyAvailable
+      isReadOnlyClamped(agentCapability)
         ? {
             reason:
-              agentCapability.reason ?? 'Read-Only mode is unavailable for this connection.'
+              agentCapability?.reason ?? 'Read-Only mode is unavailable for this connection.'
           }
         : null,
     [agentCapability]
@@ -340,8 +341,10 @@ export function AgentPanel({
 
   const pickMode = useCallback(
     (next: AgentModeOption) => {
-      if (!next.enabled) return
-      if (next.id === 'read-only' && readOnlyClamp) return
+      // A blocked pick must not rewrite the stored preference (see
+      // isModeSelectable): a Read-Only choice has to survive a detour through
+      // a clamped connection.
+      if (!isModeSelectable(next, agentCapability)) return
       setMode(next.id)
       try {
         localStorage.setItem(MODE_STORAGE_KEY, next.id)
@@ -350,7 +353,7 @@ export function AgentPanel({
       }
       setModeOpen(false)
     },
-    [setMode, readOnlyClamp]
+    [setMode, agentCapability]
   )
 
   const insertSql = useCallback(
