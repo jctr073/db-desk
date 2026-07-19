@@ -211,9 +211,7 @@ export function App(): ReactElement {
    * Prod connections render red (PROD_ACCENT) regardless of palette slot. */
   const accents = useMemo(
     () =>
-      connAccents(
-        connections.tree.map((node) => ({ id: node.id, environment: node.environment }))
-      ),
+      connAccents(connections.tree.map((node) => ({ id: node.id, environment: node.environment }))),
     [connections.tree]
   )
 
