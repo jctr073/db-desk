@@ -38,9 +38,6 @@ export function isModeSelectable(
  * clamped; every other mode (including an already-degraded Metadata Only)
  * passes through unchanged.
  */
-export function effectiveAgentMode(
-  mode: AgentMode,
-  capability: AgentCapability | null
-): AgentMode {
+export function effectiveAgentMode(mode: AgentMode, capability: AgentCapability | null): AgentMode {
   return isReadOnlyClamped(capability) && mode === 'read-only' ? 'metadata' : mode
 }
