@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { parseConnectionUrl } from '../../../shared/connectionUrl'
 import type {
+  AgentCapability,
   ConnectionEnvironment,
   ConnectParams,
   DatabaseIntrospection,
@@ -62,6 +63,12 @@ export interface ConnectionState {
   schemas: Record<string, Record<string, DatabaseIntrospection>>
   /** Introspect and cache a database if it isn't cached already. */
   ensureSchema: (connId: string, database: string) => void
+
+  /**
+   * Agent access decided per connection at connect time (display-only — main
+   * holds the authoritative map and enforces it). Pruned on disconnect/remove.
+   */
+  agentCaps: Record<string, AgentCapability>
 
   /** Background revalidation status, keyed by connId + '/' + database. */
   schemaRefresh: Record<string, SchemaRefreshInfo>
@@ -174,6 +181,7 @@ export function useConnectionState(): ConnectionState {
   const [profiles, setProfiles] = useState<Record<string, SavedConnection>>({})
   const [schemas, setSchemas] = useState<Record<string, Record<string, DatabaseIntrospection>>>({})
   const [schemaRefresh, setSchemaRefresh] = useState<Record<string, SchemaRefreshInfo>>({})
+  const [agentCaps, setAgentCaps] = useState<Record<string, AgentCapability>>({})
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogTab, setDialogTab] = useState<DialogTab>('params')
@@ -211,6 +219,15 @@ export function useConnectionState(): ConnectionState {
 
   const dropSchemas = useCallback((connId: string) => {
     setSchemas((prev) => {
+      if (!(connId in prev)) return prev
+      const next = { ...prev }
+      delete next[connId]
+      return next
+    })
+  }, [])
+
+  const dropAgentCap = useCallback((connId: string) => {
+    setAgentCaps((prev) => {
       if (!(connId in prev)) return prev
       const next = { ...prev }
       delete next[connId]
@@ -619,6 +636,7 @@ export function useConnectionState(): ConnectionState {
         if (connectedVisible && !connected.needsSchemaSelection) {
           cacheSchema(id, connected)
         }
+        setAgentCaps((prev) => ({ ...prev, [id]: res.data.agentCapability }))
         setTree((prev) => prev.map((n) => (n.id === id ? conn : n)))
         setExpanded((prev) => ({
           ...prev,
@@ -695,6 +713,7 @@ export function useConnectionState(): ConnectionState {
       void window.dbDesk.db.disconnect(id)
       dropSchemas(id)
       pruneSchemaRefresh(id)
+      dropAgentCap(id)
       setTree((prev) =>
         updateNode(prev, id, (n) => ({
           ...n,
@@ -712,7 +731,7 @@ export function useConnectionState(): ConnectionState {
         return fallback?.id ?? null
       })
     },
-    [dropSchemas, pruneSchemaRefresh]
+    [dropSchemas, pruneSchemaRefresh, dropAgentCap]
   )
 
   const removeConnection = useCallback(
@@ -724,6 +743,7 @@ export function useConnectionState(): ConnectionState {
       void window.dbDesk.files.deleteForConnection(id)
       dropSchemas(id)
       pruneSchemaRefresh(id)
+      dropAgentCap(id)
       setProfiles((prev) => {
         const next = { ...prev }
         delete next[id]
@@ -738,7 +758,7 @@ export function useConnectionState(): ConnectionState {
         return fallback?.id ?? null
       })
     },
-    [dropSchemas, pruneSchemaRefresh]
+    [dropSchemas, pruneSchemaRefresh, dropAgentCap]
   )
 
   const removeSelected = useCallback(() => {
@@ -901,6 +921,7 @@ export function useConnectionState(): ConnectionState {
     if (connectedVisible && !connected.needsSchemaSelection) {
       cacheSchema(connId, connected)
     }
+    setAgentCaps((prev) => ({ ...prev, [connId]: res.data.agentCapability }))
     setTree((prev) =>
       prev.some((n) => n.id === conn.id)
         ? prev.map((n) => (n.id === conn.id ? conn : n))
@@ -939,6 +960,7 @@ export function useConnectionState(): ConnectionState {
     loadError,
     schemas,
     ensureSchema,
+    agentCaps,
     schemaRefresh,
     manageDialog,
     openManageCatalogs,

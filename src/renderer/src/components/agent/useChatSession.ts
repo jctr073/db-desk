@@ -14,12 +14,13 @@ import type {
   AgentMode,
   AgentPromptIntent
 } from '../../../../shared/agent'
-import type { QueryResult } from '../../../../shared/db'
+import type { AgentCapability, QueryResult } from '../../../../shared/db'
 import type { RepoStatus } from '../../../../shared/repo'
 import { lastSqlFence } from '../agentTurn'
 import type { TurnRecap } from '../agentTurn'
 import type { EditorBridge } from '../editorBridge'
 import type { QueryTarget } from '../useQueryRunner'
+import { effectiveAgentMode } from './agentMode'
 
 export type ChatPart =
   | { kind: 'text'; text: string }
@@ -124,6 +125,12 @@ interface ChatSessionParams {
   onAgentTurnEnd?: () => void
   /** The codebase status of a target's default base, or null when it has none. */
   repoStatusFor: (connId: string | undefined, database: string | undefined) => RepoStatus | null
+  /**
+   * Agent access decided for the active connection; null when there is none
+   * or it isn't connected. Drives `effectiveMode` — the clamp itself is
+   * enforced authoritatively in main, this only keeps the UI honest about it.
+   */
+  agentCapability: AgentCapability | null
 }
 
 export type ChatSession = ReturnType<typeof useChatSession>
@@ -140,7 +147,8 @@ export function useChatSession({
   editorBridge,
   onAgentQuery,
   onAgentTurnEnd,
-  repoStatusFor
+  repoStatusFor,
+  agentCapability
 }: ChatSessionParams) {
   const [chatId, setChatId] = useState(() => nextId('chat'))
   const [chatCreatedAt, setChatCreatedAt] = useState(() => Date.now())
@@ -189,6 +197,15 @@ export function useChatSession({
   })
 
   const model = AGENT_MODELS.find((m) => m.id === modelId) ?? DEFAULT_AGENT_MODEL
+  /**
+   * What actually runs: `mode` (and its localStorage mirror) stay untouched
+   * by clamping, so a stored Read-Only preference survives a round trip
+   * through a clamped production connection.
+   */
+  const effectiveMode = useMemo(
+    () => effectiveAgentMode(mode, agentCapability),
+    [mode, agentCapability]
+  )
 
   useEffect(() => {
     const unsubscribe = window.dbDesk.agent.onEvent((evt: AgentEvent) => {
@@ -410,7 +427,7 @@ export function useChatSession({
         intent,
         model: model.id,
         effort: effort && model.efforts.includes(effort) ? effort : null,
-        mode,
+        mode: effectiveMode,
         webSearch,
         repo:
           !!promptTarget &&
@@ -435,7 +452,7 @@ export function useChatSession({
       chatId,
       model,
       effort,
-      mode,
+      effectiveMode,
       webSearch,
       repoStatusFor,
       repoEnabled,
@@ -588,6 +605,7 @@ export function useChatSession({
     setDraftIntent,
     mode,
     setMode,
+    effectiveMode,
     webSearch,
     setWebSearch,
     repoEnabled,
