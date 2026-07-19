@@ -7,7 +7,6 @@ import type {
   CellValue,
   ColumnInfo,
   ConnectParams,
-  ConnectResult,
   DatabaseIntrospection,
   DbResult,
   QueryField,
@@ -20,7 +19,7 @@ import type {
 } from '../../shared/db'
 import { normalizeConnectionUrl, parseConnectionUrl } from '../../shared/connectionUrl'
 import { applyAutoLimit } from '../../shared/sql'
-import type { ConnectOptions, Driver, RunQueryOptions } from './types'
+import type { ConnectOptions, Driver, DriverConnectResult, RunQueryOptions } from './types'
 
 const CONNECT_TIMEOUT_MS = 8000
 
@@ -468,7 +467,7 @@ async function connectOnce(
   params: ConnectParams,
   ssl: SslOverride,
   skipIntrospection: boolean
-): Promise<DbResult<ConnectResult>> {
+): Promise<DbResult<DriverConnectResult>> {
   const pool = new Pool({ ...clientConfig(params, ssl), max: 4 })
   let client: PoolClient | undefined
   try {
@@ -510,7 +509,7 @@ export async function connect(
   connId: string,
   params: ConnectParams,
   options: ConnectOptions = {}
-): Promise<DbResult<ConnectResult>> {
+): Promise<DbResult<DriverConnectResult>> {
   if (connections.has(connId)) {
     return { ok: false, error: `Connection "${connId}" already exists` }
   }

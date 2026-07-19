@@ -386,3 +386,115 @@ describe('schema cache', () => {
     expect(postgresDriver.introspectDatabase).toHaveBeenCalledWith('pg', 'app')
   })
 })
+
+function probeRow(overrides: Record<string, boolean> = {}): { ok: true; data: QueryResult } {
+  const names = [
+    'any_super',
+    'any_bypassrls',
+    'any_createdb',
+    'any_table_write',
+    'any_sequence_write',
+    'any_schema_create',
+    'any_db_create'
+  ]
+  return {
+    ok: true,
+    data: {
+      command: 'SELECT',
+      fields: names.map((name) => ({ name, dataType: 'bool' })),
+      rows: [names.map((name) => overrides[name] ?? false)],
+      rowCount: 1,
+      durationMs: 1,
+      limitApplied: null,
+      truncated: false
+    }
+  }
+}
+
+describe('agent capability', () => {
+  it.each(['dev', 'stage'] as const)(
+    'grants %s connections Read-Only without running the probe',
+    async (environment) => {
+      vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
+      const res = await db.connect('pg', { ...pgParams, environment })
+      expect(res.ok && res.data.agentCapability).toEqual({
+        readOnlyAvailable: true,
+        reason: null
+      })
+      // Byte-identical to pre-feature behavior: no probe, no extra queries.
+      expect(postgresDriver.runQuery).not.toHaveBeenCalled()
+      expect(db.agentCapabilityFor('pg')).toEqual({ readOnlyAvailable: true, reason: null })
+    }
+  )
+
+  it('probes prod Postgres read-only and grants when nothing is writable', async () => {
+    vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(probeRow())
+    const res = await db.connect('pg', { ...pgParams, environment: 'prod' })
+    expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(true)
+    const [, database, , limit, options] = vi.mocked(postgresDriver.runQuery).mock.calls[0]
+    expect(database).toBe('app')
+    expect(limit).toBeNull()
+    expect(options).toEqual({ readOnly: true, timeoutMs: 5000 })
+  })
+
+  it('clamps prod Postgres when the role can write', async () => {
+    vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(probeRow({ any_table_write: true }))
+    const res = await db.connect('pg', { ...pgParams, environment: 'prod' })
+    expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
+    expect(res.ok && res.data.agentCapability.reason).toMatch(/read-only role/)
+  })
+
+  it('clamps prod Postgres when the probe fails (fail closed)', async () => {
+    vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue({ ok: false, error: 'timeout' })
+    const res = await db.connect('pg', { ...pgParams, environment: 'prod' })
+    expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
+    expect(res.ok && res.data.agentCapability.reason).toMatch(/Could not verify/)
+  })
+
+  it('clamps prod Databricks unconditionally, without probing', async () => {
+    vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
+    const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
+    expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
+    expect(databricksDriver.runQuery).not.toHaveBeenCalled()
+  })
+
+  it('forgets the capability on disconnect', async () => {
+    vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
+    vi.mocked(postgresDriver.disconnect).mockResolvedValue({ ok: true, data: null })
+    await db.connect('pg', pgParams)
+    expect(db.agentCapabilityFor('pg')).not.toBeNull()
+    await db.disconnect('pg')
+    expect(db.agentCapabilityFor('pg')).toBeNull()
+  })
+})
+
+describe('runAgentQuery capability belt', () => {
+  it('refuses every agent statement on a clamped connection', async () => {
+    vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(probeRow({ any_super: true }))
+    await db.connect('pg', { ...pgParams, environment: 'prod' })
+    vi.mocked(postgresDriver.runQuery).mockClear()
+
+    const res = await db.runAgentQuery('pg', 'app', 'SELECT 1', 500)
+    expect(res.ok).toBe(false)
+    expect(!res.ok && res.code).toBe(db.AGENT_BLOCKED_CODE)
+    // The driver is never reached — the belt sits in front of the guard.
+    expect(postgresDriver.runQuery).not.toHaveBeenCalled()
+  })
+
+  it('lets a provably read-only prod connection run agent statements', async () => {
+    vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(probeRow())
+    await db.connect('pg', { ...pgParams, environment: 'prod' })
+    vi.mocked(postgresDriver.runQuery).mockClear()
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(okQuery('SELECT'))
+
+    const res = await db.runAgentQuery('pg', 'app', 'SELECT 1', 500)
+    expect(res.ok).toBe(true)
+    const [, , , , options] = vi.mocked(postgresDriver.runQuery).mock.calls[0]
+    expect(options?.readOnly).toBe(true)
+  })
+})

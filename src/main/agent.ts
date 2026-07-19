@@ -22,7 +22,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { BrowserWindow } from 'electron'
 
 import { typedHandle, typedOn, typedSend } from './ipc'
-import { getConnectionType, introspectDatabase } from './db'
+import { agentCapabilityFor, getConnectionType, introspectDatabase } from './db'
 import type {
   AgentCompactResult,
   AgentEditorReadPayload,
@@ -30,7 +30,7 @@ import type {
   AgentSendRequest,
   AgentTargetRef
 } from '../shared/agent'
-import { AGENT_MODELS, resolveAgentMode } from '../shared/agent'
+import { AGENT_MODELS, clampAgentMode, resolveAgentMode } from '../shared/agent'
 import { apiKeyVarName, loadApiKey } from './settings'
 import { mcpToolsForTurn } from './mcp'
 import type { McpAgentTool } from './mcp'
@@ -273,8 +273,14 @@ async function runAgentTurn(req: AgentSendRequest, send: Sender): Promise<void> 
   chat.controller = controller
 
   // Fail closed: a renderer bug or tampering that sends 'write-admin' or
-  // garbage silently degrades to Metadata Only.
-  const mode = resolveAgentMode(req.mode)
+  // garbage silently degrades to Metadata Only. The same applies to
+  // 'read-only' on a connection whose capability (decided in the facade at
+  // connect time) clamps the agent — prod with a role that can write, or one
+  // that couldn't be verified. The clamp happens before the system prompt
+  // and tool array are built, so a clamped turn is indistinguishable from a
+  // Metadata Only one.
+  const capability = req.target ? agentCapabilityFor(req.target.connId) : null
+  const mode = clampAgentMode(resolveAgentMode(req.mode), capability)
   const client = new Anthropic({ apiKey: key })
   // Dialect follows the target connection's engine; chats without a target
   // default to PostgreSQL guidance.
