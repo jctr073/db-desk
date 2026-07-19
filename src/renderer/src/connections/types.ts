@@ -68,11 +68,18 @@ export interface TreeNode {
   meta?: string
 }
 
-/** Short uppercase labels for the env badge (tree rows + titlebar pill). */
+/** Short uppercase labels for the env badge (connection rows + titlebar pill). */
 export const ENV_BADGE_LABELS: Record<ConnectionEnvironment, string> = {
   dev: 'DEV',
   stage: 'STG',
   prod: 'PROD'
+}
+
+/** Full-name labels for the environment radiogroup (both connect dialogs). */
+export const ENV_FULL_LABELS: Record<ConnectionEnvironment, string> = {
+  dev: 'Dev',
+  stage: 'Stage',
+  prod: 'Prod'
 }
 
 export type TreeMode = 'A' | 'B'

@@ -22,7 +22,7 @@ export const PROD_ACCENT: ConnAccent = { hex: '#e5484d', rgb: '229, 72, 77' }
 
 /** The accent a connection should render with: prod always reads red,
  * regardless of its palette slot; dev/stage keep their assigned color. */
-export function accentFor(
+function accentFor(
   environment: ConnectionEnvironment | null | undefined,
   paletteAccent: ConnAccent
 ): ConnAccent {

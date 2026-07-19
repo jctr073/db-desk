@@ -4,12 +4,7 @@ import type { ReactElement } from 'react'
 import { CONNECTION_ENVIRONMENTS } from '../../../shared/db'
 import type { ConnectionEnvironment } from '../../../shared/db'
 import { CloseIcon, ShieldIcon } from '../components/icons'
-
-const ENVIRONMENT_LABELS: Record<ConnectionEnvironment, string> = {
-  dev: 'Dev',
-  stage: 'Stage',
-  prod: 'Prod'
-}
+import { ENV_FULL_LABELS } from './types'
 
 interface EnvironmentPromptDialogProps {
   onChoose: (environment: ConnectionEnvironment) => void
@@ -67,7 +62,7 @@ export function EnvironmentPromptDialog({
                 className={`dtab${environment === env ? ' is-active' : ''}`}
                 onClick={() => setEnvironment(env)}
               >
-                {ENVIRONMENT_LABELS[env]}
+                {ENV_FULL_LABELS[env]}
               </button>
             ))}
           </div>

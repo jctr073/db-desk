@@ -2,17 +2,11 @@ import { useEffect } from 'react'
 import type { ReactElement } from 'react'
 
 import { CONNECTION_ENVIRONMENTS } from '../../../shared/db'
-import type { ConnectionEnvironment } from '../../../shared/db'
 import { CONNECTION_TYPES, DIALECTS, dialectFor } from '../../../shared/dialect'
 import { CheckIcon, CloseIcon, DatabaseIcon, EyeIcon } from '../components/icons'
 import { databaseFieldError, environmentFieldError } from './connectionValidation'
+import { ENV_FULL_LABELS } from './types'
 import type { ConnectionState } from './useConnectionState'
-
-const ENVIRONMENT_LABELS: Record<ConnectionEnvironment, string> = {
-  dev: 'Dev',
-  stage: 'Stage',
-  prod: 'Prod'
-}
 
 interface NewConnectionDialogProps {
   state: ConnectionState
@@ -111,7 +105,7 @@ export function NewConnectionDialog({ state }: NewConnectionDialogProps): ReactE
                 className={`dtab${state.form.environment === env ? ' is-active' : ''}`}
                 onClick={() => state.setFormEnvironment(env)}
               >
-                {ENVIRONMENT_LABELS[env]}
+                {ENV_FULL_LABELS[env]}
               </button>
             ))}
           </div>

@@ -626,8 +626,8 @@ textarea {
   opacity: 0.85;
 }
 /* Deployment-tier badge (dev/stage/prod): tree connection rows + titlebar
-   pill share this class. Prod uses a fixed red, independent of theme, to
-   match --conn-accent's PROD_ACCENT override. */
+   pill and connection rows share this class. Prod uses a fixed red,
+   independent of theme, to match --conn-accent's PROD_ACCENT override. */
 .env-badge {
   display: inline-flex;
   align-items: center;
@@ -639,14 +639,8 @@ textarea {
   padding: 0 3px;
   border-radius: 3px;
   border: 1px solid;
-  margin-left: 6px;
   flex: 0 0 auto;
   white-space: nowrap;
-}
-.titlebar-pill .env-badge,
-.conn-active-card__header .env-badge,
-.conn-other-row .env-badge {
-  margin-left: 0;
 }
 .env-badge--dev {
   color: var(--text-faint);
