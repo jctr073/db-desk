@@ -30,7 +30,13 @@ import type {
   TestResult
 } from '../../shared/db'
 import { applyAutoLimit, classifyStatement, splitStatements } from '../../shared/sql'
-import type { ConnectOptions, Driver, DriverConnectResult, IntrospectOptions, RunQueryOptions } from './types'
+import type {
+  ConnectOptions,
+  Driver,
+  DriverConnectResult,
+  IntrospectOptions,
+  RunQueryOptions
+} from './types'
 import { WRITE_REQUIRED_CODE } from './types'
 
 const CONNECT_TIMEOUT_MS = 15_000

@@ -25,7 +25,9 @@ const PROBES = [
   'any_db_create'
 ] as const
 
-function probeResult(overrides: Partial<Record<(typeof PROBES)[number], unknown>> = {}): QueryResult {
+function probeResult(
+  overrides: Partial<Record<(typeof PROBES)[number], unknown>> = {}
+): QueryResult {
   const values = PROBES.map((name) => (name in overrides ? overrides[name] : false))
   return {
     command: 'SELECT',
@@ -59,17 +61,24 @@ describe('classifyPrivilegeRow', () => {
     ['two rows', { ...probeResult(), rows: [probeResult().rows[0], probeResult().rows[0]] }],
     [
       'a missing probe column',
-      { ...probeResult(), fields: probeResult().fields.slice(1), rows: [probeResult().rows[0].slice(1)] }
+      {
+        ...probeResult(),
+        fields: probeResult().fields.slice(1),
+        rows: [probeResult().rows[0].slice(1)]
+      }
     ]
   ])('classifies %s as indeterminate', (_label, result) => {
     expect(classifyPrivilegeRow(result as QueryResult)).toBe('indeterminate')
   })
 
-  it.each([null, 'true', 1])('classifies a non-boolean probe value (%o) as indeterminate', (value) => {
-    // bool_or over an empty set is NULL; drivers may also stringify. Neither
-    // may pass as readonly.
-    expect(classifyPrivilegeRow(probeResult({ any_super: value }))).toBe('indeterminate')
-  })
+  it.each([null, 'true', 1])(
+    'classifies a non-boolean probe value (%o) as indeterminate',
+    (value) => {
+      // bool_or over an empty set is NULL; drivers may also stringify. Neither
+      // may pass as readonly.
+      expect(classifyPrivilegeRow(probeResult({ any_super: value }))).toBe('indeterminate')
+    }
+  )
 })
 
 describe('checkPgWriteCapability', () => {
