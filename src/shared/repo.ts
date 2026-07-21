@@ -33,11 +33,12 @@ export interface MonorepoPick {
   folders: string[]
 }
 
-/** One requested folder → schema mapping from the monorepo setup dialog. */
+/** One requested folder → schemas mapping from the monorepo setup dialog. */
 export interface MonorepoMappingInput {
   /** Must be one of the pick's listed folders. */
   folder: string
-  schema: string
+  /** Schemas this folder's service owns — one link is created per schema. */
+  schemas: string[]
   /** Name for the created base (ignored when the folder is already mapped). */
   name: string
 }
@@ -86,6 +87,30 @@ export function suggestSchema(folder: string, schemas: string[]): string | null 
     }
   }
   return null
+}
+
+/** Lowercased with `-` and spaces folded to `_`, for prefix matching where
+ * segment boundaries still matter (unlike matchKey, which erases them). */
+function segKey(value: string): string {
+  return value.toLowerCase().replace(/[- ]/g, '_')
+}
+
+/**
+ * All schemas a monorepo service folder likely owns: the single best match
+ * (suggestSchema) plus every schema the folder name prefixes on a segment
+ * boundary — `accounts` → `accounts_customer`, `accounts_legal_entity` — so a
+ * service owning several schemas prefills them all. The boundary requirement
+ * keeps `pay` from claiming `payment`. Result preserves `schemas` order; same
+ * contract as suggestSchema: a convenience prefill, always user-overridable.
+ */
+export function suggestSchemas(folder: string, schemas: string[]): string[] {
+  const primary = suggestSchema(folder, schemas)
+  const prefixes = [segKey(folder)]
+  for (const suffix of SERVICE_SUFFIXES) {
+    const stripped = segKey(folder).replace(new RegExp(`_?${suffix}$`), '')
+    if (stripped && stripped !== segKey(folder)) prefixes.push(stripped)
+  }
+  return schemas.filter((s) => s === primary || prefixes.some((p) => segKey(s).startsWith(`${p}_`)))
 }
 
 /**

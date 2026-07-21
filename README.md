@@ -67,8 +67,33 @@ assets. Preview the compiled application with:
 npm run preview
 ```
 
-This repository currently builds runnable Electron assets; it does not define
-a packaging or installer script.
+## Package the app and install it
+
+Build the double-clickable application bundle (this compiles first, so a
+separate `npm run build` is not required):
+
+```bash
+npm run package
+```
+
+The bundle lands at `dist/mac-arm64/DB Desk.app`. Install it into
+`/Applications` (replacing any previous install — quit DB Desk first if it is
+running):
+
+```bash
+npm run install:app
+```
+
+To also produce a shareable disk image at `dist/DB Desk-<version>-arm64.dmg`:
+
+```bash
+npm run package:dmg
+```
+
+The app is ad-hoc signed, not notarized: a locally built copy launches
+normally, but a copy downloaded from elsewhere (e.g. the DMG fetched via a
+browser) is quarantined by Gatekeeper and needs right-click → Open on first
+launch.
 
 ## Tests
 
@@ -102,6 +127,9 @@ down automatically after the run.
 | `npm run dev`              | Start DB Desk in development mode with hot reload.          |
 | `npm run build`            | Typecheck and compile production assets into `out/`.        |
 | `npm run preview`          | Launch the compiled application. Run `build` first.         |
+| `npm run package`          | Build and package `DB Desk.app` into `dist/mac-arm64/`.     |
+| `npm run package:dmg`      | Same as `package`, plus a distributable DMG in `dist/`.     |
+| `npm run install:app`      | Copy the packaged `DB Desk.app` into `/Applications`.       |
 | `npm run typecheck`        | Typecheck the Electron and renderer TypeScript projects.    |
 | `npm run lint`             | Check the repository with ESLint.                           |
 | `npm run format`           | Format repository files with Prettier. This writes changes. |

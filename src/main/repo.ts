@@ -478,12 +478,12 @@ export function registerMonorepoPick(root: string, folders: string[]): MonorepoP
 }
 
 /**
- * Create the requested folder → schema mappings from the current pick: one
- * knowledge base per folder (root + subPath) plus a link to the target
- * schema. A folder that already has a base for this exact root + subPath
- * reuses it instead of minting a duplicate, and `addLink` dedupes existing
- * links — so a failed batch (e.g. one invalid schema name) is safely
- * re-runnable rather than pre-validated to death here.
+ * Create the requested folder → schemas mappings from the current pick: one
+ * knowledge base per folder (root + subPath) plus a link per target schema —
+ * a service folder can own several schemas. A folder that already has a base
+ * for this exact root + subPath reuses it instead of minting a duplicate, and
+ * `addLink` dedupes existing links — so a failed batch (e.g. one invalid
+ * schema name) is safely re-runnable rather than pre-validated to death here.
  */
 export function createMonorepoMappings(input: MonorepoCreateInput): MonorepoCreateResult {
   if (!input || typeof input !== 'object' || !Array.isArray(input.mappings)) {
@@ -496,6 +496,9 @@ export function createMonorepoMappings(input: MonorepoCreateInput): MonorepoCrea
   for (const m of input.mappings) {
     if (!m || typeof m !== 'object' || !pick.folders.includes(m.folder)) {
       throw new Error(`Not a folder of the picked root: ${JSON.stringify(m?.folder)}`)
+    }
+    if (!Array.isArray(m.schemas) || m.schemas.length === 0) {
+      throw new Error(`No schemas given for folder: ${JSON.stringify(m.folder)}`)
     }
   }
   /** folder → kbId for this root, seeded from disk, grown as we create. */
@@ -517,12 +520,14 @@ export function createMonorepoMappings(input: MonorepoCreateInput): MonorepoCrea
       kbId = base.id
       created++
     }
-    addLink({
-      kbId,
-      connId: input.connId,
-      database: input.database,
-      schema: m.schema
-    })
+    for (const schema of m.schemas) {
+      addLink({
+        kbId,
+        connId: input.connId,
+        database: input.database,
+        schema
+      })
+    }
     kbIds.push(kbId)
   }
   return { created, reused, kbIds }

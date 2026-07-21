@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
 
 import type { KnowledgeBaseSummary } from '../../../shared/knowledge'
-import { suggestSchema } from '../../../shared/repo'
+import { suggestSchemas } from '../../../shared/repo'
 import type { MonorepoMappingInput, MonorepoPick } from '../../../shared/repo'
 import { CloseIcon, FolderIcon } from './icons'
 
@@ -10,6 +10,176 @@ import { CloseIcon, FolderIcon } from './icons'
 function rootName(root: string): string {
   const parts = root.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] ?? root
+}
+
+function sameSet(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v) => b.includes(v))
+}
+
+const POPOVER_WIDTH = 250
+/** Space the popover needs below the trigger before it flips above. */
+const POPOVER_MIN_HEIGHT = 180
+const POPOVER_MAX_HEIGHT = 300
+
+interface SchemaMultiSelectProps {
+  folder: string
+  options: string[]
+  selected: string[]
+  disabled: boolean
+  onChange: (next: string[]) => void
+}
+
+/**
+ * Compact multi-select for a mapping row: a select-styled trigger summarizing
+ * the current schema set, opening a filterable checkbox popover. The popover
+ * is position-fixed so it can escape the scrolling rows container (which is
+ * why it closes on any outside scroll — its anchor rect would go stale).
+ */
+function SchemaMultiSelect({
+  folder,
+  options,
+  selected,
+  disabled,
+  onChange
+}: SchemaMultiSelectProps): ReactElement {
+  const [open, setOpen] = useState(false)
+  const [filter, setFilter] = useState('')
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const popRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    // Capture-phase Escape so the dialog's own document-level handler (which
+    // would close the whole dialog) never sees the key while the popover is up.
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        setOpen(false)
+      }
+    }
+    const onDown = (event: MouseEvent): void => {
+      const target = event.target as Node
+      if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    const onScroll = (event: Event): void => {
+      if (popRef.current?.contains(event.target as Node)) return
+      setOpen(false)
+    }
+    document.addEventListener('keydown', onKey, true)
+    document.addEventListener('mousedown', onDown, true)
+    document.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('mousedown', onDown, true)
+      document.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open])
+
+  const toggleOpen = (): void => {
+    if (!open) {
+      setAnchor(triggerRef.current?.getBoundingClientRect() ?? null)
+      setFilter('')
+    }
+    setOpen(!open)
+  }
+
+  const toggleSchema = (schema: string): void => {
+    onChange(
+      selected.includes(schema)
+        ? selected.filter((s) => s !== schema)
+        : // Keep `options` order so the summary and saved links read stably.
+          options.filter((s) => selected.includes(s) || s === schema)
+    )
+  }
+
+  const shown = filter.trim()
+    ? options.filter((s) => s.toLowerCase().includes(filter.trim().toLowerCase()))
+    : options
+
+  const label =
+    selected.length === 0
+      ? '— no schemas —'
+      : selected.length === 1
+        ? selected[0]
+        : `${selected.length} schemas`
+
+  let popStyle: CSSProperties | undefined
+  if (open && anchor) {
+    const left = Math.max(
+      8,
+      Math.min(anchor.right - POPOVER_WIDTH, window.innerWidth - POPOVER_WIDTH - 8)
+    )
+    const spaceBelow = window.innerHeight - anchor.bottom - 8
+    popStyle =
+      spaceBelow >= POPOVER_MIN_HEIGHT
+        ? {
+            left,
+            top: anchor.bottom + 4,
+            maxHeight: Math.min(POPOVER_MAX_HEIGHT, spaceBelow)
+          }
+        : {
+            left,
+            bottom: window.innerHeight - anchor.top + 4,
+            maxHeight: Math.min(POPOVER_MAX_HEIGHT, anchor.top - 8)
+          }
+  }
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`text-input monorepo__schema monorepo__ms-trigger${
+          selected.length === 0 ? ' monorepo__ms-trigger--empty' : ''
+        }`}
+        disabled={disabled}
+        aria-label={`Schemas for ${folder}`}
+        aria-expanded={open}
+        title={selected.join(', ') || undefined}
+        onClick={toggleOpen}
+      >
+        <span className="monorepo__ms-label">{label}</span>
+        <span className="monorepo__ms-caret" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+      {open && popStyle && (
+        <div className="monorepo__ms-pop" style={popStyle} ref={popRef} role="listbox">
+          <input
+            className="text-input monorepo__ms-filter"
+            placeholder="Filter schemas…"
+            value={filter}
+            autoFocus
+            onChange={(event) => setFilter(event.target.value)}
+          />
+          <div className="monorepo__ms-list">
+            {shown.length === 0 && <div className="monorepo__ms-none">No schemas match.</div>}
+            {shown.map((schema) => (
+              <label key={schema} className="monorepo__ms-option">
+                <input
+                  type="checkbox"
+                  checked={selected.includes(schema)}
+                  onChange={() => toggleSchema(schema)}
+                />
+                <span className="monorepo__ms-name" title={schema}>
+                  {schema}
+                </span>
+              </label>
+            ))}
+          </div>
+          {selected.length > 0 && (
+            <div className="monorepo__ms-foot">
+              <button type="button" className="manage-kb__btn" onClick={() => onChange([])}>
+                Clear {selected.length}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
 }
 
 interface MonorepoSetupDialogProps {
@@ -26,11 +196,12 @@ interface MonorepoSetupDialogProps {
 
 /**
  * Monorepo setup: pick the repo root once, map its immediate child folders to
- * schemas of the current target, and create one knowledge base + link per
- * checked pair. Auto-matching only prefills the schema dropdowns — every row
- * stays manually overridable, and unchecked folders are left alone entirely.
- * Folders already mapped (an existing base with the same root + folder) are
- * badged and reuse that base instead of minting a duplicate.
+ * the schemas each service owns, and create one knowledge base per checked
+ * folder plus a link per selected schema (one folder → many schemas).
+ * Auto-matching only prefills the schema pickers — every row stays manually
+ * overridable, and unchecked folders are left alone entirely. Folders already
+ * mapped (an existing base with the same root + folder) are badged and reuse
+ * that base instead of minting a duplicate.
  */
 export function MonorepoSetupDialog({
   targetLabel,
@@ -46,8 +217,8 @@ export function MonorepoSetupDialog({
   const [picking, setPicking] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /** folder → selected schema ('' = none picked yet). */
-  const [schemaByFolder, setSchemaByFolder] = useState<Record<string, string>>({})
+  /** folder → selected schemas ([] = none picked yet). */
+  const [schemasByFolder, setSchemasByFolder] = useState<Record<string, string[]>>({})
   const [checked, setChecked] = useState<Set<string>>(new Set())
 
   const busy = picking || creating
@@ -71,11 +242,11 @@ export function MonorepoSetupDialog({
       setPick(next)
       setBases(allBases)
       setChecked(new Set())
-      const prefill: Record<string, string> = {}
+      const prefill: Record<string, string[]> = {}
       for (const folder of next.folders) {
-        prefill[folder] = suggestSchema(folder, schemaOptions) ?? ''
+        prefill[folder] = suggestSchemas(folder, schemaOptions)
       }
-      setSchemaByFolder(prefill)
+      setSchemasByFolder(prefill)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -85,8 +256,8 @@ export function MonorepoSetupDialog({
 
   interface Row {
     folder: string
-    /** Auto-match hit, for the "auto" badge (selection may differ by now). */
-    suggested: string | null
+    /** Auto-match hits, for the "auto" badge (selection may differ by now). */
+    suggested: string[]
     /** Existing base for this root + folder, or null. */
     mapped: KnowledgeBaseSummary | null
   }
@@ -95,7 +266,7 @@ export function MonorepoSetupDialog({
     if (!pick) return []
     return pick.folders.map((folder) => ({
       folder,
-      suggested: suggestSchema(folder, schemaOptions),
+      suggested: suggestSchemas(folder, schemaOptions),
       mapped: bases.find((b) => b.repoRoot === pick.root && (b.subPath ?? null) === folder) ?? null
     }))
   }, [pick, bases, schemaOptions])
@@ -114,7 +285,7 @@ export function MonorepoSetupDialog({
     setChecked((prev) => {
       const next = new Set(prev)
       for (const row of rows) {
-        if (row.suggested && !row.mapped) next.add(row.folder)
+        if (row.suggested.length > 0 && !row.mapped) next.add(row.folder)
       }
       return next
     })
@@ -130,16 +301,16 @@ export function MonorepoSetupDialog({
     const mappings: MonorepoMappingInput[] = []
     for (const row of rows) {
       if (!checked.has(row.folder)) continue
-      const schema = schemaByFolder[row.folder] ?? ''
-      if (!schema) {
+      const schemas = schemasByFolder[row.folder] ?? []
+      if (schemas.length === 0) {
         setError(
-          `Pick a schema for “${row.folder}”, or uncheck it — only checked folders are mapped.`
+          `Pick at least one schema for “${row.folder}”, or uncheck it — only checked folders are mapped.`
         )
         return
       }
       mappings.push({
         folder: row.folder,
-        schema,
+        schemas,
         name: `${rootName(pick.root)}/${row.folder}`.slice(0, 120)
       })
     }
@@ -159,7 +330,7 @@ export function MonorepoSetupDialog({
       setError(cause instanceof Error ? cause.message : String(cause))
       setCreating(false)
     }
-  }, [pick, busy, rows, checked, schemaByFolder, connId, database, onDone, onClose])
+  }, [pick, busy, rows, checked, schemasByFolder, connId, database, onDone, onClose])
 
   const schemasLoading = schemaOptions.length === 0
 
@@ -229,7 +400,7 @@ export function MonorepoSetupDialog({
                 <button
                   type="button"
                   className="manage-kb__btn"
-                  disabled={busy || rows.every((r) => !r.suggested || r.mapped)}
+                  disabled={busy || rows.every((r) => r.suggested.length === 0 || r.mapped)}
                   title="Check every folder with an auto-matched schema"
                   onClick={selectMatched}
                 >
@@ -238,7 +409,7 @@ export function MonorepoSetupDialog({
               </div>
               {schemasLoading && (
                 <div className="url-hint">
-                  Loading schemas — the schema dropdowns fill in once introspection finishes.
+                  Loading schemas — the schema pickers fill in once introspection finishes.
                 </div>
               )}
               {pick.folders.length === 0 ? (
@@ -249,7 +420,7 @@ export function MonorepoSetupDialog({
               ) : (
                 <div className="monorepo__rows">
                   {rows.map((row) => {
-                    const schema = schemaByFolder[row.folder] ?? ''
+                    const schemas = schemasByFolder[row.folder] ?? []
                     return (
                       <div key={row.folder} className="monorepo__row">
                         <label className="monorepo__row-check">
@@ -271,33 +442,28 @@ export function MonorepoSetupDialog({
                             mapped
                           </span>
                         )}
-                        {!row.mapped && row.suggested && schema === row.suggested && (
-                          <span
-                            className="monorepo__badge"
-                            title="Schema auto-matched from the folder name — change it if the guess is wrong"
-                          >
-                            auto
-                          </span>
-                        )}
-                        <select
-                          className="text-input monorepo__schema"
-                          value={schema}
+                        {!row.mapped &&
+                          row.suggested.length > 0 &&
+                          sameSet(schemas, row.suggested) && (
+                            <span
+                              className="monorepo__badge"
+                              title="Schemas auto-matched from the folder name — change them if the guess is wrong"
+                            >
+                              auto
+                            </span>
+                          )}
+                        <SchemaMultiSelect
+                          folder={row.folder}
+                          options={schemaOptions}
+                          selected={schemas}
                           disabled={busy || schemasLoading}
-                          aria-label={`Schema for ${row.folder}`}
-                          onChange={(event) =>
-                            setSchemaByFolder((prev) => ({
+                          onChange={(next) =>
+                            setSchemasByFolder((prev) => ({
                               ...prev,
-                              [row.folder]: event.target.value
+                              [row.folder]: next
                             }))
                           }
-                        >
-                          <option value="">— no schema —</option>
-                          {schemaOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
+                        />
                       </div>
                     )
                   })}

@@ -22,6 +22,12 @@ const WRITER = 'dbdesk_priv_writer'
 const NOINHERIT = 'dbdesk_priv_noinherit'
 const COLGRANT = 'dbdesk_priv_colgrant'
 const SEQGRANT = 'dbdesk_priv_seqgrant'
+// SELECT-only role for the legacy public-schema carve-out: CREATE on schema
+// "public" reachable only through the PUBLIC pseudo-role (the pre-15 default
+// ACL that pg_upgrade carries forward) must not clamp it.
+const PUBCREATE = 'dbdesk_priv_pubcreate'
+// Same grant, but held directly — the carve-out must not excuse it.
+const DIRECTCREATE = 'dbdesk_priv_directcreate'
 // A three-link membership chain (leaf -> mid -> writer), NOINHERIT throughout
 // so the writable grant is two SET ROLEs away and only the recursive closure
 // can reach it.
@@ -43,7 +49,16 @@ async function probeAs(user: string, password: string): Promise<PgWriteCapabilit
   )
 }
 
-const ALL_ROLES = [WRITER, NOINHERIT, COLGRANT, SEQGRANT, CHAIN_LEAF, CHAIN_MID]
+const ALL_ROLES = [
+  WRITER,
+  NOINHERIT,
+  COLGRANT,
+  SEQGRANT,
+  CHAIN_LEAF,
+  CHAIN_MID,
+  PUBCREATE,
+  DIRECTCREATE
+]
 
 beforeAll(async () => {
   const admin = await startAdmin()
@@ -60,6 +75,8 @@ beforeAll(async () => {
       ${ensureRole(SEQGRANT)}
       ${ensureRole(CHAIN_LEAF, 'NOINHERIT')}
       ${ensureRole(CHAIN_MID, 'NOINHERIT')}
+      ${ensureRole(PUBCREATE)}
+      ${ensureRole(DIRECTCREATE)}
     END
     $$;
     GRANT CONNECT ON DATABASE ${PG_DATABASE} TO ${ALL_ROLES.join(', ')};
@@ -79,6 +96,9 @@ beforeAll(async () => {
     -- Two-hop writable chain: only the recursive closure reaches ${WRITER}.
     GRANT ${WRITER} TO ${CHAIN_MID};
     GRANT ${CHAIN_MID} TO ${CHAIN_LEAF};
+
+    -- Direct CREATE on public: a real grant the carve-out must not excuse.
+    GRANT CREATE ON SCHEMA public TO ${DIRECTCREATE};
   `)
 })
 
@@ -94,8 +114,9 @@ describe('pg write-capability probe (real server)', () => {
   })
 
   it('calls the SELECT-only role readonly', async () => {
-    // Relies on PG 15+ having revoked PUBLIC CREATE on schema "public";
-    // on older servers this correctly degrades to writable (fail closed).
+    // Holds on PG 15+ (no PUBLIC CREATE on "public") and, via the probe's
+    // legacy carve-out, also on databases that carried that ACL through
+    // pg_upgrade — see the PUBLIC pseudo-role test below.
     expect(await probeAs('dbdesk_ro', 'dbdesk_ro')).toBe('readonly')
   })
 
@@ -123,6 +144,36 @@ describe('pg write-capability probe (real server)', () => {
     // Guards the recursive closure: a single flat pg_auth_members join would
     // reach CHAIN_MID but not the writable WRITER one hop further.
     expect(await probeAs(CHAIN_LEAF, CHAIN_LEAF)).toBe('writable')
+  })
+
+  it('ignores CREATE on public held only via the PUBLIC pseudo-role (legacy pre-15 ACL)', async () => {
+    // Recreates what pg_upgrade carries forward from a <= 14 cluster. The
+    // grant is scoped to this test: granted, probed, revoked.
+    const admin = await startAdmin()
+    await admin.query('GRANT CREATE ON SCHEMA public TO PUBLIC')
+    try {
+      expect(await probeAs(PUBCREATE, PUBCREATE)).toBe('readonly')
+    } finally {
+      await admin.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC')
+    }
+  })
+
+  it('still calls a direct CREATE grant on public writable', async () => {
+    expect(await probeAs(DIRECTCREATE, DIRECTCREATE)).toBe('writable')
+  })
+
+  it('still calls a PUBLIC CREATE grant on a non-public schema writable', async () => {
+    // The carve-out is pinned to the schema literally named "public" — a
+    // PUBLIC grant anywhere else is a deliberate DBA action, not the legacy
+    // default, and must clamp.
+    const admin = await startAdmin()
+    await admin.query('CREATE SCHEMA IF NOT EXISTS dbdesk_priv_extra')
+    await admin.query('GRANT CREATE ON SCHEMA dbdesk_priv_extra TO PUBLIC')
+    try {
+      expect(await probeAs(PUBCREATE, PUBCREATE)).toBe('writable')
+    } finally {
+      await admin.query('DROP SCHEMA dbdesk_priv_extra')
+    }
   })
 
   it('is indeterminate when the connection is gone (fail closed)', async () => {
