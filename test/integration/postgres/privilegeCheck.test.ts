@@ -49,7 +49,16 @@ async function probeAs(user: string, password: string): Promise<PgWriteCapabilit
   )
 }
 
-const ALL_ROLES = [WRITER, NOINHERIT, COLGRANT, SEQGRANT, CHAIN_LEAF, CHAIN_MID, PUBCREATE, DIRECTCREATE]
+const ALL_ROLES = [
+  WRITER,
+  NOINHERIT,
+  COLGRANT,
+  SEQGRANT,
+  CHAIN_LEAF,
+  CHAIN_MID,
+  PUBCREATE,
+  DIRECTCREATE
+]
 
 beforeAll(async () => {
   const admin = await startAdmin()
