@@ -18,7 +18,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { suggestSchema } from '../../src/shared/repo'
+import { suggestSchema, suggestSchemas } from '../../src/shared/repo'
 
 let userDataDir: string
 
@@ -137,8 +137,8 @@ describe('createMonorepoMappings', () => {
       pickId: pick.pickId,
       ...target,
       mappings: [
-        { folder: 'billing', schema: 'billing', name: 'mono/billing' },
-        { folder: 'checkout', schema: 'checkout', name: 'mono/checkout' }
+        { folder: 'billing', schemas: ['billing'], name: 'mono/billing' },
+        { folder: 'checkout', schemas: ['checkout'], name: 'mono/checkout' }
       ]
     })
     expect(result).toMatchObject({ created: 2, reused: 0 })
@@ -156,18 +156,51 @@ describe('createMonorepoMappings', () => {
     expect(knowledge.getBaseRepoRoot(result.kbIds[0])).toBe(join(repoDir, 'billing'))
   })
 
+  it('creates one base with a link per schema for a multi-schema folder', () => {
+    const pick = seedRepo('accounts')
+    const result = repo.createMonorepoMappings({
+      pickId: pick.pickId,
+      ...target,
+      mappings: [
+        {
+          folder: 'accounts',
+          schemas: ['accounts_customer', 'accounts_legal_entity'],
+          name: 'mono/accounts'
+        }
+      ]
+    })
+    expect(result).toMatchObject({ created: 1, reused: 0 })
+    expect(knowledge.listBases()).toHaveLength(1)
+    const links = knowledge.linksForTarget(target.connId, target.database)
+    expect(links.map((l) => [l.kbId, l.schema])).toEqual([
+      [result.kbIds[0], 'accounts_customer'],
+      [result.kbIds[0], 'accounts_legal_entity']
+    ])
+  })
+
+  it('rejects a mapping with no schemas', () => {
+    const pick = seedRepo('billing')
+    expect(() =>
+      repo.createMonorepoMappings({
+        pickId: pick.pickId,
+        ...target,
+        mappings: [{ folder: 'billing', schemas: [], name: 'mono/billing' }]
+      })
+    ).toThrow(/No schemas given/)
+  })
+
   it('reuses the existing base for an already-mapped folder', () => {
     const pick = seedRepo('billing')
     const first = repo.createMonorepoMappings({
       pickId: pick.pickId,
       ...target,
-      mappings: [{ folder: 'billing', schema: 'billing', name: 'mono/billing' }]
+      mappings: [{ folder: 'billing', schemas: ['billing'], name: 'mono/billing' }]
     })
     // Same folder again — different schema this time (e.g. staging schema).
     const again = repo.createMonorepoMappings({
       pickId: pick.pickId,
       ...target,
-      mappings: [{ folder: 'billing', schema: 'billing_stage', name: 'ignored' }]
+      mappings: [{ folder: 'billing', schemas: ['billing_stage'], name: 'ignored' }]
     })
     expect(again).toMatchObject({ created: 0, reused: 1 })
     expect(again.kbIds).toEqual(first.kbIds)
@@ -182,8 +215,8 @@ describe('createMonorepoMappings', () => {
       pickId: pick.pickId,
       ...target,
       mappings: [
-        { folder: 'billing', schema: 'a', name: 'mono/billing' },
-        { folder: 'billing', schema: 'b', name: 'mono/billing' }
+        { folder: 'billing', schemas: ['a'], name: 'mono/billing' },
+        { folder: 'billing', schemas: ['b'], name: 'mono/billing' }
       ]
     })
     expect(result).toMatchObject({ created: 1, reused: 1 })
@@ -196,7 +229,7 @@ describe('createMonorepoMappings', () => {
       repo.createMonorepoMappings({
         pickId: pick.pickId,
         ...target,
-        mappings: [{ folder: '../etc', schema: 'x', name: 'x' }]
+        mappings: [{ folder: '../etc', schemas: ['x'], name: 'x' }]
       })
     ).toThrow(/Not a folder of the picked root/)
   })
@@ -208,7 +241,7 @@ describe('createMonorepoMappings', () => {
       repo.createMonorepoMappings({
         pickId: pick.pickId,
         ...target,
-        mappings: [{ folder: 'billing', schema: 'x', name: 'x' }]
+        mappings: [{ folder: 'billing', schemas: ['x'], name: 'x' }]
       })
     ).toThrow(/expired/)
   })
@@ -234,5 +267,41 @@ describe('suggestSchema', () => {
   it('returns null when nothing matches', () => {
     expect(suggestSchema('frontend', schemas)).toBeNull()
     expect(suggestSchema('svc', schemas)).toBeNull()
+  })
+})
+
+describe('suggestSchemas', () => {
+  const schemas = [
+    'accounts_customer',
+    'accounts_customer_shadow',
+    'accounts_legal_entity',
+    'billing',
+    'billing_invoices',
+    'payment',
+    'payments_v2'
+  ]
+
+  it('collects every schema the folder name prefixes on a segment boundary', () => {
+    expect(suggestSchemas('accounts', schemas)).toEqual([
+      'accounts_customer',
+      'accounts_customer_shadow',
+      'accounts_legal_entity'
+    ])
+  })
+
+  it('includes the exact match alongside its prefixed siblings', () => {
+    expect(suggestSchemas('billing', schemas)).toEqual(['billing', 'billing_invoices'])
+  })
+
+  it('does not claim schemas the folder merely starts (no segment boundary)', () => {
+    expect(suggestSchemas('pay', schemas)).toEqual([])
+  })
+
+  it('strips service suffixes before prefix matching', () => {
+    expect(suggestSchemas('billing-service', schemas)).toEqual(['billing', 'billing_invoices'])
+  })
+
+  it('returns an empty array when nothing matches', () => {
+    expect(suggestSchemas('frontend', schemas)).toEqual([])
   })
 })

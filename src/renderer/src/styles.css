@@ -2679,6 +2679,84 @@ body.is-grid-col-resizing {
   flex: 0 0 200px;
   width: 200px;
 }
+.monorepo__ms-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.monorepo__ms-trigger--empty .monorepo__ms-label {
+  color: var(--text-faint);
+}
+.monorepo__ms-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.monorepo__ms-caret {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 9px;
+}
+.monorepo__ms-pop {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: 250px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 12px 40px var(--shadow);
+}
+.monorepo__ms-filter {
+  flex: 0 0 auto;
+  margin-bottom: 6px;
+}
+.monorepo__ms-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.monorepo__ms-none {
+  padding: 8px 6px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.monorepo__ms-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+  user-select: none;
+}
+.monorepo__ms-option:hover {
+  background: var(--panel-hi);
+}
+.monorepo__ms-option input {
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+.monorepo__ms-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.monorepo__ms-foot {
+  flex: 0 0 auto;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-soft);
+}
 .close-queries-dialog {
   width: 430px;
 }
