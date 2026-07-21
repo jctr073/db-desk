@@ -1,0 +1,30 @@
+# Packaging config for `npm run package` (electron-builder). Produces the
+# distributable "DB Desk.app" plus a DMG under dist/. The app bundle keeps the
+# compiled output (out/) and production node_modules — electron-vite
+# externalizes main/preload dependencies rather than bundling them.
+appId: com.jctr073.db-desk
+productName: DB Desk
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**
+  - resources/**
+  - '!src/**'
+  - '!test/**'
+  - '!docs/**'
+  - '!scripts/**'
+  - '!dist/**'
+  - '!**/*.{md,map}'
+  - '!electron.vite.config.ts'
+  - '!{eslint.config.mjs,vitest.config.ts,tsconfig*.json,electron-builder.yml}'
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+  icon: resources/icon.icns
+  category: public.app-category.developer-tools
+  # No Apple Developer identity: ad-hoc sign so Apple Silicon will launch the
+  # bundle. The app is for local installs, not notarized distribution.
+  identity: null
+npmRebuild: false
