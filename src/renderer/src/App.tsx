@@ -208,7 +208,8 @@ export function App(): ReactElement {
   }, [connections.tree])
 
   /** Stable accent color per connection, in tree order (unified context UI).
-   * Prod connections render red (PROD_ACCENT) regardless of palette slot. */
+   * Accents are environment-themed: cool for dev, mid for stage, hot for prod,
+   * each family cycling independently across same-environment connections. */
   const accents = useMemo(
     () =>
       connAccents(connections.tree.map((node) => ({ id: node.id, environment: node.environment }))),
