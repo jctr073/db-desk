@@ -10,9 +10,18 @@
  * error path here must land on 'writable' or 'indeterminate', never
  * 'readonly'.
  *
- * Known residual the check cannot see: EXECUTE on a SECURITY DEFINER
- * function that writes runs with the function owner's privileges, not the
- * caller's. Grants inspection has no way to prove its absence.
+ * Known residuals the check accepts:
+ *  - EXECUTE on a SECURITY DEFINER function that writes runs with the
+ *    function owner's privileges, not the caller's. Grants inspection has
+ *    no way to prove its absence.
+ *  - CREATE on schema "public" held ONLY through the PUBLIC pseudo-role is
+ *    ignored. Databases pg_upgraded/restored from PG <= 14 carry the legacy
+ *    "GRANT CREATE ON SCHEMA public TO PUBLIC" ACL forward, which would
+ *    classify every role writable — including genuinely read-only monitoring
+ *    roles — through a grant nobody chose. The accepted residual: such a
+ *    role can still create objects in public (and set up search_path
+ *    shadowing for other users, CVE-2018-1058 style). The same grant on any
+ *    other schema, or CREATE held directly/via a real role, still clamps.
  */
 
 import type { DbResult, QueryResult } from '../shared/db'
@@ -41,9 +50,13 @@ export type PgWriteCapability = 'readonly' | 'writable' | 'indeterminate'
  *    (nextval even survives rollback), so either grant counts as writable.
  *  - Schema CREATE skips pg_temp and pg_toast namespaces: every role may create
  *    session-local temp objects, and counting that would classify everyone
- *    as writable. On PG <= 14 PUBLIC holds CREATE on schema "public", so
- *    most roles classify writable there — correct fail-closed behavior for
- *    a prod database, not a bug.
+ *    as writable. On schema "public" only, CREATE that is reachable solely
+ *    through the PUBLIC pseudo-role is ignored (the legacy pre-15 default,
+ *    carried forward by pg_upgrade/restore — see the header residuals). The
+ *    carve-out demands a positive sign of a real grant: the closure owning
+ *    the schema, or an nspacl entry whose grantee is a closure role. A
+ *    superuser sails past the aclexplode test but is already caught by
+ *    rolsuper, and acldefault() covers a NULL nspacl (owner-only ACL).
  *  - EXISTS probes short-circuit on the first hit, so genuinely writable
  *    roles answer instantly; only a truly read-only role pays for the full
  *    sweep (syscache lookups, bounded by the caller's statement timeout).
@@ -93,6 +106,14 @@ SELECT
     WHERE n2.nspname NOT LIKE 'pg\\_temp%'
       AND n2.nspname NOT LIKE 'pg\\_toast%'
       AND has_schema_privilege(rc3.oid, n2.oid, 'CREATE')
+      AND (n2.nspname <> 'public'
+        OR n2.nspowner = rc3.oid
+        OR EXISTS (
+          SELECT 1
+          FROM aclexplode(coalesce(n2.nspacl, pg_catalog.acldefault('n', n2.nspowner))) a
+          WHERE a.privilege_type = 'CREATE'
+            AND a.grantee IN (SELECT oid FROM role_closure)
+        ))
   ) AS any_schema_create,
   EXISTS (
     SELECT 1 FROM role_closure rc4
