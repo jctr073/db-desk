@@ -10,7 +10,14 @@ import { join, resolve } from 'node:path'
 
 import { assertSafeId } from './safeId'
 import { writeJsonAtomic } from './atomicJson'
-import { defaultExtension, fileKindFromName, FILE_KINDS, supportedExtension } from '../shared/files'
+import {
+  defaultExtension,
+  fileKindFromName,
+  FILE_KINDS,
+  newFileStem,
+  supportedExtension,
+  supportedFileKindsDescription
+} from '../shared/files'
 import type { FileKind, QueryFile } from '../shared/files'
 import { setSqlFilesDir, sqlFilesDir } from './settings'
 
@@ -108,13 +115,7 @@ export function getNextFileName(
 ): string {
   const metadata = loadMetadata()
 
-  const stem: Record<FileKind, string> = {
-    sql: 'query',
-    markdown: 'notes',
-    json: 'data',
-    text: 'text'
-  }
-  const prefix = stem[kind]
+  const prefix = newFileStem(kind)
   const extension = defaultExtension(kind)
 
   let maxNum = 0
@@ -210,7 +211,7 @@ export function renameQuery(id: string, requestedName: string): QueryFile {
   const hasExtension = /\.[^.]+$/.test(name)
   const requestedExtension = hasExtension ? supportedExtension(name) : null
   if (hasExtension && !requestedExtension) {
-    throw new Error('Supported file types are SQL, Markdown, JSON, and text')
+    throw new Error(`Supported file types are ${supportedFileKindsDescription()}`)
   }
   const normalizedName = requestedExtension
     ? name

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { MouseEvent as ReactMouseEvent, MutableRefObject, ReactElement } from 'react'
 
-import { supportedExtension } from '../../../../shared/files'
+import { FILE_KIND_META, supportedExtension } from '../../../../shared/files'
 import type { FileKind } from '../../../../shared/files'
 import type { QueryFile } from '../../files/useFileState'
 import {
@@ -332,14 +332,7 @@ export function NewFileMenu({
         role="menu"
         aria-label="New file type"
       >
-        {(
-          [
-            ['sql', 'SQL file', '.sql'],
-            ['markdown', 'Markdown file', '.md'],
-            ['json', 'JSON file', '.json'],
-            ['text', 'Text file', '.txt']
-          ] as const
-        ).map(([kind, label, extension]) => (
+        {FILE_KIND_META.map(({ kind, label, defaultExtension }) => (
           <button
             key={kind}
             className="ctx-menu__item new-file-menu__item"
@@ -349,7 +342,7 @@ export function NewFileMenu({
           >
             <SqlFileIcon size={13} />
             <span>{label}</span>
-            <span className="new-file-menu__extension">{extension}</span>
+            <span className="new-file-menu__extension">{defaultExtension}</span>
           </button>
         ))}
       </div>
