@@ -982,6 +982,26 @@ textarea {
   color: var(--red);
   font-size: 12px;
 }
+/* CSV/TSV preview: the grid manages its own scrolling, so the overlay drops
+   its document padding and stacks notice bars above a full-bleed grid. */
+.file-preview--grid {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.file-preview--grid .file-preview__empty {
+  padding: 28px 34px;
+}
+.file-preview__notice {
+  flex: none;
+  margin: 10px 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
 .new-file-menu {
   z-index: 61;
   min-width: 190px;

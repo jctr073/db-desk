@@ -33,7 +33,7 @@ export function FilesPanel({ files, connNames, activeConnId }: FilesPanelProps):
   if (files.files.length === 0) {
     return (
       <div className="files-panel-empty">
-        <div className="files-panel-empty__text">No query files yet</div>
+        <div className="files-panel-empty__text">No files yet</div>
         <div className="files-panel-empty__hint">
           Use the + button in the editor tab bar, or right-click a connection
         </div>
@@ -44,7 +44,7 @@ export function FilesPanel({ files, connNames, activeConnId }: FilesPanelProps):
   if (visibleFiles.length === 0) {
     return (
       <div className="files-panel-empty">
-        <div className="files-panel-empty__text">No query files on this connection yet</div>
+        <div className="files-panel-empty__text">No files on this connection yet</div>
         <div className="files-panel-empty__hint">
           Use the + button in the editor tab bar, or right-click a connection
         </div>

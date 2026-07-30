@@ -499,7 +499,7 @@ export function AgentPanel({
           type="button"
           onClick={() => setActiveTab('files')}
         >
-          SQL Files
+          Files
         </button>
         <button
           className={`agent-tab${activeTab === 'skills' ? ' is-active' : ''}`}
@@ -519,8 +519,8 @@ export function AgentPanel({
                 : activeTab === 'skills'
                   ? 'New skill'
                   : fileHome
-                    ? 'New query file'
-                    : 'Connect to a database to add a query file'
+                    ? 'New file'
+                    : 'Connect to a database to add a file'
           }
           disabled={activeTab === 'files' && !fileHome}
           type="button"
