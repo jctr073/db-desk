@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, shell } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import { typedHandle, typedSend } from './ipc'
 import {
@@ -50,13 +51,21 @@ import {
   moveQueryStorage
 } from './files'
 import {
+  addWatchedFolder,
   appSettingsInfo,
   clearStoredApiKey,
   loadApiKey,
+  removeWatchedFolder,
   setApiKeyVarName,
   setStoredApiKey,
   sqlFilesDir
 } from './settings'
+import {
+  listWatchedFiles,
+  readWatchedFile,
+  syncWatchedFolders,
+  writeWatchedFile
+} from './watchedFolders'
 import {
   addLink,
   createBase,
@@ -276,6 +285,35 @@ function registerSettingsHandlers(): void {
     broadcast()
     return appSettingsInfo()
   })
+
+  typedHandle('settings:addWatchedFolder', async () => {
+    if (!mainWindow) return appSettingsInfo()
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      title: 'Add Watched Folder',
+      properties: ['openDirectory']
+    })
+    const path = picked.filePaths[0]
+    if (picked.canceled || !path) return appSettingsInfo()
+    addWatchedFolder({ id: randomUUID(), path, label: basename(path) })
+    syncWatchedFolders(() => mainWindow)
+    broadcast()
+    return appSettingsInfo()
+  })
+
+  typedHandle('settings:removeWatchedFolder', (_event, id) => {
+    removeWatchedFolder(id)
+    syncWatchedFolders(() => mainWindow)
+    broadcast()
+    return appSettingsInfo()
+  })
+}
+
+function registerWatchedFolderHandlers(): void {
+  typedHandle('watched:list', () => listWatchedFiles())
+  typedHandle('watched:read', (_event, path) => readWatchedFile(path))
+  typedHandle('watched:write', (_event, path, content, expectedMtimeMs) =>
+    writeWatchedFile(path, content, expectedMtimeMs)
+  )
 }
 
 function registerExportHandlers(): void {
@@ -434,6 +472,8 @@ app.whenReady().then(() => {
   registerSettingsHandlers()
   registerExportHandlers()
   registerFileHandlers()
+  registerWatchedFolderHandlers()
+  syncWatchedFolders(() => mainWindow)
   registerKnowledgeHandlers(() => mainWindow)
   registerAgentHandlers(() => mainWindow)
   registerMcpHandlers(() => mainWindow)

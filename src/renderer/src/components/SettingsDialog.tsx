@@ -44,6 +44,8 @@ export function SettingsDialog({
   const [dirBusy, setDirBusy] = useState(false)
   const [dirMsg, setDirMsg] = useState<string | null>(null)
   const [dirError, setDirError] = useState<string | null>(null)
+  const [folderBusy, setFolderBusy] = useState(false)
+  const [folderError, setFolderError] = useState<string | null>(null)
 
   // API tab: stored-key form + variable-name form
   const [keyDraft, setKeyDraft] = useState('')
@@ -82,6 +84,35 @@ export function SettingsDialog({
       setDirError(result.error)
     }
   }, [dirBusy])
+
+  const addFolder = useCallback(async () => {
+    if (folderBusy) return
+    setFolderBusy(true)
+    setFolderError(null)
+    try {
+      setInfo(await window.dbDesk.settings.addWatchedFolder())
+    } catch (error) {
+      setFolderError(ipcErrorMessage(error))
+    } finally {
+      setFolderBusy(false)
+    }
+  }, [folderBusy])
+
+  const removeFolder = useCallback(
+    async (id: string) => {
+      if (folderBusy) return
+      setFolderBusy(true)
+      setFolderError(null)
+      try {
+        setInfo(await window.dbDesk.settings.removeWatchedFolder(id))
+      } catch (error) {
+        setFolderError(ipcErrorMessage(error))
+      } finally {
+        setFolderBusy(false)
+      }
+    },
+    [folderBusy]
+  )
 
   const saveStoredKey = useCallback(async () => {
     if (!keyDraft.trim()) {
@@ -223,6 +254,49 @@ export function SettingsDialog({
                   </button>
                   {dirMsg && <span className="settings-msg">{dirMsg}</span>}
                   {dirError && <span className="settings-err">{dirError}</span>}
+                </div>
+
+                <div className="settings-section">
+                  <div className="field-label">WATCHED FOLDERS</div>
+                  <div className="url-hint">
+                    Supported files in these folders show up in the Files panel for any connection.
+                  </div>
+                  {info != null && info.watchedFolders.length > 0 ? (
+                    <div className="settings-folder-list">
+                      {info.watchedFolders.map((folder) => (
+                        <div className="settings-keyrow" key={folder.id}>
+                          <span className="settings-keyrow__name">
+                            <span className="settings-keyrow__label">{folder.label}</span>
+                            <span className="settings-keyrow__path" title={folder.path}>
+                              {folder.path}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            className="mcp-row__action"
+                            onClick={() => void removeFolder(folder.id)}
+                            disabled={folderBusy}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    info != null && <div className="settings-msg">No watched folders yet.</div>
+                  )}
+                  <div className="settings-actions">
+                    <button
+                      type="button"
+                      className="btn-test"
+                      onClick={() => void addFolder()}
+                      disabled={folderBusy || info == null}
+                    >
+                      {folderBusy && <span className="spinner" />}
+                      Add folder…
+                    </button>
+                    {folderError && <span className="settings-err">{folderError}</span>}
+                  </div>
                 </div>
               </div>
             )}

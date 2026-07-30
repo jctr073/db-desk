@@ -19,12 +19,26 @@ export interface ApiKeyConfig {
   encryptionAvailable: boolean
 }
 
+/**
+ * One program-wide watched folder: its supported files show in the Files
+ * panel's Folders mode, available to any connection. The path is always
+ * chosen through a main-process directory dialog, never renderer-supplied.
+ */
+export interface WatchedFolder {
+  id: string
+  /** Absolute path of the watched directory. */
+  path: string
+  /** Display name, defaulting to the directory's base name. */
+  label: string
+}
+
 export interface AppSettingsInfo {
   /** Directory SQL files are stored in (resolved, absolute). */
   sqlDir: string
   /** The built-in default directory, to flag when sqlDir is custom. */
   defaultSqlDir: string
   apiKey: ApiKeyConfig
+  watchedFolders: WatchedFolder[]
 }
 
 export type ChangeSqlDirResult =

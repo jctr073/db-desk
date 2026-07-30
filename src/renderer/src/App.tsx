@@ -25,6 +25,7 @@ import { ENV_BADGE_LABELS } from './connections/types'
 import { useConnectionState } from './connections/useConnectionState'
 import { useTheme } from './theme'
 import { useFileState } from './files/useFileState'
+import { useWatchedFiles } from './files/useWatchedFiles'
 import { knowledgeBadgeIds, schemaLinkBadgeIds } from './knowledge/treeBadges'
 import {
   knowledgeTargetKeyOf,
@@ -52,8 +53,30 @@ export function App(): ReactElement {
   const openSettings = useCallback(() => setSettingsOpen(true), [])
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
   const connections = useConnectionState()
-  const files = useFileState()
+  const internalFiles = useFileState()
+  const watched = useWatchedFiles()
   const runner = useQueryRunner()
+
+  // Internal and external (watched-folder) files share one editor; selecting
+  // an internal file must drop the external selection so exactly one of the
+  // two is active. External selection wins whenever selectedPath is set.
+  const clearExternalSelection = watched.clearSelection
+  const files = useMemo(
+    () => ({
+      ...internalFiles,
+      selectFile: (id: string): void => {
+        clearExternalSelection()
+        internalFiles.selectFile(id)
+      },
+      createFile: (
+        ...args: Parameters<typeof internalFiles.createFile>
+      ): ReturnType<typeof internalFiles.createFile> => {
+        clearExternalSelection()
+        return internalFiles.createFile(...args)
+      }
+    }),
+    [internalFiles, clearExternalSelection]
+  )
   const editorBridge = useRef<EditorBridge | null>(null)
   const mainRowRef = useRef<HTMLDivElement | null>(null)
 
@@ -436,6 +459,7 @@ export function App(): ReactElement {
         />
         <AgentPanel
           files={files}
+          watched={watched}
           connNames={connNames}
           targets={activeTargets}
           activeTarget={activeTarget}

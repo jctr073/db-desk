@@ -1891,8 +1891,39 @@ body.is-grid-col-resizing {
 }
 .files-panel {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   padding: 8px;
+}
+/* By-connection / Folders segmented control at the top of the panel. */
+.files-panel__modes {
+  flex: none;
+  display: flex;
+  gap: 3px;
+  background: var(--panel-hi);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 3px;
+  margin: 0 2px 8px;
+}
+.files-panel__mode {
+  flex: 1;
+  padding: 4px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.files-panel__mode:hover {
+  color: var(--text);
+}
+.files-panel__mode.is-active {
+  background: var(--accent);
+  color: #fff;
 }
 .files-panel-group {
   margin-bottom: 14px;
@@ -5072,6 +5103,27 @@ body.is-grid-col-resizing {
   color: var(--text-faint);
   letter-spacing: 1px;
   font-size: 10px;
+}
+.settings-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.settings-keyrow__label {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-keyrow__path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-faint);
 }
 
 /* ------------------------------------------------------------------ *

@@ -121,6 +121,36 @@ export function isPreviewableFile(name: string): boolean {
   return fileKindFromName(name) !== 'sql'
 }
 
+/**
+ * One supported file inside a watched folder, as it travels over IPC
+ * (`watched:*`). Unlike QueryFile these are references to real files on disk
+ * — identified by absolute path, connection-independent, edited in place.
+ */
+export interface ExternalFile {
+  /** Absolute path — the file's identity everywhere in the app. */
+  path: string
+  /** Base name, e.g. `sales.csv`. */
+  name: string
+  kind: FileKind
+  /** Modification time at enumeration, for cheap change/conflict hints. */
+  mtimeMs: number
+  size: number
+  /** The watched folder (settings id) this file was found under. */
+  folderId: string
+}
+
+/** A watched file's contents plus the on-disk mtime captured at read time —
+ * the renderer hands the mtime back on save for conflict detection. */
+export interface WatchedFileContent {
+  content: string
+  mtimeMs: number
+}
+
+/** Saving a watched file: `conflict` means the file changed on disk after the
+ * renderer's `expectedMtimeMs` snapshot and nothing was written. */
+export type WatchedWriteResult =
+  { status: 'ok'; mtimeMs: number } | { status: 'conflict'; mtimeMs: number }
+
 /** The "new file" stem used by `getNextFileName`, e.g. `query1.sql`, `data1.csv`. */
 export function newFileStem(kind: FileKind): string {
   return NEW_FILE_STEM[kind]

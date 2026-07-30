@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { writeJsonAtomic } from './atomicJson'
 import { API_KEY_VAR } from '../shared/agent'
 import { isValidVarName } from '../shared/settings'
-import type { ApiKeyConfig, ApiKeySource, AppSettingsInfo } from '../shared/settings'
+import type { ApiKeyConfig, ApiKeySource, AppSettingsInfo, WatchedFolder } from '../shared/settings'
 
 interface StoredSettings {
   /** Absent = the default userData/queries directory. */
@@ -25,6 +25,8 @@ interface StoredSettings {
   /** API key encrypted with safeStorage, base64; absent = no stored key. */
   apiKeySecret?: string
   apiKeyLabel?: string
+  /** Program-wide folders the Files panel watches; absent = none. */
+  watchedFolders?: WatchedFolder[]
 }
 
 let cache: StoredSettings | null = null
@@ -66,6 +68,31 @@ export function sqlFilesDir(): string {
 
 export function setSqlFilesDir(dir: string): void {
   persist({ ...load(), sqlFilesDir: dir })
+}
+
+// --- Watched folders ---
+
+export function watchedFolders(): WatchedFolder[] {
+  return load().watchedFolders ?? []
+}
+
+/** Add a directory (already validated by the caller); no-op if the path is
+ * already watched. Returns the resulting list. */
+export function addWatchedFolder(folder: WatchedFolder): WatchedFolder[] {
+  const current = watchedFolders()
+  if (current.some((existing) => existing.path === folder.path)) return current
+  const next = [...current, folder]
+  persist({ ...load(), watchedFolders: next })
+  return next
+}
+
+export function removeWatchedFolder(id: string): WatchedFolder[] {
+  const next = watchedFolders().filter((folder) => folder.id !== id)
+  const settings = { ...load() }
+  if (next.length === 0) delete settings.watchedFolders
+  else settings.watchedFolders = next
+  persist(settings)
+  return next
 }
 
 // --- API key ---
@@ -166,6 +193,7 @@ export function appSettingsInfo(): AppSettingsInfo {
   return {
     sqlDir: sqlFilesDir(),
     defaultSqlDir: defaultSqlFilesDir(),
-    apiKey: apiKeyConfig()
+    apiKey: apiKeyConfig(),
+    watchedFolders: watchedFolders()
   }
 }
