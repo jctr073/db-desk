@@ -1617,6 +1617,28 @@ body.is-col-resizing {
   font-size: 10.5px;
   white-space: nowrap;
 }
+.export-menu__toggle {
+  justify-content: flex-start;
+  gap: 8px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: 6px 6px 0 0;
+}
+.export-menu__checkbox {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  color: var(--accent);
+}
+.export-menu__checkbox.is-checked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
 .result-export-error {
   display: flex;
   flex: 0 0 auto;

@@ -121,9 +121,12 @@ const api = Object.freeze({
   exportFile: Object.freeze({
     choose: (suggestedName: string, format: DataExportFormat): Promise<ChooseExportResult> =>
       typedInvoke('export:choose', suggestedName, format),
-    write: (token: string, contents: string): Promise<WriteExportResult> =>
-      typedInvoke('export:write', token, contents),
-    discard: (token: string): Promise<void> => typedInvoke('export:discard', token)
+    write: (token: string, contents: string, openAfter: boolean): Promise<WriteExportResult> =>
+      typedInvoke('export:write', token, contents, openAfter),
+    discard: (token: string): Promise<void> => typedInvoke('export:discard', token),
+    /** Subscribe to "export written, please open" pushes; returns unsubscribe. */
+    onWritten: (callback: (path: string) => void): (() => void) =>
+      typedOn('export:written', callback)
   }),
   store: Object.freeze({
     list: (): Promise<SavedConnection[]> => typedInvoke('store:list'),

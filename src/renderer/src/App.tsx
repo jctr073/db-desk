@@ -129,6 +129,13 @@ export function App(): ReactElement {
     }))
   }, [])
 
+  // "Export and open": once main finishes writing the file it pushes the
+  // path here, and we open it exactly like any other external-file tab.
+  const openWatchedFile = watched.openFile
+  useEffect(() => {
+    return window.dbDesk.exportFile.onWritten((path) => openWatchedFile(path))
+  }, [openWatchedFile])
+
   // Background schema-revalidation status of the active connection, folded
   // to one status-bar segment: any database still validating wins, then any
   // error, then "up to date".

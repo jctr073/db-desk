@@ -13,14 +13,17 @@
  * - files that conventionally hold secrets are invisible to enumeration and
  *   refused by read/write (isSensitiveName);
  * - enumeration and reads are capped so a huge folder cannot wedge the main
- *   process or flood the renderer.
+ *   process or flood the renderer;
+ * - one narrow exception: grantExternalPath lets a path outside every root
+ *   through, but only for paths main itself just wrote via a native save
+ *   dialog (data-export "open after export") — never renderer-originated.
  *
  * Watching uses fs.watch with `recursive: true` (FSEvents-backed on darwin),
  * debounced into a single re-enumeration that pushes the fresh listing over
  * `watched:changed`.
  */
 
-import { watch } from 'node:fs'
+import { realpathSync, watch } from 'node:fs'
 import type { FSWatcher } from 'node:fs'
 import { lstat, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join } from 'node:path'
@@ -97,6 +100,25 @@ export async function listWatchedFiles(): Promise<ExternalFile[]> {
 // --- Path sandbox ------------------------------------------------------------
 
 /**
+ * Paths granted access outside every watched folder, keyed by realpath.
+ * Populated only by grantExternalPath, which is only ever called right after
+ * main itself wrote a file to a path the user chose in a native save dialog
+ * (the data-export "open after export" flow) — the renderer never supplies
+ * these paths, so a granted entry never represents an untrusted choice.
+ */
+const grantedPaths = new Set<string>()
+
+/**
+ * Grant read/write access to one path outside every watched folder. The path
+ * is realpathed synchronously — the file exists already, having just been
+ * written by the caller — so the stored entry matches what
+ * resolveWatchedPath compares against.
+ */
+export function grantExternalPath(path: string): void {
+  grantedPaths.add(realpathSync(path))
+}
+
+/**
  * Resolve a renderer-supplied absolute path against the configured roots, or
  * throw. Lexical containment picks the root; the realpath check then defeats
  * symlinked parents (the file's directory must still resolve inside the
@@ -115,6 +137,13 @@ async function resolveWatchedPath(requested: string): Promise<string> {
   }
   const root = watchedFolders().find((folder) => isWithin(folder.path, requested))
   if (!root) {
+    // Not inside any configured root: still accept it if it was explicitly
+    // granted (see grantExternalPath's doc comment for the trust argument).
+    // Folder-root containment is skipped for granted paths — there is no
+    // root to contain them against — but the symlink lstat checks in
+    // readWatchedFile/writeWatchedFile still run on whatever this returns.
+    const real = await realpath(requested).catch(() => requested)
+    if (grantedPaths.has(real)) return real
     throw new Error('Path is outside every watched folder.')
   }
   const name = basename(requested)

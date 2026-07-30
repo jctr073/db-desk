@@ -84,7 +84,10 @@ export interface IpcInvokeContract {
     args: [suggestedName: string, format: DataExportFormat]
     result: ChooseExportResult
   }
-  'export:write': { args: [token: string, contents: string]; result: WriteExportResult }
+  'export:write': {
+    args: [token: string, contents: string, openAfter: boolean]
+    result: WriteExportResult
+  }
   'export:discard': { args: [token: string]; result: void }
 
   // --- Saved connections --------------------------------------------------
@@ -203,6 +206,11 @@ export interface IpcPushContract {
   'settings:changed': []
   /** Watched-folder contents changed; carries the fresh full listing. */
   'watched:changed': [files: ExternalFile[]]
+  /**
+   * A query-result export finished with "open after export" set; carries the
+   * written path so the renderer can open it as an external-file tab.
+   */
+  'export:written': [path: string]
   /** MCP server list or state changed; carries the fresh statuses. */
   'mcp:changed': [statuses: McpServerStatus[]]
   /** Records changed in one base; names the base and its linked targets. */

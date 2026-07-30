@@ -172,6 +172,8 @@ export function ResultsPanel({
   const [exportOpen, setExportOpen] = useState(false)
   const [exportingFormat, setExportingFormat] = useState<DataExportFormat | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  /** "Open in editor after export" toggle in the export menu; off by default. */
+  const [exportOpenAfter, setExportOpenAfter] = useState(false)
   const [selectedRowIndexes, setSelectedRowIndexes] = useState<Set<number>>(() => new Set())
   const [selectedColumnIndexes, setSelectedColumnIndexes] = useState<Set<number>>(() => new Set())
   const [resultCtxMenu, setResultCtxMenu] = useState<{
@@ -356,7 +358,8 @@ export function ResultsPanel({
 
       const saved = await window.dbDesk.exportFile.write(
         token,
-        serializeResult(fields, rows, format)
+        serializeResult(fields, rows, format),
+        exportOpenAfter
       )
       if (!saved.ok) throw new Error(saved.error)
     } catch (error) {
@@ -402,6 +405,21 @@ export function ResultsPanel({
             ? `${selectedRowCount} selected row${selectedRowCount === 1 ? '' : 's'}`
             : 'All rows'}
         </div>
+        <button
+          className="export-menu__item export-menu__toggle"
+          type="button"
+          role="menuitemcheckbox"
+          aria-checked={exportOpenAfter}
+          onClick={() => setExportOpenAfter((open) => !open)}
+        >
+          <span
+            className={`export-menu__checkbox${exportOpenAfter ? ' is-checked' : ''}`}
+            aria-hidden="true"
+          >
+            {exportOpenAfter && <CheckIcon size={10} />}
+          </span>
+          <span className="export-menu__label">Open in editor after export</span>
+        </button>
         {EXPORT_FORMATS.map(({ format, label, extension }) => (
           <button
             key={format}

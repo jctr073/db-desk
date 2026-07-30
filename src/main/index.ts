@@ -322,7 +322,11 @@ function registerExportHandlers(): void {
   typedHandle('export:choose', (_event, suggestedName, format) =>
     chooseExportDestination(mainWindow, suggestedName, format)
   )
-  typedHandle('export:write', (_event, token, contents) => writeExportDestination(token, contents))
+  typedHandle('export:write', (_event, token, contents, openAfter) =>
+    writeExportDestination(token, contents, openAfter, (path) =>
+      typedSend(mainWindow, 'export:written', path)
+    )
+  )
   typedHandle('export:discard', (_event, token) => discardExportDestination(token))
 }
 
