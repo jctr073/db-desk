@@ -1,6 +1,7 @@
 # Plan: Generalized Files panel (CSV/TSV, watched folders, agent context)
 
-Status: draft for review — 2026-07-30
+Status: implemented — all six phases landed on `file_extensions`, 2026-07-30
+(commits a7f825a, 70feedf, e8f8462, ff733a7, 5ca7c89, dfd36a6)
 
 ## Goal
 
