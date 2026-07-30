@@ -170,6 +170,8 @@ const api = Object.freeze({
     /** Write in place; conflicts (file newer on disk) return without writing. */
     write: (path: string, content: string, expectedMtimeMs: number): Promise<WatchedWriteResult> =>
       typedInvoke('watched:write', path, content, expectedMtimeMs),
+    /** Reveal the file in Finder. */
+    reveal: (path: string): Promise<void> => typedInvoke('watched:reveal', path),
     /** Subscribe to listing pushes; returns an unsubscribe function. */
     onChanged: (callback: (files: ExternalFile[]) => void): (() => void) =>
       typedOn('watched:changed', callback)

@@ -1002,6 +1002,41 @@ textarea {
   color: var(--text-faint);
   font-size: 12px;
 }
+/* Non-blocking notice when a watched file changed on disk under a dirty
+   buffer: same bar shape as .load-error, neutral accent instead of red. */
+.file-changed-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 8px 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-hi);
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.file-changed-bar__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-changed-bar__btn {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+.file-changed-bar__btn:hover {
+  background: var(--panel);
+}
+
 .new-file-menu {
   z-index: 61;
   min-width: 190px;

@@ -25,6 +25,7 @@ import type { FSWatcher } from 'node:fs'
 import { lstat, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 
+import { shell } from 'electron'
 import type { BrowserWindow } from 'electron'
 
 import { typedSend } from './ipc'
@@ -166,6 +167,12 @@ export async function writeWatchedFile(
   await writeFile(real, content, 'utf8')
   const after = await stat(real)
   return { status: 'ok', mtimeMs: after.mtimeMs }
+}
+
+/** Reveal a watched file in Finder; same containment rules as read. */
+export async function revealWatchedFile(path: string): Promise<void> {
+  const real = await resolveWatchedPath(path)
+  shell.showItemInFolder(real)
 }
 
 // --- Watchers ----------------------------------------------------------------

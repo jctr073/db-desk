@@ -22,8 +22,17 @@ import { SaveExemplarDialog } from './SaveExemplarDialog'
 import { SqlEditor } from './SqlEditor'
 import type { QueryRunner, QueryTarget } from './useQueryRunner'
 import type { EditorBridge } from './editorBridge'
+import {
+  externalBufferId,
+  externalFileName,
+  externalPathFromId,
+  isExternalBufferId
+} from '../files/externalId'
 import type { FileState, QueryFile } from '../files/useFileState'
+import type { WatchedFilesState } from '../files/useWatchedFiles'
 import { EditorEmptyState } from './editor/EditorEmptyState'
+import { ExternalConflictDialog } from './editor/ExternalConflictDialog'
+import type { SaveConflict } from './editor/ExternalConflictDialog'
 import { ActionsMenu, EditorTabStrip, NewFileMenu, TabContextMenu } from './editor/EditorTabStrip'
 import type { FileGroup, TabMenu } from './editor/EditorTabStrip'
 import { ProposalOverlay } from './editor/ProposalOverlay'
@@ -46,6 +55,8 @@ interface EditorPanelProps {
   schemas: Record<string, Record<string, DatabaseIntrospection>>
   ensureSchema: (connId: string, database: string) => void
   files: FileState
+  /** Watched-folder files: the open set becomes the external tab group. */
+  watched: WatchedFilesState
   runner: QueryRunner
   /** Registered on mount so the AI agent can read/insert editor SQL. */
   bridge: MutableRefObject<EditorBridge | null>
@@ -85,6 +96,7 @@ export function EditorPanel({
   schemas,
   ensureSchema,
   files,
+  watched,
   runner,
   bridge,
   onQueryStatus,
@@ -175,19 +187,95 @@ export function EditorPanel({
     groups[0] ??
     null
 
-  const target = resolveTarget(activeGroup, targets)
+  // Open watched-folder files form their own connection-independent tab
+  // group; the selected one takes over the editor from any internal file.
+  const externalOpenFiles = useMemo(
+    () => [...watched.openPaths].map((path) => ({ path, name: externalFileName(path) })),
+    [watched.openPaths]
+  )
+  const activeExternalPath =
+    watched.selectedPath && watched.openPaths.has(watched.selectedPath)
+      ? watched.selectedPath
+      : null
+
+  // External files have no pinned connection: they run against the app's
+  // active context (the resolveTarget(null, …) fallback), by design.
+  const target = resolveTarget(activeExternalPath ? null : activeGroup, targets)
   const selectedFile = files.selectedFileId
     ? files.files.find((f) => f.id === files.selectedFileId)
     : null
   // A stale selection from another connection never reaches Monaco.
   const activeFile = selectedFile && selectedFile.connId === activeConnId ? selectedFile : null
-  const activeFileId = activeFile?.id ?? null
+  /** The buffer behind Monaco: an internal file id or an ext:<path> id. */
+  const activeFileId = activeExternalPath
+    ? externalBufferId(activeExternalPath)
+    : (activeFile?.id ?? null)
   activeFileIdRef.current = activeFileId
-  const activeFileKind = fileKindFromName(activeFile?.name ?? 'query.sql')
-  const activeLanguage = monacoLanguageForFile(activeFile?.name ?? 'query.sql')
+  const activeName = activeExternalPath
+    ? externalFileName(activeExternalPath)
+    : (activeFile?.name ?? null)
+  const activeFileKind = fileKindFromName(activeName ?? 'query.sql')
+  const activeLanguage = monacoLanguageForFile(activeName ?? 'query.sql')
   const isSqlFile = activeFileKind === 'sql'
-  const canPreview = !!activeFile && isPreviewableFile(activeFile.name)
-  const isFilePreview = canPreview && previewingFileId === files.selectedFileId
+  const canPreview = !!activeName && isPreviewableFile(activeName)
+  const isFilePreview = canPreview && previewingFileId === activeFileId
+
+  // External-file save/conflict machinery: load-time mtimes per path, the
+  // conflict dialog, paths that changed on disk under a dirty buffer, and
+  // errors from watched IPC (shown in the same bar as file-store errors).
+  const externalMtimesRef = useRef(new Map<string, number>())
+  const overwriteMtimeRef = useRef<number | null>(null)
+  const [saveConflict, setSaveConflict] = useState<SaveConflict | null>(null)
+  const [conflictBusy, setConflictBusy] = useState(false)
+  const [changedOnDisk, setChangedOnDisk] = useState<ReadonlySet<string>>(new Set())
+  const [externalError, setExternalError] = useState<string | null>(null)
+  const [extTabMenu, setExtTabMenu] = useState<{ path: string; x: number; y: number } | null>(null)
+
+  const readFileContent = useCallback(async (id: string): Promise<string> => {
+    if (!isExternalBufferId(id)) return window.dbDesk.files.read(id)
+    const path = externalPathFromId(id)
+    try {
+      const { content, mtimeMs } = await window.dbDesk.watched.read(path)
+      externalMtimesRef.current.set(path, mtimeMs)
+      return content
+    } catch (error) {
+      setExternalError(
+        `Failed to open ${externalFileName(path)}: ${error instanceof Error ? error.message : String(error)}`
+      )
+      return ''
+    }
+  }, [])
+
+  const saveFileContent = useCallback(
+    async (id: string, content: string): Promise<boolean> => {
+      if (!isExternalBufferId(id)) return files.saveFile(id, content)
+      const path = externalPathFromId(id)
+      const override = overwriteMtimeRef.current
+      overwriteMtimeRef.current = null
+      try {
+        const expected = override ?? externalMtimesRef.current.get(path) ?? 0
+        const result = await window.dbDesk.watched.write(path, content, expected)
+        if (result.status === 'conflict') {
+          setSaveConflict({ path, name: externalFileName(path), diskMtimeMs: result.mtimeMs })
+          return false
+        }
+        externalMtimesRef.current.set(path, result.mtimeMs)
+        setChangedOnDisk((prev) => {
+          if (!prev.has(path)) return prev
+          const next = new Set(prev)
+          next.delete(path)
+          return next
+        })
+        return true
+      } catch (error) {
+        setExternalError(
+          `Failed to save ${externalFileName(path)}: ${error instanceof Error ? error.message : String(error)}`
+        )
+        return false
+      }
+    },
+    [files]
+  )
 
   // Per-file buffers, dirty tracking, save, and the proposal-apply path.
   const {
@@ -196,11 +284,64 @@ export function EditorPanel({
     pendingApplyRef,
     dirtyIds,
     setDirtyIds,
+    setEditorValue,
     applyProposal,
     saveFileById
-  } = useFileBuffers({ files, editorRef, activeFileId, activeFileIdRef })
+  } = useFileBuffers({
+    files,
+    editorRef,
+    activeFileId,
+    activeFileIdRef,
+    readFileContent,
+    saveFileContent
+  })
 
-  const activeContent = activeFile ? (buffersRef.current.get(activeFile.id) ?? '') : ''
+  const activeContent = activeFileId ? (buffersRef.current.get(activeFileId) ?? '') : ''
+
+  /** Replace an external buffer with the on-disk version, discarding edits. */
+  const reloadExternal = useCallback(
+    async (path: string): Promise<void> => {
+      try {
+        const { content, mtimeMs } = await window.dbDesk.watched.read(path)
+        externalMtimesRef.current.set(path, mtimeMs)
+        const id = externalBufferId(path)
+        buffersRef.current.set(id, content)
+        if (activeFileIdRef.current === id) setEditorValue(content)
+        setDirtyIds((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        setChangedOnDisk((prev) => {
+          if (!prev.has(path)) return prev
+          const next = new Set(prev)
+          next.delete(path)
+          return next
+        })
+      } catch (error) {
+        setExternalError(
+          `Failed to reload ${externalFileName(path)}: ${error instanceof Error ? error.message : String(error)}`
+        )
+      }
+    },
+    [buffersRef, activeFileIdRef, setEditorValue, setDirtyIds]
+  )
+
+  // React to files changing on disk while open: clean buffers reload
+  // silently, dirty ones get a non-blocking banner instead.
+  useEffect(() => {
+    for (const file of watched.files) {
+      if (!watched.openPaths.has(file.path)) continue
+      const loaded = externalMtimesRef.current.get(file.path)
+      if (loaded === undefined || file.mtimeMs <= loaded) continue
+      if (dirtyIds.has(externalBufferId(file.path))) {
+        setChangedOnDisk((prev) => (prev.has(file.path) ? prev : new Set(prev).add(file.path)))
+      } else {
+        void reloadExternal(file.path)
+      }
+    }
+  }, [watched.files, watched.openPaths, dirtyIds, reloadExternal])
 
   const queryTabs = runner.tabs.filter(
     (tab) => tab.source !== 'preview' && tab.target.connId === activeConnId
@@ -241,7 +382,7 @@ export function EditorPanel({
     pendingApplyRef,
     applyProposal,
     setProposal,
-    activeFileName: activeFile?.name ?? null,
+    activeFileName: activeName,
     isSqlFile,
     proposalHome: activeGroup
       ? { connId: activeGroup.connId, database: activeGroup.database }
@@ -413,36 +554,57 @@ export function EditorPanel({
 
   const finishClose = useCallback(
     (closing: PendingClose) => {
-      for (const id of closing.fileIds) buffersRef.current.delete(id)
+      const bufferIds = [
+        ...closing.fileIds,
+        ...closing.externalPaths.map((path) => externalBufferId(path))
+      ]
+      for (const id of bufferIds) buffersRef.current.delete(id)
       setDirtyIds((prev) => {
         const next = new Set(prev)
-        for (const id of closing.fileIds) next.delete(id)
+        for (const id of bufferIds) next.delete(id)
         return next
       })
       // A pending proposal for a closing file has nothing left to apply to.
       setProposal((prev) => (prev && closing.fileIds.includes(prev.fileId) ? null : prev))
       files.closeFiles(closing.fileIds)
+      watched.closeFiles(closing.externalPaths)
+      setChangedOnDisk((prev) => {
+        if (closing.externalPaths.every((path) => !prev.has(path))) return prev
+        const next = new Set(prev)
+        for (const path of closing.externalPaths) next.delete(path)
+        return next
+      })
       runner.closeTabs(closing.resultTabIds)
       setTabMenu((menu) => (menu && closing.fileIds.includes(menu.fileId) ? null : menu))
       setPendingClose(null)
     },
-    [files, runner, buffersRef, setDirtyIds]
+    [files, watched, runner, buffersRef, setDirtyIds]
   )
 
   const requestClose = useCallback(
-    (fileIds: string[], resultTabIds: string[], label: string, groupKey: string | null = null) => {
+    (
+      fileIds: string[],
+      resultTabIds: string[],
+      label: string,
+      groupKey: string | null = null,
+      externalPaths: string[] = []
+    ) => {
       const closingIds = new Set(fileIds)
-      const dirtyFiles = files.files.filter(
+      const dirtyInternal = files.files.filter(
         (file) => closingIds.has(file.id) && dirtyIds.has(file.id)
       )
+      const dirtyExternal = externalPaths
+        .filter((path) => dirtyIds.has(externalBufferId(path)))
+        .map((path) => ({ id: externalBufferId(path), name: externalFileName(path) }))
       const closing = {
         label,
         fileIds,
+        externalPaths,
         resultTabIds,
-        dirtyFiles,
+        dirtyFiles: [...dirtyInternal, ...dirtyExternal],
         groupKey
       }
-      if (dirtyFiles.length === 0) finishClose(closing)
+      if (closing.dirtyFiles.length === 0) finishClose(closing)
       else setPendingClose(closing)
     },
     [dirtyIds, files.files, finishClose]
@@ -450,6 +612,11 @@ export function EditorPanel({
 
   const closeFile = useCallback(
     (file: QueryFile) => requestClose([file.id], [], file.name),
+    [requestClose]
+  )
+
+  const closeExternal = useCallback(
+    (path: string) => requestClose([], [], externalFileName(path), null, [path]),
     [requestClose]
   )
 
@@ -465,6 +632,31 @@ export function EditorPanel({
     setSavingBeforeClose(false)
     finishClose(pendingClose)
   }, [finishClose, pendingClose, saveFileById, savingBeforeClose])
+
+  const selectExternal = useCallback(
+    (path: string) => {
+      watched.openFile(path)
+      leavePreview()
+    },
+    [watched, leavePreview]
+  )
+
+  const resolveConflictOverwrite = useCallback(async () => {
+    if (!saveConflict || conflictBusy) return
+    setConflictBusy(true)
+    overwriteMtimeRef.current = saveConflict.diskMtimeMs
+    const saved = await saveFileById(externalBufferId(saveConflict.path))
+    setConflictBusy(false)
+    if (saved) setSaveConflict(null)
+  }, [saveConflict, conflictBusy, saveFileById])
+
+  const resolveConflictReload = useCallback(async () => {
+    if (!saveConflict || conflictBusy) return
+    setConflictBusy(true)
+    await reloadExternal(saveConflict.path)
+    setConflictBusy(false)
+    setSaveConflict(null)
+  }, [saveConflict, conflictBusy, reloadExternal])
 
   const openTabMenu = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>, file: QueryFile) => {
@@ -534,13 +726,22 @@ export function EditorPanel({
     proposal !== null && !activePreview && isSqlFile && activeFileId === proposal.fileId
 
   /** Nothing open: show the default screen instead of a blank Monaco surface. */
-  const isEmpty = groups.length === 0
+  const isEmpty = groups.length === 0 && externalOpenFiles.length === 0
 
   return (
     <section className="editor-panel">
       <EditorTabStrip
         groups={groups}
-        selectedFileId={files.selectedFileId}
+        externalFiles={externalOpenFiles}
+        selectedExternalPath={activeExternalPath}
+        onSelectExternal={selectExternal}
+        onCloseExternal={closeExternal}
+        onExternalContextMenu={(event, path) => {
+          event.preventDefault()
+          selectExternal(path)
+          setExtTabMenu({ path, x: event.clientX, y: event.clientY })
+        }}
+        selectedFileId={activeExternalPath ? null : files.selectedFileId}
         activePreview={activePreview}
         dirtyIds={dirtyIds}
         renamingFileId={renamingFileId}
@@ -565,7 +766,7 @@ export function EditorPanel({
         onRun={runCurrent}
         isFilePreview={isFilePreview}
         onExitFilePreview={() => setPreviewingFileId(null)}
-        onEnterFilePreview={() => setPreviewingFileId(activeFile?.id ?? null)}
+        onEnterFilePreview={() => setPreviewingFileId(activeFileId)}
         actionsBtnRef={actionsBtnRef}
         actionsOpen={actionsOpen}
         onToggleActions={() => {
@@ -584,6 +785,85 @@ export function EditorPanel({
           >
             <CloseIcon />
           </button>
+        </div>
+      )}
+      {externalError && (
+        <div className="load-error" role="alert">
+          <span className="load-error__text">{externalError}</span>
+          <button
+            className="load-error__close"
+            onClick={() => setExternalError(null)}
+            title="Dismiss"
+            type="button"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+      )}
+      {activeExternalPath && changedOnDisk.has(activeExternalPath) && (
+        <div className="file-changed-bar" role="status">
+          <span className="file-changed-bar__text">
+            <strong>{externalFileName(activeExternalPath)}</strong> changed on disk while you have
+            unsaved edits.
+          </span>
+          <button
+            className="file-changed-bar__btn"
+            type="button"
+            onClick={() => void reloadExternal(activeExternalPath)}
+          >
+            Reload
+          </button>
+          <button
+            className="file-changed-bar__btn"
+            type="button"
+            onClick={() =>
+              setChangedOnDisk((prev) => {
+                const next = new Set(prev)
+                next.delete(activeExternalPath)
+                return next
+              })
+            }
+          >
+            Keep mine
+          </button>
+        </div>
+      )}
+      {saveConflict && (
+        <ExternalConflictDialog
+          conflict={saveConflict}
+          busy={conflictBusy}
+          onOverwrite={() => void resolveConflictOverwrite()}
+          onReload={() => void resolveConflictReload()}
+          onCancel={() => setSaveConflict(null)}
+        />
+      )}
+      {extTabMenu && (
+        <div
+          className="ctx-overlay"
+          onMouseDown={() => setExtTabMenu(null)}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setExtTabMenu(null)
+          }}
+        >
+          <div
+            className="ctx-menu"
+            role="menu"
+            style={{ left: extTabMenu.x, top: extTabMenu.y }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              className="ctx-menu__item"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                void window.dbDesk.watched.reveal(extTabMenu.path)
+                setExtTabMenu(null)
+              }}
+            >
+              Reveal in Finder
+            </button>
+          </div>
         </div>
       )}
       {pendingClose && (

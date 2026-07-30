@@ -445,6 +445,7 @@ export function App(): ReactElement {
           schemas={connections.schemas}
           ensureSchema={connections.ensureSchema}
           files={files}
+          watched={watched}
           runner={runner}
           bridge={editorBridge}
           onQueryStatus={onQueryStatus}

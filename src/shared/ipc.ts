@@ -130,6 +130,8 @@ export interface IpcInvokeContract {
     args: [path: string, content: string, expectedMtimeMs: number]
     result: WatchedWriteResult
   }
+  /** Reveal a watched file in Finder (containment-checked like read). */
+  'watched:reveal': { args: [path: string]; result: void }
 
   // --- App settings ---------------------------------------------------------
   'settings:get': { args: []; result: AppSettingsInfo }

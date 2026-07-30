@@ -63,6 +63,7 @@ import {
 import {
   listWatchedFiles,
   readWatchedFile,
+  revealWatchedFile,
   syncWatchedFolders,
   writeWatchedFile
 } from './watchedFolders'
@@ -314,6 +315,7 @@ function registerWatchedFolderHandlers(): void {
   typedHandle('watched:write', (_event, path, content, expectedMtimeMs) =>
     writeWatchedFile(path, content, expectedMtimeMs)
   )
+  typedHandle('watched:reveal', (_event, path) => revealWatchedFile(path))
 }
 
 function registerExportHandlers(): void {
