@@ -113,8 +113,10 @@ export function buildResultContextItem(args: {
   selectedRows?: ReadonlySet<number> | null
   /** Column indexes to include; null/empty = all columns. */
   selectedColumns?: ReadonlySet<number> | null
+  /** Provenance of the rows; 'file' for CSV/TSV preview data. */
+  source?: 'query' | 'file'
 }): AgentResultItem {
-  const { id, title, sql, connId, database, result, error } = args
+  const { id, title, sql, connId, database, result, error, source } = args
 
   if (!result) {
     return {
@@ -124,6 +126,7 @@ export function buildResultContextItem(args: {
       sql,
       connId,
       database,
+      source,
       columns: [],
       rows: [],
       totalRows: null,
@@ -154,6 +157,7 @@ export function buildResultContextItem(args: {
     sql,
     connId,
     database,
+    source,
     columns,
     rows: buildRowsPayload(indexes),
     totalRows,

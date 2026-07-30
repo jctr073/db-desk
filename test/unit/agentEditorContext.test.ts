@@ -143,7 +143,7 @@ describe('buildSystemPrompt editor-selection context items', () => {
 describe('buildSystemPrompt result context items', () => {
   it('renders title, source SQL, columns, scope, and rows as JSON lines', () => {
     const text = prompt(makeReq({ context: [resultItem()] }))
-    expect(text).toContain('attached these query results')
+    expect(text).toContain('attached these data snapshots')
     expect(text).toContain('Result "Result 2 · orders" from database "analytics"')
     expect(text).toContain('SELECT id, total FROM orders')
     expect(text).toContain('Columns: id (int4), total (numeric)')
@@ -185,6 +185,30 @@ describe('buildSystemPrompt result context items', () => {
     )
     expect(text).not.toContain('\n## Injected heading')
     expect(text).toContain('FAILED with: line one line two')
+  })
+
+  it('renders file-sourced items with path provenance and no query framing', () => {
+    const text = prompt(
+      makeReq({
+        context: [
+          resultItem({
+            source: 'file',
+            title: 'sales.csv',
+            sql: '/Users/me/data/sales.csv',
+            columns: [
+              { name: 'id', dataType: '' },
+              { name: 'total', dataType: '' }
+            ],
+            scope: 'rows 2–3 of 10 (selected)'
+          })
+        ]
+      })
+    )
+    expect(text).toContain('Data from file "sales.csv" (/Users/me/data/sales.csv):')
+    expect(text).toContain('Columns: id, total')
+    expect(text).toContain('Rows (rows 2–3 of 10 (selected)), one JSON array per row:')
+    expect(text).toContain('["1","19.99"]')
+    expect(text).not.toContain('produced by')
   })
 })
 

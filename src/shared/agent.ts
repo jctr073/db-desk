@@ -177,8 +177,14 @@ export interface AgentResultItem {
   id: string
   /** Result tab title, e.g. "AI Result 3 · orders". */
   title: string
-  /** The SQL that produced the result. */
+  /** The SQL that produced the result; for source 'file', the file's path. */
   sql: string
+  /**
+   * Where the rows came from: a query run (absent/'query') or a CSV/TSV file
+   * preview ('file'). File items render without query/database framing, and
+   * their connId/database may be empty strings when no connection is active.
+   */
+  source?: 'query' | 'file'
   connId: string
   database: string
   columns: { name: string; dataType: string }[]

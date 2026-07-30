@@ -9,15 +9,16 @@ import type {
 } from 'react'
 
 import type { AgentEditorSelectionItem, AgentResultItem } from '../../../shared/agent'
-import type { DatabaseIntrospection } from '../../../shared/db'
+import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import { fileKindFromName, isPreviewableFile, monacoLanguageForFile } from '../../../shared/files'
+import { buildResultContextItem } from '../../../shared/resultContext'
 import type { FileKind } from '../../../shared/files'
 import { statementAtOffset } from '../../../shared/sql'
 import { ensureSqlLanguageFeatures } from '../sql/completions'
 import type { Theme } from '../theme'
 import { CloseIcon } from './icons'
 import { ResultsPanel } from './ResultsPanel'
-import { FilePreview } from './FilePreview'
+import { FilePreview, buildDelimitedPreview } from './FilePreview'
 import { SaveExemplarDialog } from './SaveExemplarDialog'
 import { SqlEditor } from './SqlEditor'
 import type { QueryRunner, QueryTarget } from './useQueryRunner'
@@ -41,6 +42,7 @@ import { SaveChangesDialog } from './editor/SaveChangesDialog'
 import type { PendingClose } from './editor/SaveChangesDialog'
 import { useEditorBridge } from './editor/useEditorBridge'
 import { useFileBuffers } from './editor/useFileBuffers'
+import { useEscapeKey } from '../useEscapeKey'
 
 const DEFAULT_LIMIT = 500
 
@@ -641,6 +643,76 @@ export function EditorPanel({
     [watched, leavePreview]
   )
 
+  // Row/column selection inside a CSV/TSV grid preview, mirrored up from
+  // DataGrid so the right-click menu can attach it to the AI thread.
+  const [csvSelectedRows, setCsvSelectedRows] = useState<ReadonlySet<number>>(new Set())
+  const [csvSelectedColumns, setCsvSelectedColumns] = useState<ReadonlySet<number>>(new Set())
+  const [csvCtxMenu, setCsvCtxMenu] = useState<{ x: number; y: number } | null>(null)
+  const onCsvRowsChange = useCallback(
+    (rows: ReadonlySet<number>): void => setCsvSelectedRows(new Set(rows)),
+    []
+  )
+  const onCsvColumnsChange = useCallback(
+    (columns: ReadonlySet<number>): void => setCsvSelectedColumns(new Set(columns)),
+    []
+  )
+  const onCsvContextMenu = onAddAgentContext
+    ? (event: ReactMouseEvent): void => setCsvCtxMenu({ x: event.clientX, y: event.clientY })
+    : undefined
+
+  useEscapeKey(!!csvCtxMenu || !!extTabMenu, () => {
+    setCsvCtxMenu(null)
+    setExtTabMenu(null)
+  })
+
+  /** Attach the previewed CSV/TSV rows (selection or a sample) to the chat. */
+  const addCsvContext = (useSelection: boolean): void => {
+    if (
+      !onAddAgentContext ||
+      !activeName ||
+      (activeFileKind !== 'csv' && activeFileKind !== 'tsv')
+    ) {
+      return
+    }
+    const parsed = buildDelimitedPreview(activeContent, activeFileKind)
+    const fileResult: QueryResult = {
+      command: 'FILE',
+      fields: parsed.columns.map((column) => ({ name: column.name, dataType: '' })),
+      rows: parsed.rows,
+      rowCount: parsed.rows.length,
+      durationMs: 0,
+      limitApplied: null,
+      truncated: parsed.truncated
+    }
+    const provenance = activeExternalPath ?? activeName
+    const rowIndexes =
+      useSelection && csvSelectedRows.size > 0 ? [...csvSelectedRows].sort((a, b) => a - b) : []
+    const rangeKey =
+      rowIndexes.length > 0
+        ? `${rowIndexes[0]}-${rowIndexes[rowIndexes.length - 1]}x${rowIndexes.length}`
+        : 'all'
+    const columnKey =
+      useSelection && csvSelectedColumns.size > 0
+        ? [...csvSelectedColumns].sort((a, b) => a - b).join('.')
+        : 'all'
+    onAddAgentContext(
+      buildResultContextItem({
+        // Deterministic id: re-attaching the same file range de-dups the chip.
+        id: `file:${provenance}:${rangeKey}:${columnKey}`,
+        title: activeName,
+        sql: provenance,
+        connId: target?.connId ?? '',
+        database: target?.database ?? '',
+        result: fileResult,
+        error: null,
+        selectedRows: useSelection ? csvSelectedRows : null,
+        selectedColumns: useSelection ? csvSelectedColumns : null,
+        source: 'file'
+      })
+    )
+    setCsvCtxMenu(null)
+  }
+
   const resolveConflictOverwrite = useCallback(async () => {
     if (!saveConflict || conflictBusy) return
     setConflictBusy(true)
@@ -837,6 +909,42 @@ export function EditorPanel({
           onCancel={() => setSaveConflict(null)}
         />
       )}
+      {csvCtxMenu && onAddAgentContext && (
+        <div
+          className="ctx-overlay"
+          onMouseDown={() => setCsvCtxMenu(null)}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setCsvCtxMenu(null)
+          }}
+        >
+          <div
+            className="ctx-menu"
+            role="menu"
+            style={{ left: csvCtxMenu.x, top: csvCtxMenu.y }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            {(csvSelectedRows.size > 0 || csvSelectedColumns.size > 0) && (
+              <button
+                className="ctx-menu__item"
+                type="button"
+                role="menuitem"
+                onClick={() => addCsvContext(true)}
+              >
+                Add selection to AI chat
+              </button>
+            )}
+            <button
+              className="ctx-menu__item"
+              type="button"
+              role="menuitem"
+              onClick={() => addCsvContext(false)}
+            >
+              Add file sample to AI chat
+            </button>
+          </div>
+        </div>
+      )}
       {extTabMenu && (
         <div
           className="ctx-overlay"
@@ -935,7 +1043,13 @@ export function EditorPanel({
           <div className="editor-host">
             <SqlEditor theme={theme} language={activeLanguage} onMount={handleMount} />
             {isFilePreview && activeFileKind !== 'sql' && (
-              <FilePreview kind={activeFileKind} content={activeContent} />
+              <FilePreview
+                kind={activeFileKind}
+                content={activeContent}
+                onSelectedRowsChange={onCsvRowsChange}
+                onSelectedColumnsChange={onCsvColumnsChange}
+                onGridContextMenu={onCsvContextMenu}
+              />
             )}
             <ProposalOverlay
               show={showProposal}
