@@ -15,7 +15,7 @@ Turn the right-panel "SQL Files" tab into a general **Files** tab that:
 
 ## Decisions (agreed 2026-07-30)
 
-- **Storage model**: watched-folder files are *referenced in place* (absolute paths). The internal per-connection blob store (`userData/queries/<id>.sql`) is unchanged. Two coexisting file classes.
+- **Storage model**: watched-folder files are _referenced in place_ (absolute paths). The internal per-connection blob store (`userData/queries/<id>.sql`) is unchanged. Two coexisting file classes.
 - **CSV UX**: Edit/Preview pattern, same as markdown — raw text in Monaco, toggle to a read-only grid with row selection.
 - **Write-back**: watched files are editable; ⌘S writes to the original path, with an mtime conflict check (warn if the file changed on disk since load).
 - **Export-open**: "Export and open" opens the exported file as an external-file editor tab in DB Desk.
@@ -60,9 +60,9 @@ The core new subsystem. Pattern-match `main/repo.ts` (directory picker, path con
 ## Phase 4 — Open, edit, and save external files
 
 1. **Tab model.** Editor tabs currently derive from `files.files ∩ openFileIds` bucketed by `(connId, database)`. Add an "External" tab group for open external files (keyed by absolute path). Buffer handling reuses `useFileBuffers` with `path` as the buffer key; load via `watched:read`, capture `mtimeMs`.
-2. **Save with conflict check.** ⌘S on an external buffer → `watched:write` with the load-time mtime. On conflict, show a dialog: *Overwrite / Reload from disk / Cancel*.
+2. **Save with conflict check.** ⌘S on an external buffer → `watched:write` with the load-time mtime. On conflict, show a dialog: _Overwrite / Reload from disk / Cancel_.
 3. **External change while open.** On `watched:changed` for an open, non-dirty file: silently reload the buffer. If dirty: show a non-blocking banner ("File changed on disk — Reload / Keep mine").
-4. **Affordances.** Tab context menu / panel row menu: "Reveal in Finder" (`shell.showItemInFolder`). Watched `.sql` files are runnable against the *active* connection (they have no pinned connection — the run bar uses the current context, mirroring how the unified connection context already drives everything).
+4. **Affordances.** Tab context menu / panel row menu: "Reveal in Finder" (`shell.showItemInFolder`). Watched `.sql` files are runnable against the _active_ connection (they have no pinned connection — the run bar uses the current context, mirroring how the unified connection context already drives everything).
 
 ## Phase 5 — CSV rows → agent context
 
