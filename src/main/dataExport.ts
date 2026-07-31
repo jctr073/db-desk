@@ -5,6 +5,7 @@ import type { BrowserWindow, SaveDialogOptions } from 'electron'
 import { dialog } from 'electron'
 
 import type { ChooseExportResult, DataExportFormat, WriteExportResult } from '../shared/export'
+import { grantExternalPath } from './watchedFolders'
 
 const destinations = new Map<string, string>()
 
@@ -58,9 +59,23 @@ export async function chooseExportDestination(
   }
 }
 
+/**
+ * Write the file for a chosen export destination. The token is single-use —
+ * looked up and deleted here — which is why `openAfter` rides along as an
+ * argument instead of a follow-up call: there is no second chance to resolve
+ * the token once this returns.
+ *
+ * When `openAfter` is set and the write succeeds, the freshly written path is
+ * granted read/write access through the watched-folder sandbox (it was very
+ * likely chosen outside every watched folder) and `onOpened` fires with the
+ * path so the caller can push the renderer an `export:written` event. Push
+ * logic itself stays out of this module by design — see index.ts.
+ */
 export async function writeExportDestination(
   token: string,
-  contents: string
+  contents: string,
+  openAfter: boolean,
+  onOpened: (path: string) => void
 ): Promise<WriteExportResult> {
   const path = destinations.get(token)
   if (!path) return { ok: false, error: 'Export destination expired' }
@@ -68,6 +83,10 @@ export async function writeExportDestination(
 
   try {
     await writeFile(path, contents, 'utf8')
+    if (openAfter) {
+      grantExternalPath(path)
+      onOpened(path)
+    }
     return { ok: true, data: null }
   } catch (error) {
     return {

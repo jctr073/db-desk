@@ -410,13 +410,18 @@ export function Composer({
               )
             }
             if (item.kind === 'result') {
+              const isFileData = item.source === 'file'
               return (
                 <span
                   key={key}
                   className="chip"
-                  title={`${item.title} · ${item.database}\n${item.error ? `failed: ${item.error.slice(0, 200)}` : item.scope}\n${item.sql.slice(0, 300)}`}
+                  title={
+                    isFileData
+                      ? `${item.sql}\n${item.scope}`
+                      : `${item.title} · ${item.database}\n${item.error ? `failed: ${item.error.slice(0, 200)}` : item.scope}\n${item.sql.slice(0, 300)}`
+                  }
                 >
-                  <PlayIcon size={11} />
+                  {isFileData ? <SqlFileIcon size={12} /> : <PlayIcon size={11} />}
                   <span className="chip__label">{item.title}</span>
                   <span className="chip__sub">
                     {item.error ? 'error' : `${item.rows.length} rows`}

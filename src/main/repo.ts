@@ -67,7 +67,7 @@ const GIT_TIMEOUT_MS = 3_000
  * .idea, …) are skipped wholesale by name, so only "plain" vendored/output
  * dirs need listing here.
  */
-const IGNORED_DIRS = new Set([
+export const IGNORED_DIRS = new Set([
   'node_modules',
   'vendor',
   'dist',
@@ -131,7 +131,7 @@ export async function getRepoCommit(root: string): Promise<string | null> {
 // --- Path sandbox ------------------------------------------------------------
 
 /** True when `child` is `parent` itself or lexically inside it. */
-function isWithin(parent: string, child: string): boolean {
+export function isWithin(parent: string, child: string): boolean {
   const rel = relative(parent, child)
   return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
 }

@@ -982,6 +982,61 @@ textarea {
   color: var(--red);
   font-size: 12px;
 }
+/* CSV/TSV preview: the grid manages its own scrolling, so the overlay drops
+   its document padding and stacks notice bars above a full-bleed grid. */
+.file-preview--grid {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.file-preview--grid .file-preview__empty {
+  padding: 28px 34px;
+}
+.file-preview__notice {
+  flex: none;
+  margin: 10px 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+/* Non-blocking notice when a watched file changed on disk under a dirty
+   buffer: same bar shape as .load-error, neutral accent instead of red. */
+.file-changed-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 8px 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-hi);
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.file-changed-bar__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-changed-bar__btn {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+.file-changed-bar__btn:hover {
+  background: var(--panel);
+}
+
 .new-file-menu {
   z-index: 61;
   min-width: 190px;
@@ -1562,6 +1617,28 @@ body.is-col-resizing {
   font-size: 10.5px;
   white-space: nowrap;
 }
+.export-menu__toggle {
+  justify-content: flex-start;
+  gap: 8px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: 6px 6px 0 0;
+}
+.export-menu__checkbox {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  color: var(--accent);
+}
+.export-menu__checkbox.is-checked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
 .result-export-error {
   display: flex;
   flex: 0 0 auto;
@@ -1871,8 +1948,39 @@ body.is-grid-col-resizing {
 }
 .files-panel {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   padding: 8px;
+}
+/* By-connection / Folders segmented control at the top of the panel. */
+.files-panel__modes {
+  flex: none;
+  display: flex;
+  gap: 3px;
+  background: var(--panel-hi);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 3px;
+  margin: 0 2px 8px;
+}
+.files-panel__mode {
+  flex: 1;
+  padding: 4px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.files-panel__mode:hover {
+  color: var(--text);
+}
+.files-panel__mode.is-active {
+  background: var(--accent);
+  color: #fff;
 }
 .files-panel-group {
   margin-bottom: 14px;
@@ -5052,6 +5160,27 @@ body.is-grid-col-resizing {
   color: var(--text-faint);
   letter-spacing: 1px;
   font-size: 10px;
+}
+.settings-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.settings-keyrow__label {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-keyrow__path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-faint);
 }
 
 /* ------------------------------------------------------------------ *

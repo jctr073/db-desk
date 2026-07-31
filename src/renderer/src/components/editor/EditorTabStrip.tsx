@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import type { MouseEvent as ReactMouseEvent, MutableRefObject, ReactElement } from 'react'
 
-import { supportedExtension } from '../../../../shared/files'
+import { FILE_KIND_META, supportedExtension } from '../../../../shared/files'
 import type { FileKind } from '../../../../shared/files'
+import { externalBufferId } from '../../files/externalId'
 import type { QueryFile } from '../../files/useFileState'
 import {
   CloseIcon,
@@ -46,6 +47,13 @@ function menuPosition(button: HTMLButtonElement): {
 
 interface EditorTabStripProps {
   groups: FileGroup[]
+  /** Open watched-folder files, rendered as their own tab group. */
+  externalFiles: { path: string; name: string }[]
+  /** The active external tab; internal selection is suppressed while set. */
+  selectedExternalPath: string | null
+  onSelectExternal: (path: string) => void
+  onCloseExternal: (path: string) => void
+  onExternalContextMenu: (event: ReactMouseEvent<HTMLDivElement>, path: string) => void
   selectedFileId: string | null
   activePreview: ResultTab | null
   dirtyIds: ReadonlySet<string>
@@ -78,6 +86,11 @@ interface EditorTabStripProps {
 /** The editor's top bar: file tabs, preview tabs, target chip, Run, kebab. */
 export function EditorTabStrip({
   groups,
+  externalFiles,
+  selectedExternalPath,
+  onSelectExternal,
+  onCloseExternal,
+  onExternalContextMenu,
   selectedFileId,
   activePreview,
   dirtyIds,
@@ -169,6 +182,32 @@ export function EditorTabStrip({
             </div>
           ))
         )}
+        {externalFiles.map((file) => (
+          <div
+            key={file.path}
+            className={`editor-tab${!activePreview && selectedExternalPath === file.path ? ' is-active' : ''}`}
+            onClick={() => onSelectExternal(file.path)}
+            onContextMenu={(event) => onExternalContextMenu(event, file.path)}
+            title={file.path}
+          >
+            <SqlFileIcon />
+            {file.name}
+            {dirtyIds.has(externalBufferId(file.path)) && (
+              <span className="editor-tab__dot" title="Unsaved changes" />
+            )}
+            <button
+              className="editor-tab__close"
+              onClick={(event) => {
+                event.stopPropagation()
+                onCloseExternal(file.path)
+              }}
+              title="Close tab"
+              type="button"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+        ))}
         {groups.flatMap((group) =>
           group.previews.map((tab) => (
             <div
@@ -332,14 +371,7 @@ export function NewFileMenu({
         role="menu"
         aria-label="New file type"
       >
-        {(
-          [
-            ['sql', 'SQL file', '.sql'],
-            ['markdown', 'Markdown file', '.md'],
-            ['json', 'JSON file', '.json'],
-            ['text', 'Text file', '.txt']
-          ] as const
-        ).map(([kind, label, extension]) => (
+        {FILE_KIND_META.map(({ kind, label, defaultExtension }) => (
           <button
             key={kind}
             className="ctx-menu__item new-file-menu__item"
@@ -349,7 +381,7 @@ export function NewFileMenu({
           >
             <SqlFileIcon size={13} />
             <span>{label}</span>
-            <span className="new-file-menu__extension">{extension}</span>
+            <span className="new-file-menu__extension">{defaultExtension}</span>
           </button>
         ))}
       </div>

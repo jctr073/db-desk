@@ -1,15 +1,19 @@
 import type { ReactElement } from 'react'
 
-import type { QueryFile } from '../../files/useFileState'
 import { SaveIcon } from '../icons'
 import { useEscapeKey } from '../../useEscapeKey'
 
-/** A close request that may need a save prompt before it completes. */
+/**
+ * A close request that may need a save prompt before it completes. Covers
+ * internal query files (fileIds) and external watched files (externalPaths);
+ * dirtyFiles lists both by buffer id + display name.
+ */
 export interface PendingClose {
   label: string
   fileIds: string[]
+  externalPaths: string[]
   resultTabIds: string[]
-  dirtyFiles: QueryFile[]
+  dirtyFiles: { id: string; name: string }[]
   groupKey: string | null
 }
 
@@ -58,7 +62,7 @@ export function SaveChangesDialog({
           ) : (
             <>
               <p>
-                {pendingClose.dirtyFiles.length} query tabs have unsaved changes. Save them before
+                {pendingClose.dirtyFiles.length} tabs have unsaved changes. Save them before
                 closing?
               </p>
               <ul className="close-queries-dialog__files">

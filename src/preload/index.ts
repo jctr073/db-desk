@@ -34,7 +34,13 @@ import type {
   KnowledgeTargetGroup
 } from '../shared/knowledge'
 import type { Skill, SkillSaveInput } from '../shared/skills'
-import type { FileKind, QueryFile } from '../shared/files'
+import type {
+  ExternalFile,
+  FileKind,
+  QueryFile,
+  WatchedFileContent,
+  WatchedWriteResult
+} from '../shared/files'
 import type {
   MonorepoCreateInput,
   MonorepoCreateResult,
@@ -115,9 +121,12 @@ const api = Object.freeze({
   exportFile: Object.freeze({
     choose: (suggestedName: string, format: DataExportFormat): Promise<ChooseExportResult> =>
       typedInvoke('export:choose', suggestedName, format),
-    write: (token: string, contents: string): Promise<WriteExportResult> =>
-      typedInvoke('export:write', token, contents),
-    discard: (token: string): Promise<void> => typedInvoke('export:discard', token)
+    write: (token: string, contents: string, openAfter: boolean): Promise<WriteExportResult> =>
+      typedInvoke('export:write', token, contents, openAfter),
+    discard: (token: string): Promise<void> => typedInvoke('export:discard', token),
+    /** Subscribe to "export written, please open" pushes; returns unsubscribe. */
+    onWritten: (callback: (path: string) => void): (() => void) =>
+      typedOn('export:written', callback)
   }),
   store: Object.freeze({
     list: (): Promise<SavedConnection[]> => typedInvoke('store:list'),
@@ -156,10 +165,28 @@ const api = Object.freeze({
     deleteForConnection: (connId: string): Promise<void> =>
       typedInvoke('files:deleteForConnection', connId)
   }),
+  watched: Object.freeze({
+    /** Every supported file under every watched folder. */
+    list: (): Promise<ExternalFile[]> => typedInvoke('watched:list'),
+    /** Contents + read-time mtime of one watched file (containment-checked). */
+    read: (path: string): Promise<WatchedFileContent> => typedInvoke('watched:read', path),
+    /** Write in place; conflicts (file newer on disk) return without writing. */
+    write: (path: string, content: string, expectedMtimeMs: number): Promise<WatchedWriteResult> =>
+      typedInvoke('watched:write', path, content, expectedMtimeMs),
+    /** Reveal the file in Finder. */
+    reveal: (path: string): Promise<void> => typedInvoke('watched:reveal', path),
+    /** Subscribe to listing pushes; returns an unsubscribe function. */
+    onChanged: (callback: (files: ExternalFile[]) => void): (() => void) =>
+      typedOn('watched:changed', callback)
+  }),
   settings: Object.freeze({
     get: (): Promise<AppSettingsInfo> => typedInvoke('settings:get'),
     /** Directory picker + move; resolves after the files are relocated. */
     chooseSqlDir: (): Promise<ChangeSqlDirResult> => typedInvoke('settings:chooseSqlDir'),
+    /** Directory picker; canceled dialogs resolve with unchanged settings. */
+    addWatchedFolder: (): Promise<AppSettingsInfo> => typedInvoke('settings:addWatchedFolder'),
+    removeWatchedFolder: (id: string): Promise<AppSettingsInfo> =>
+      typedInvoke('settings:removeWatchedFolder', id),
     setApiKeyVar: (name: string): Promise<AppSettingsInfo> =>
       typedInvoke('settings:setApiKeyVar', name),
     setStoredApiKey: (key: string, label: string): Promise<AppSettingsInfo> =>

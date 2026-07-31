@@ -26,6 +26,7 @@ import { KnowledgePanel } from '../knowledge/KnowledgePanel'
 import { knowledgeTargetKeyOf, useKnowledgeState } from '../knowledge/useKnowledgeState'
 import type { KnowledgeNav, KnowledgeState } from '../knowledge/useKnowledgeState'
 import type { FileState } from '../files/useFileState'
+import type { WatchedFilesState } from '../files/useWatchedFiles'
 import { isModeSelectable, isReadOnlyClamped } from './agent/agentMode'
 import { ChatTranscript } from './agent/ChatTranscript'
 import { ChatSessionBar, Composer, ModeControl } from './agent/Composer'
@@ -43,6 +44,8 @@ import { SaveExemplarDialog } from './SaveExemplarDialog'
 
 interface AgentPanelProps {
   files: FileState
+  /** Watched-folder files + open/selection state, for the Files tab. */
+  watched: WatchedFilesState
   /** Connection id → display name. */
   connNames: Record<string, string>
   targets: QueryTarget[]
@@ -98,6 +101,7 @@ interface AgentPanelProps {
 
 export function AgentPanel({
   files,
+  watched,
   connNames,
   targets,
   activeTarget,
@@ -499,7 +503,7 @@ export function AgentPanel({
           type="button"
           onClick={() => setActiveTab('files')}
         >
-          SQL Files
+          Files
         </button>
         <button
           className={`agent-tab${activeTab === 'skills' ? ' is-active' : ''}`}
@@ -519,8 +523,8 @@ export function AgentPanel({
                 : activeTab === 'skills'
                   ? 'New skill'
                   : fileHome
-                    ? 'New query file'
-                    : 'Connect to a database to add a query file'
+                    ? 'New file'
+                    : 'Connect to a database to add a file'
           }
           disabled={activeTab === 'files' && !fileHome}
           type="button"
@@ -562,6 +566,7 @@ export function AgentPanel({
       {activeTab === 'files' ? (
         <FilesPanel
           files={files}
+          watched={watched}
           connNames={connNames}
           activeConnId={activeTarget?.connId ?? null}
         />

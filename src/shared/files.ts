@@ -12,30 +12,83 @@ export interface QueryFile {
   updatedAt: number
 }
 
-export const FILE_KINDS = ['sql', 'markdown', 'json', 'text'] as const
+/**
+ * Single source of truth for creatable file kinds. Order here is the order
+ * they're offered in the "new file" menu. Everything else in this module
+ * (extension lookups, defaults, Monaco language) is derived from this table.
+ */
+export const FILE_KIND_META = [
+  {
+    kind: 'sql',
+    label: 'SQL file',
+    extensions: ['.sql'],
+    defaultExtension: '.sql',
+    newFileStem: 'query',
+    monacoLanguage: 'sql'
+  },
+  {
+    kind: 'markdown',
+    label: 'Markdown file',
+    extensions: ['.md', '.markdown'],
+    defaultExtension: '.md',
+    newFileStem: 'notes',
+    monacoLanguage: 'markdown'
+  },
+  {
+    kind: 'json',
+    label: 'JSON file',
+    extensions: ['.json'],
+    defaultExtension: '.json',
+    newFileStem: 'data',
+    monacoLanguage: 'json'
+  },
+  {
+    kind: 'text',
+    label: 'Text file',
+    extensions: ['.txt', '.text'],
+    defaultExtension: '.txt',
+    newFileStem: 'text',
+    monacoLanguage: 'plaintext'
+  },
+  {
+    kind: 'csv',
+    label: 'CSV file',
+    extensions: ['.csv'],
+    defaultExtension: '.csv',
+    newFileStem: 'data',
+    monacoLanguage: 'plaintext'
+  },
+  {
+    kind: 'tsv',
+    label: 'Tab-delimited file',
+    extensions: ['.tsv', '.tab'],
+    defaultExtension: '.tsv',
+    newFileStem: 'data',
+    monacoLanguage: 'plaintext'
+  }
+] as const
 
-export type FileKind = (typeof FILE_KINDS)[number]
+export type FileKind = (typeof FILE_KIND_META)[number]['kind']
 
-const EXTENSIONS: Record<FileKind, readonly string[]> = {
-  sql: ['.sql'],
-  markdown: ['.md', '.markdown'],
-  json: ['.json'],
-  text: ['.txt', '.text']
-}
+export type FileKindMeta = (typeof FILE_KIND_META)[number]
 
-const DEFAULT_EXTENSION: Record<FileKind, string> = {
-  sql: '.sql',
-  markdown: '.md',
-  json: '.json',
-  text: '.txt'
-}
+export const FILE_KINDS: readonly FileKind[] = FILE_KIND_META.map((meta) => meta.kind)
 
-const MONACO_LANGUAGE: Record<FileKind, string> = {
-  sql: 'sql',
-  markdown: 'markdown',
-  json: 'json',
-  text: 'plaintext'
-}
+const EXTENSIONS: Record<FileKind, readonly string[]> = Object.fromEntries(
+  FILE_KIND_META.map((meta) => [meta.kind, meta.extensions])
+) as unknown as Record<FileKind, readonly string[]>
+
+const DEFAULT_EXTENSION: Record<FileKind, string> = Object.fromEntries(
+  FILE_KIND_META.map((meta) => [meta.kind, meta.defaultExtension])
+) as unknown as Record<FileKind, string>
+
+const MONACO_LANGUAGE: Record<FileKind, string> = Object.fromEntries(
+  FILE_KIND_META.map((meta) => [meta.kind, meta.monacoLanguage])
+) as unknown as Record<FileKind, string>
+
+const NEW_FILE_STEM: Record<FileKind, string> = Object.fromEntries(
+  FILE_KIND_META.map((meta) => [meta.kind, meta.newFileStem])
+) as unknown as Record<FileKind, string>
 
 export function fileKindFromName(name: string): FileKind {
   const lower = name.toLocaleLowerCase()
@@ -66,4 +119,46 @@ export function monacoLanguageForFile(name: string): string {
 
 export function isPreviewableFile(name: string): boolean {
   return fileKindFromName(name) !== 'sql'
+}
+
+/**
+ * One supported file inside a watched folder, as it travels over IPC
+ * (`watched:*`). Unlike QueryFile these are references to real files on disk
+ * — identified by absolute path, connection-independent, edited in place.
+ */
+export interface ExternalFile {
+  /** Absolute path — the file's identity everywhere in the app. */
+  path: string
+  /** Base name, e.g. `sales.csv`. */
+  name: string
+  kind: FileKind
+  /** Modification time at enumeration, for cheap change/conflict hints. */
+  mtimeMs: number
+  size: number
+  /** The watched folder (settings id) this file was found under. */
+  folderId: string
+}
+
+/** A watched file's contents plus the on-disk mtime captured at read time —
+ * the renderer hands the mtime back on save for conflict detection. */
+export interface WatchedFileContent {
+  content: string
+  mtimeMs: number
+}
+
+/** Saving a watched file: `conflict` means the file changed on disk after the
+ * renderer's `expectedMtimeMs` snapshot and nothing was written. */
+export type WatchedWriteResult =
+  { status: 'ok'; mtimeMs: number } | { status: 'conflict'; mtimeMs: number }
+
+/** The "new file" stem used by `getNextFileName`, e.g. `query1.sql`, `data1.csv`. */
+export function newFileStem(kind: FileKind): string {
+  return NEW_FILE_STEM[kind]
+}
+
+/** Human-readable rundown of creatable/renameable file types, e.g. for error messages. */
+export function supportedFileKindsDescription(): string {
+  const names = FILE_KIND_META.map((meta) => meta.label.replace(/ file$/i, ''))
+  if (names.length === 1) return names[0]
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
 }

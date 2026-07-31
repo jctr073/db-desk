@@ -10,6 +10,13 @@ interface FileBuffersParams {
   /** The visible file, mirrored into a ref for the once-registered listeners. */
   activeFileId: string | null
   activeFileIdRef: MutableRefObject<string | null>
+  /**
+   * Content IO, injectable so external (watched-folder) buffers can route to
+   * `watched:*` while internal ids keep the query store. Defaults to the
+   * internal store. Must be identity-stable (useCallback in the panel).
+   */
+  readFileContent?: (id: string) => Promise<string>
+  saveFileContent?: (id: string, content: string) => Promise<boolean>
 }
 
 /**
@@ -22,7 +29,9 @@ export function useFileBuffers({
   files,
   editorRef,
   activeFileId,
-  activeFileIdRef
+  activeFileIdRef,
+  readFileContent,
+  saveFileContent
 }: FileBuffersParams) {
   const [dirtyIds, setDirtyIds] = useState<ReadonlySet<string>>(new Set())
   // Bumped whenever a buffer changes outside Monaco (e.g. applyProposal on a
@@ -86,7 +95,8 @@ export function useFileBuffers({
       return
     }
     let cancelled = false
-    void window.dbDesk.files.read(id).then((content) => {
+    const read = readFileContent ?? ((fileId: string) => window.dbDesk.files.read(fileId))
+    void read(id).then((content) => {
       if (cancelled) return
       // A proposal that had to create this file lands as its initial
       // contents (unsaved, so the dirty dot shows it needs a ⌘S).
@@ -105,14 +115,15 @@ export function useFileBuffers({
     return () => {
       cancelled = true
     }
-  }, [activeFileId, setEditorValue, activeFileIdRef])
+  }, [activeFileId, setEditorValue, activeFileIdRef, readFileContent])
 
   const saveFileById = useCallback(
     async (id: string | null): Promise<boolean> => {
       if (!id) return false
       const content = buffersRef.current.get(id)
       if (content === undefined) return false
-      const saved = await files.saveFile(id, content)
+      const save = saveFileContent ?? files.saveFile
+      const saved = await save(id, content)
       if (!saved) return false
       setDirtyIds((prev) => {
         if (!prev.has(id)) return prev
@@ -122,7 +133,7 @@ export function useFileBuffers({
       })
       return true
     },
-    [files]
+    [files, saveFileContent]
   )
 
   return {

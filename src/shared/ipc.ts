@@ -30,7 +30,13 @@ import type {
   TestResult
 } from './db'
 import type { ChooseExportResult, DataExportFormat, WriteExportResult } from './export'
-import type { FileKind, QueryFile } from './files'
+import type {
+  ExternalFile,
+  FileKind,
+  QueryFile,
+  WatchedFileContent,
+  WatchedWriteResult
+} from './files'
 import type {
   KnowledgeBase,
   KnowledgeBaseSummary,
@@ -78,7 +84,10 @@ export interface IpcInvokeContract {
     args: [suggestedName: string, format: DataExportFormat]
     result: ChooseExportResult
   }
-  'export:write': { args: [token: string, contents: string]; result: WriteExportResult }
+  'export:write': {
+    args: [token: string, contents: string, openAfter: boolean]
+    result: WriteExportResult
+  }
   'export:discard': { args: [token: string]; result: void }
 
   // --- Saved connections --------------------------------------------------
@@ -117,9 +126,22 @@ export interface IpcInvokeContract {
   'files:getNextName': { args: [connId: string | null, database: string | null]; result: string }
   'files:deleteForConnection': { args: [connId: string]; result: void }
 
+  // --- Watched folders ------------------------------------------------------
+  'watched:list': { args: []; result: ExternalFile[] }
+  'watched:read': { args: [path: string]; result: WatchedFileContent }
+  'watched:write': {
+    args: [path: string, content: string, expectedMtimeMs: number]
+    result: WatchedWriteResult
+  }
+  /** Reveal a watched file in Finder (containment-checked like read). */
+  'watched:reveal': { args: [path: string]; result: void }
+
   // --- App settings ---------------------------------------------------------
   'settings:get': { args: []; result: AppSettingsInfo }
   'settings:chooseSqlDir': { args: []; result: ChangeSqlDirResult }
+  /** Directory picker; the canceled dialog returns the unchanged settings. */
+  'settings:addWatchedFolder': { args: []; result: AppSettingsInfo }
+  'settings:removeWatchedFolder': { args: [id: string]; result: AppSettingsInfo }
   'settings:setApiKeyVar': { args: [name: string]; result: AppSettingsInfo }
   'settings:setStoredApiKey': { args: [key: string, label: string]; result: AppSettingsInfo }
   'settings:clearStoredApiKey': { args: []; result: AppSettingsInfo }
@@ -182,6 +204,13 @@ export interface IpcPushContract {
   'db:schema-refresh': [evt: SchemaRefreshEvent]
   /** Some app setting changed; renderers re-fetch via settings:get. */
   'settings:changed': []
+  /** Watched-folder contents changed; carries the fresh full listing. */
+  'watched:changed': [files: ExternalFile[]]
+  /**
+   * A query-result export finished with "open after export" set; carries the
+   * written path so the renderer can open it as an external-file tab.
+   */
+  'export:written': [path: string]
   /** MCP server list or state changed; carries the fresh statuses. */
   'mcp:changed': [statuses: McpServerStatus[]]
   /** Records changed in one base; names the base and its linked targets. */

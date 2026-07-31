@@ -53,6 +53,41 @@ describe('renameQuery', () => {
     const file = files.createQuery('query1.sql', null, null)
     expect(() => files.renameQuery(file.id, name)).toThrow()
   })
+
+  it.each(['sales.csv', 'sales.tsv', 'sales.tab'])('accepts the %j extension', (name) => {
+    const file = files.createQuery('query1.sql', null, null)
+    const renamed = files.renameQuery(file.id, name)
+    expect(renamed.name).toBe(name)
+  })
+
+  it('rejects unsupported extensions with a message listing the supported types', () => {
+    const file = files.createQuery('query1.sql', null, null)
+    expect(() => files.renameQuery(file.id, 'report.pdf')).toThrow(
+      'Supported file types are SQL, Markdown, JSON, Text, CSV, and Tab-delimited'
+    )
+  })
+})
+
+describe('getNextFileName', () => {
+  it.each([
+    ['sql', 'query1.sql'],
+    ['markdown', 'notes1.md'],
+    ['json', 'data1.json'],
+    ['text', 'text1.txt'],
+    ['csv', 'data1.csv'],
+    ['tsv', 'data1.tsv']
+  ] as const)('suggests %s1 for a fresh %s file', (kind, expected) => {
+    expect(files.getNextFileName('conn-1', 'analytics', kind)).toBe(expected)
+  })
+
+  it('increments per extension, so csv and tsv counters are independent', () => {
+    const csvFile = files.createQuery('query1.sql', 'conn-1', 'analytics')
+    files.renameQuery(csvFile.id, 'data1.csv')
+
+    // A same-stem .json file doesn't bump the .tsv counter — only same-extension matches count.
+    expect(files.getNextFileName('conn-1', 'analytics', 'tsv')).toBe('data1.tsv')
+    expect(files.getNextFileName('conn-1', 'analytics', 'csv')).toBe('data2.csv')
+  })
 })
 
 describe('moveQueryStorage', () => {
