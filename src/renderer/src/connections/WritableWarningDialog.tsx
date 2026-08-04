@@ -83,7 +83,7 @@ export function WritableWarningDialog({
             connection.
           </p>
           <p className="writable-warning-dialog__advice">
-            Reconnect with a read-only role to restore agent Read-Only mode.
+            Reconnect with a read-only role to restore agent Read & Run mode.
           </p>
         </div>
 

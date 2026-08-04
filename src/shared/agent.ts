@@ -33,8 +33,8 @@ export const AGENT_MODES: AgentModeOption[] = [
   },
   {
     id: 'read-only',
-    label: 'Read-Only',
-    description: 'Runs read-only queries to inspect schema and live data. Writes are blocked.',
+    label: 'Read & Run',
+    description: 'Executes read-only queries against schema and live data. Writes are blocked.',
     enabled: true
   },
   {

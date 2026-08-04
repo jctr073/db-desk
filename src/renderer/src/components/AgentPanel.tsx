@@ -200,7 +200,7 @@ export function AgentPanel({
     () =>
       isReadOnlyClamped(agentCapability)
         ? {
-            reason: agentCapability?.reason ?? 'Read-Only mode is unavailable for this connection.'
+            reason: agentCapability?.reason ?? 'Read & Run mode is unavailable for this connection.'
           }
         : null,
     [agentCapability]
