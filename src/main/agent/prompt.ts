@@ -152,7 +152,7 @@ export function buildSystemPrompt(
   if (req.target && mode === 'read-only') {
     parts.push(
       '- You may execute statements with the run_sql tool. Use it to validate your SQL and inspect real data before presenting a final answer. Each run is shown to the user in the results grid.',
-      '- You are in Read-Only mode: one statement per run_sql call, and only read-only statements (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN of reads) will execute. Anything that would modify data or schema — including INSERT/UPDATE/DELETE/MERGE, DDL, SET, and transaction control — is blocked before it reaches the server and will fail. Do not attempt such statements. If the user asks for a change, write the SQL to the editor with write_to_editor and tell them to review and run it themselves.',
+      '- You are in Read & Run mode: one statement per run_sql call, and only read-only statements (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN of reads) will execute. Anything that would modify data or schema — including INSERT/UPDATE/DELETE/MERGE, DDL, SET, and transaction control — is blocked before it reaches the server and will fail. Do not attempt such statements. If the user asks for a change, write the SQL to the editor with write_to_editor and tell them to review and run it themselves.',
       `- Statements are cancelled after ${AGENT_STATEMENT_TIMEOUT_MS / 1000} seconds.`,
       `- Use describe_table for full detail on one relation and search_schema to find tables, columns, or functions by name — ${dialect.agent.catalogHint}.`,
       (dialect.agent.supportsExplainAnalyze

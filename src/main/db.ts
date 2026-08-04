@@ -134,15 +134,15 @@ async function computeAgentCapability(
       writableSchemas,
       reason:
         writableSchemas.length > 0
-          ? `The connecting role can write to ${schemaListPhrase(writableSchemas)}. Connect with a read-only role to enable agent Read-Only mode.`
-          : 'The connecting role can write anywhere in this production database (superuser or BYPASSRLS). Connect with a read-only role to enable agent Read-Only mode.'
+          ? `The connecting role can write to ${schemaListPhrase(writableSchemas)}. Connect with a read-only role to enable agent Read & Run mode.`
+          : 'The connecting role can write anywhere in this production database (superuser or BYPASSRLS). Connect with a read-only role to enable agent Read & Run mode.'
     }
   }
   return {
     readOnlyAvailable: false,
     verdict: 'indeterminate',
     reason:
-      'Could not verify this role’s privileges on this production database; the agent is metadata-only. Connect with a read-only role to enable Read-Only mode.'
+      'Could not verify this role’s privileges on this production database; the agent is metadata-only. Connect with a read-only role to enable Read & Run mode.'
   }
 }
 

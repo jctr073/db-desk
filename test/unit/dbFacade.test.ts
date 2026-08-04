@@ -473,7 +473,7 @@ describe('agent capability', () => {
       verdict: 'writable',
       writableSchemas: ['billing', 'orders'],
       reason:
-        'The connecting role can write to production schemas "billing" and "orders". Connect with a read-only role to enable agent Read-Only mode.'
+        'The connecting role can write to production schemas "billing" and "orders". Connect with a read-only role to enable agent Read & Run mode.'
     })
   })
 
