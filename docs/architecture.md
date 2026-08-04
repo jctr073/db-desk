@@ -242,6 +242,23 @@ results to visible pinned tabs. PostgreSQL adds `default_transaction_read_only`
 server-side; Databricks relies on statement classification. Write/Admin is
 disabled. A least-privilege database role remains the strongest outer control.
 
+On a `prod`-environment PostgreSQL connection, a connect-time probe
+classifies each schema as protected (three or more real tables — partition
+children, views, materialized views, and foreign tables don't count) and
+checks whether the connecting role can write to, or `CREATE` inside, a
+protected schema, or holds `rolsuper`/`rolbypassrls`. A `writable` verdict
+clamps the requested Read-Only mode down to Metadata Only and queues a
+renderer warning dialog naming the offending schema(s); an `indeterminate`
+verdict (probe timeout, malformed row) clamps the same way but stays silent.
+Write access confined to trivial schemas, `CREATEDB`, or database-level
+`CREATE` no longer clamps. Databricks connections are exempt from the probe
+and the clamp at every environment — a warehouse is treated as a data
+warehouse/CDC replica of the Postgres sources rather than a live production
+write path — so `prod` Databricks connections keep full Read-Only
+availability and no longer hide `hive_metastore`/`spark_catalog` from the
+schema tree. `dev` and `stage` connections on either engine are never
+probed.
+
 ### Codebase sandbox
 
 Repository roots are selected with a native main-process dialog. Agent paths
