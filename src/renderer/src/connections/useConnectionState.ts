@@ -34,6 +34,28 @@ export interface SchemaRefreshInfo {
   error?: string
 }
 
+/** Payload for the connect-time writable-access warning dialog (Phase 3). */
+export interface WritableWarning {
+  connId: string
+  connName: string
+  /** Empty for a role-attribute clamp (superuser/BYPASSRLS write everywhere). */
+  writableSchemas: string[]
+}
+
+/**
+ * Build the warning payload for a just-landed capability, or null when no
+ * dialog should show. 'writable' always shows one — every connect, no
+ * suppression; 'indeterminate' stays passive (badge + reason only).
+ */
+export function writableWarningFor(
+  connId: string,
+  connName: string,
+  capability: AgentCapability
+): WritableWarning | null {
+  if (capability.verdict !== 'writable') return null
+  return { connId, connName, writableSchemas: capability.writableSchemas ?? [] }
+}
+
 /** The unified hierarchical catalog/schema picker (Databricks). */
 export interface ManageDialogState {
   connId: string
@@ -115,6 +137,11 @@ export interface ConnectionState {
   removeConnection: (id: string) => void
   /** Re-introspect every loaded database of an online connection. */
   refreshConnection: (id: string) => void
+  /** Set after a connect whose probe found writable access to a protected
+   *  production schema; null once dismissed. */
+  writableWarning: WritableWarning | null
+  /** Dismiss the warning without touching the connection (Continue). */
+  dismissWritableWarning: () => void
 
   openDialog: () => void
   closeDialog: () => void
@@ -193,6 +220,7 @@ export function useConnectionState(): ConnectionState {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [manageDialog, setManageDialog] = useState<ManageDialogState | null>(null)
   const [envPrompt, setEnvPrompt] = useState<{ connId: string } | null>(null)
+  const [writableWarning, setWritableWarning] = useState<WritableWarning | null>(null)
 
   /** Bumped whenever an in-flight test's result should be discarded. */
   const testSeq = useRef(0)
@@ -637,6 +665,8 @@ export function useConnectionState(): ConnectionState {
           cacheSchema(id, connected)
         }
         setAgentCaps((prev) => ({ ...prev, [id]: res.data.agentCapability }))
+        const warning = writableWarningFor(id, profile.name, res.data.agentCapability)
+        if (warning) setWritableWarning(warning)
         setTree((prev) => prev.map((n) => (n.id === id ? conn : n)))
         setExpanded((prev) => ({
           ...prev,
@@ -707,6 +737,8 @@ export function useConnectionState(): ConnectionState {
   )
 
   const dismissEnvPrompt = useCallback(() => setEnvPrompt(null), [])
+
+  const dismissWritableWarning = useCallback(() => setWritableWarning(null), [])
 
   const disconnectConnection = useCallback(
     (id: string) => {
@@ -922,6 +954,8 @@ export function useConnectionState(): ConnectionState {
       cacheSchema(connId, connected)
     }
     setAgentCaps((prev) => ({ ...prev, [connId]: res.data.agentCapability }))
+    const warning = writableWarningFor(connId, saved.name, res.data.agentCapability)
+    if (warning) setWritableWarning(warning)
     setTree((prev) =>
       prev.some((n) => n.id === conn.id)
         ? prev.map((n) => (n.id === conn.id ? conn : n))
@@ -989,6 +1023,8 @@ export function useConnectionState(): ConnectionState {
     disconnectConnection,
     removeConnection,
     refreshConnection,
+    writableWarning,
+    dismissWritableWarning,
     openDialog,
     closeDialog,
     setDialogTab: changeDialogTab,

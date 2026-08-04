@@ -239,6 +239,19 @@ For defense in depth, connect with a database role that itself has only the
 permissions the agent should use. MCP servers are separate external systems;
 the database access mode does not restrict their credentials or effects.
 
+On a **PostgreSQL** connection whose environment is set to **prod**, DB Desk
+checks at connect time whether the connecting role can write to a schema
+holding real production data (three or more tables — views, materialized
+views, and foreign tables don't count toward that). If it can, Read-Only mode
+is unavailable and the agent is held to Metadata Only; a warning dialog
+names the writable schema(s), explains the downgrade, and offers **Continue**
+(keep the connection, accept Metadata Only) or **Disconnect**. Write access
+limited to empty or near-empty schemas no longer triggers this. **Databricks**
+connections are never probed or downgraded, even on `prod` — a warehouse is
+treated as a read replica of the source databases rather than a live write
+path — so a prod Databricks connection keeps full Read-Only availability.
+`dev` and `stage` connections on either engine are unrestricted.
+
 ### Agent context
 
 Every turn includes the selected schema, the active editor file, and any active
@@ -418,5 +431,8 @@ codebase.
   performed through a constrained preload bridge.
 - Metadata Only is the safest AI mode; Read-Only adds guarded inspection but is
   not a substitute for a least-privilege database role.
+- On `prod` PostgreSQL connections, write access to a schema holding real data
+  holds the agent at Metadata Only until you reconnect with a read-only role;
+  Databricks is never probed or downgraded.
 - Removing a connection and detaching a codebase can delete related local data;
   read the confirmation or warning text before proceeding.

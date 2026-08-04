@@ -21,9 +21,7 @@ import type {
 import { LARGE_CATALOG_SCHEMA_THRESHOLD } from '../shared/schemaSelection'
 import { guardAgentStatement } from '../shared/sql'
 import { checkPgWriteCapability } from './pgPrivileges'
-import { checkDbxWriteCapability, isUnityGovernedCatalog } from './dbxPrivileges'
-import type { DbxFetcher } from './dbxPrivileges'
-import { databricksDriver, databricksRestInfo } from './drivers/databricks'
+import { databricksDriver } from './drivers/databricks'
 import { postgresDriver, PG_READ_ONLY_VIOLATION_CODES } from './drivers/postgres'
 import type { Driver, RunQueryOptions } from './drivers/types'
 import { WRITE_REQUIRED_CODE } from './drivers/types'
@@ -72,13 +70,6 @@ export function setSchemaEventSink(sink: SchemaEventSink): void {
 const connDatabases = new Map<string, string>()
 
 /**
- * Live connId → the environment it connected under. Recorded so post-connect
- * calls (listCatalogs) can apply prod-only filtering without re-reading the
- * store.
- */
-const connEnvironments = new Map<string, ConnectionEnvironment>()
-
-/**
  * Live connId → what the agent may do there, decided exactly once per
  * connection in connect(). This map — not the renderer's copy on
  * ConnectResult — is what the enforcement points read (runAgentTurn's mode
@@ -88,26 +79,8 @@ const agentCapabilities = new Map<string, AgentCapability>()
 
 const AGENT_UNRESTRICTED: AgentCapability = { readOnlyAvailable: true, reason: null }
 
-/** Whole-check budget for the prod capability probe (Postgres and Databricks). */
+/** Whole-check budget for the prod capability probe (Postgres-only now). */
 const CAPABILITY_PROBE_TIMEOUT_MS = 5000
-
-/**
- * A Databricks REST fetcher bound to one connection's host + PAT. The token
- * never leaves the main process. Each call is bounded by the shared probe
- * budget via the passed AbortSignal; a non-2xx status throws so the checker
- * folds it to indeterminate (fail closed).
- */
-function databricksFetcher(host: string, token: string, signal: AbortSignal): DbxFetcher {
-  const base = /^https?:\/\//i.test(host) ? host : `https://${host}`
-  return async (path) => {
-    const res = await fetch(new URL(path, base), {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      signal
-    })
-    if (!res.ok) throw new Error(`Databricks API ${path} → ${res.status}`)
-    return res.json()
-  }
-}
 
 /** Agent capability of a live connection; null when the connection is gone. */
 export function agentCapabilityFor(connId: string): AgentCapability | null {
@@ -115,16 +88,29 @@ export function agentCapabilityFor(connId: string): AgentCapability | null {
 }
 
 /**
- * Decide the agent capability for a connection that just came up. dev and
- * stage are always unrestricted — the constant is returned without running
- * anything, so non-prod connects are byte-identical to before this feature.
- * Everything else (prod, or an environment this code no longer recognizes)
- * takes the restrictive path: Read-Only mode is offered only when the check
- * finds the connecting principal read-only — Postgres over its grant catalog
- * (a provable check), Databricks over the Unity Catalog effective-permissions
- * REST API for the pinned scope (deliberately best-effort; see
- * dbxPrivileges.ts for the accepted residuals). Anything short of an observed
- * read-only clamps.
+ * "billing" / "billing" and "orders" / "a", "b", "c" and 2 more — the
+ * clamp-reason fragment naming the writable protected schemas.
+ */
+function schemaListPhrase(schemas: string[]): string {
+  const quoted = schemas.map((name) => `"${name}"`)
+  if (quoted.length === 1) return `production schema ${quoted[0]}`
+  if (quoted.length <= 3) {
+    return `production schemas ${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]}`
+  }
+  return `production schemas ${quoted.slice(0, 3).join(', ')} and ${quoted.length - 3} more`
+}
+
+/**
+ * Decide the agent capability for a connection that just came up. Databricks
+ * is exempt at every tier by design — it is a CDC-replica warehouse, not a
+ * live prod write path (docs/plan-prod-gating-v2.md). dev and stage are
+ * always unrestricted — the constant is returned without running anything,
+ * so those connects are byte-identical to before this feature. Everything
+ * else (Postgres prod, or an environment this code no longer recognizes)
+ * takes the restrictive path: Read-Only mode is offered only when the grant
+ * catalog proves the connecting role cannot write any protected schema (see
+ * pgPrivileges.ts). Anything short of that clamps, and a positive 'writable'
+ * verdict carries the offending schemas so the renderer can warn.
  */
 async function computeAgentCapability(
   connId: string,
@@ -132,50 +118,31 @@ async function computeAgentCapability(
   environment: ConnectionEnvironment | null,
   database: string
 ): Promise<AgentCapability> {
+  if (type === 'databricks') return AGENT_UNRESTRICTED
   if (environment === 'dev' || environment === 'stage') return AGENT_UNRESTRICTED
-  const verdict =
-    type === 'postgres'
-      ? await checkPgWriteCapability((sql) =>
-          DRIVERS.postgres.runQuery(connId, database, sql, null, {
-            readOnly: true,
-            timeoutMs: CAPABILITY_PROBE_TIMEOUT_MS
-          })
-        )
-      : await checkDatabricksCapability(connId, database)
+  const { verdict, writableSchemas } = await checkPgWriteCapability((sql) =>
+    DRIVERS.postgres.runQuery(connId, database, sql, null, {
+      readOnly: true,
+      timeoutMs: CAPABILITY_PROBE_TIMEOUT_MS
+    })
+  )
   if (verdict === 'readonly') return AGENT_UNRESTRICTED
-  // "role" (Postgres) vs "principal" (Databricks user/group/service principal).
-  const noun = type === 'postgres' ? 'role' : 'principal'
+  if (verdict === 'writable') {
+    return {
+      readOnlyAvailable: false,
+      verdict,
+      writableSchemas,
+      reason:
+        writableSchemas.length > 0
+          ? `The connecting role can write to ${schemaListPhrase(writableSchemas)}. Connect with a read-only role to enable agent Read-Only mode.`
+          : 'The connecting role can write anywhere in this production database (superuser or BYPASSRLS). Connect with a read-only role to enable agent Read-Only mode.'
+    }
+  }
   return {
     readOnlyAvailable: false,
+    verdict: 'indeterminate',
     reason:
-      verdict === 'writable'
-        ? `The connecting ${noun} can write to this production database. Connect with a read-only ${noun} to enable agent Read-Only mode.`
-        : `Could not verify this ${noun}’s privileges on this production database; the agent is metadata-only. Connect with a read-only ${noun} to enable Read-Only mode.`
-  }
-}
-
-/**
- * Databricks arm of the prod capability probe: build the REST fetcher from the
- * live connection's host + PAT, check the pinned scope, and bound the whole
- * thing by the shared probe budget. A missing connection, a check with no
- * pinned scope, or a timeout all resolve to 'indeterminate' → clamp.
- */
-async function checkDatabricksCapability(
-  connId: string,
-  database: string
-): Promise<'readonly' | 'writable' | 'indeterminate'> {
-  const info = databricksRestInfo(connId)
-  if (!info) return 'indeterminate'
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), CAPABILITY_PROBE_TIMEOUT_MS)
-  try {
-    return await checkDbxWriteCapability(
-      databricksFetcher(info.host, info.token, controller.signal),
-      database,
-      schemaSelectionFor(connId, database)
-    )
-  } finally {
-    clearTimeout(timer)
+      'Could not verify this role’s privileges on this production database; the agent is metadata-only. Connect with a read-only role to enable Read-Only mode.'
   }
 }
 
@@ -280,7 +247,6 @@ export async function connect(
   if (!res.ok) return res
   connTypes.set(connId, type)
   connDatabases.set(connId, res.data.connectedDatabase.name)
-  connEnvironments.set(connId, params.environment)
   connIdentities.set(connId, identity)
   const connectedName = res.data.connectedDatabase.name
   if (cached) {
@@ -317,18 +283,6 @@ export async function connect(
     }
   }
   if (type === 'databricks') {
-    // On prod, catalogs without Unity Catalog governance (hive_metastore /
-    // spark_catalog) are excluded from the connection outright: the capability
-    // probe cannot reason about them, so they never appear in the tree or the
-    // pin dialog (listCatalogs applies the same filter). The connected catalog
-    // itself is kept so a connection explicitly opened against one doesn't
-    // lose its own tree — the agent clamp still covers it.
-    if (params.environment === 'prod') {
-      const connected = res.data.connectedDatabase.name
-      res.data.databases = res.data.databases.filter(
-        (name) => name === connected || isUnityGovernedCatalog(name)
-      )
-    }
     const pinnedCatalogs = catalogSelectionFor(connId)
     if (pinnedCatalogs) {
       const keep = new Set(pinnedCatalogs)
@@ -352,7 +306,6 @@ export async function disconnect(connId: string): Promise<DbResult<null>> {
   const driver = driverFor(connId)
   connTypes.delete(connId)
   connDatabases.delete(connId)
-  connEnvironments.delete(connId)
   connIdentities.delete(connId)
   agentCapabilities.delete(connId)
   return driver.disconnect(connId)
@@ -361,7 +314,6 @@ export async function disconnect(connId: string): Promise<DbResult<null>> {
 export async function disconnectAll(): Promise<void> {
   connTypes.clear()
   connDatabases.clear()
-  connEnvironments.clear()
   connIdentities.clear()
   agentCapabilities.clear()
   await Promise.allSettled(Object.values(DRIVERS).map((driver) => driver.disconnectAll()))
@@ -504,25 +456,16 @@ export function listSchemas(connId: string, database: string): Promise<DbResult<
   return list(connId, database)
 }
 
-/**
- * All catalogs reachable from a connection, unfiltered by any pinning. On a
- * prod Databricks connection, catalogs without Unity Catalog governance are
- * excluded (same rule as connect()) so they cannot be pinned into a prod
- * scope.
- */
-export async function listCatalogs(connId: string): Promise<DbResult<string[]>> {
+/** All catalogs reachable from a connection, unfiltered by any pinning. */
+export function listCatalogs(connId: string): Promise<DbResult<string[]>> {
   const list = driverFor(connId).listCatalogs
   if (!list) {
-    return {
+    return Promise.resolve({
       ok: false,
       error: 'Not supported for this connection type'
-    }
+    })
   }
-  const res = await list(connId)
-  if (res.ok && connTypes.get(connId) === 'databricks' && connEnvironments.get(connId) === 'prod') {
-    return { ok: true, data: res.data.filter(isUnityGovernedCatalog) }
-  }
-  return res
+  return list(connId)
 }
 
 /**

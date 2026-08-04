@@ -24,8 +24,7 @@ vi.mock('../../src/main/drivers/databricks', () => ({
     searchSchema: vi.fn(),
     listSchemas: vi.fn(),
     listCatalogs: vi.fn()
-  },
-  databricksRestInfo: vi.fn(() => ({ host: 'wh.cloud.databricks.com', token: 'token' }))
+  }
 }))
 
 vi.mock('../../src/main/drivers/postgres', () => ({
@@ -148,31 +147,12 @@ describe('connect', () => {
     expect(store.catalogSelectionFor).toHaveBeenCalledWith('dbx')
   })
 
-  it('excludes ungoverned catalogs from a prod Databricks connection', async () => {
+  it('leaves ungoverned catalogs visible on prod Databricks (exempt in v2)', async () => {
     vi.mocked(databricksDriver.connect).mockResolvedValue(
       okConnect('main', ['main', 'hive_metastore', 'spark_catalog', 'dev'])
     )
     const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
-    expect(res.ok && res.data.databases).toEqual(['main', 'dev'])
-  })
-
-  it("keeps a prod connection's own catalog even when it is ungoverned", async () => {
-    // Explicitly connected to hive_metastore: the tree must not lose the
-    // connected catalog; the agent clamp still covers it.
-    vi.mocked(databricksDriver.connect).mockResolvedValue(
-      okConnect('hive_metastore', ['hive_metastore', 'main'])
-    )
-    const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
-    expect(res.ok && res.data.databases).toEqual(['hive_metastore', 'main'])
-    expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
-  })
-
-  it('leaves ungoverned catalogs visible on non-prod Databricks', async () => {
-    vi.mocked(databricksDriver.connect).mockResolvedValue(
-      okConnect('main', ['main', 'hive_metastore'])
-    )
-    const res = await db.connect('dbx', dbxParams)
-    expect(res.ok && res.data.databases).toEqual(['main', 'hive_metastore'])
+    expect(res.ok && res.data.databases).toEqual(['main', 'hive_metastore', 'spark_catalog', 'dev'])
   })
 
   it('passes Postgres only the cache flag, no pinning options', async () => {
@@ -293,14 +273,17 @@ describe('listSchemas / listCatalogs', () => {
     })
   })
 
-  it('filter ungoverned catalogs out of listCatalogs on a prod connection', async () => {
+  it('leaves ungoverned catalogs in listCatalogs on a prod connection (exempt in v2)', async () => {
     vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
     await db.connect('dbx', { ...dbxParams, environment: 'prod' })
     vi.mocked(databricksDriver.listCatalogs!).mockResolvedValue({
       ok: true,
       data: ['main', 'hive_metastore', 'spark_catalog', 'dev']
     })
-    expect(await db.listCatalogs('dbx')).toEqual({ ok: true, data: ['main', 'dev'] })
+    expect(await db.listCatalogs('dbx')).toEqual({
+      ok: true,
+      data: ['main', 'hive_metastore', 'spark_catalog', 'dev']
+    })
   })
 
   it('report "not supported" for engines without the optional methods', async () => {
@@ -425,56 +408,30 @@ describe('schema cache', () => {
   })
 })
 
-function probeRow(overrides: Record<string, boolean> = {}): { ok: true; data: QueryResult } {
-  const names = [
-    'any_super',
-    'any_bypassrls',
-    'any_createdb',
-    'any_table_write',
-    'any_sequence_write',
-    'any_schema_create',
-    'any_db_create'
-  ]
+function probeRow(overrides: Record<string, boolean | string> = {}): {
+  ok: true
+  data: QueryResult
+} {
+  const defaults: Record<string, boolean | string> = {
+    any_super: false,
+    any_bypassrls: false,
+    writable_schemas: '[]'
+  }
+  const names = Object.keys(defaults)
   return {
     ok: true,
     data: {
       command: 'SELECT',
-      fields: names.map((name) => ({ name, dataType: 'bool' })),
-      rows: [names.map((name) => overrides[name] ?? false)],
+      fields: names.map((name) => ({
+        name,
+        dataType: name === 'writable_schemas' ? 'text' : 'bool'
+      })),
+      rows: [names.map((name) => overrides[name] ?? defaults[name])],
       rowCount: 1,
       durationMs: 1,
       limitApplied: null,
       truncated: false
     }
-  }
-}
-
-/**
- * A stand-in for global fetch that answers the three Databricks REST shapes
- * the capability probe calls: SCIM /Me, effective-permissions (echoing the
- * given privileges under the user principal), and the securable metadata
- * (owner). Every response is a 200.
- */
-function dbxRest(
-  me: { userName: string; groups?: unknown[] },
-  privileges: string[],
-  owner: string
-): (input: URL | string) => Promise<{ ok: true; json: () => Promise<unknown> }> {
-  return (input) => {
-    const href = String(input)
-    let body: unknown
-    if (href.includes('/scim/v2/Me')) {
-      body = me
-    } else if (href.includes('/effective-permissions/')) {
-      body = {
-        privilege_assignments: [
-          { principal: me.userName, privileges: privileges.map((p) => ({ privilege: p })) }
-        ]
-      }
-    } else {
-      body = { owner }
-    }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
   }
 }
 
@@ -505,12 +462,39 @@ describe('agent capability', () => {
     expect(options).toEqual({ readOnly: true, timeoutMs: 5000 })
   })
 
-  it('clamps prod Postgres when the role can write', async () => {
+  it('clamps prod Postgres when the role can write, naming the schemas', async () => {
     vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
-    vi.mocked(postgresDriver.runQuery).mockResolvedValue(probeRow({ any_table_write: true }))
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(
+      probeRow({ writable_schemas: '["billing","orders"]' })
+    )
     const res = await db.connect('pg', { ...pgParams, environment: 'prod' })
-    expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
-    expect(res.ok && res.data.agentCapability.reason).toMatch(/read-only role/)
+    expect(res.ok && res.data.agentCapability).toEqual({
+      readOnlyAvailable: false,
+      verdict: 'writable',
+      writableSchemas: ['billing', 'orders'],
+      reason:
+        'The connecting role can write to production schemas "billing" and "orders". Connect with a read-only role to enable agent Read-Only mode.'
+    })
+  })
+
+  it('truncates the clamp reason past three schemas but keeps the full list', async () => {
+    vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(
+      probeRow({ writable_schemas: '["a","b","c","d","e"]' })
+    )
+    const res = await db.connect('pg', { ...pgParams, environment: 'prod' })
+    expect(res.ok && res.data.agentCapability.reason).toMatch(
+      /production schemas "a", "b", "c" and 2 more/
+    )
+    expect(res.ok && res.data.agentCapability.writableSchemas).toEqual(['a', 'b', 'c', 'd', 'e'])
+  })
+
+  it('uses the role-attribute wording when the clamp names no schemas', async () => {
+    vi.mocked(postgresDriver.connect).mockResolvedValue(okConnect('app', ['app']))
+    vi.mocked(postgresDriver.runQuery).mockResolvedValue(probeRow({ any_super: true }))
+    const res = await db.connect('pg', { ...pgParams, environment: 'prod' })
+    expect(res.ok && res.data.agentCapability.reason).toMatch(/superuser or BYPASSRLS/)
+    expect(res.ok && res.data.agentCapability.writableSchemas).toEqual([])
   })
 
   it('clamps prod Postgres when the probe fails (fail closed)', async () => {
@@ -518,48 +502,19 @@ describe('agent capability', () => {
     vi.mocked(postgresDriver.runQuery).mockResolvedValue({ ok: false, error: 'timeout' })
     const res = await db.connect('pg', { ...pgParams, environment: 'prod' })
     expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
+    expect(res.ok && res.data.agentCapability.verdict).toBe('indeterminate')
     expect(res.ok && res.data.agentCapability.reason).toMatch(/Could not verify/)
   })
 
-  it('clamps prod Databricks with no pinned scope, without hitting the network', async () => {
+  it('leaves prod Databricks unrestricted without probing anything (exempt in v2)', async () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
     try {
       vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
-      // schemaSelectionFor defaults to null: no bounded scope to prove
-      // read-only over, so the check clamps before any REST call.
-      const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
-      expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
-      expect(res.ok && res.data.agentCapability.reason).toMatch(/Could not verify this principal/)
-      expect(fetchSpy).not.toHaveBeenCalled()
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('grants prod Databricks Read-Only when the pinned scope is provably read-only', async () => {
-    vi.stubGlobal('fetch', dbxRest({ userName: 'ro@x', groups: [] }, ['SELECT'], 'owner@x'))
-    try {
-      vi.mocked(store.schemaSelectionFor).mockReturnValue(['sales'])
-      vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
       const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
       expect(res.ok && res.data.agentCapability).toEqual({ readOnlyAvailable: true, reason: null })
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('clamps prod Databricks when the pinned scope grants a write privilege', async () => {
-    vi.stubGlobal(
-      'fetch',
-      dbxRest({ userName: 'rw@x', groups: [] }, ['SELECT', 'MODIFY'], 'owner@x')
-    )
-    try {
-      vi.mocked(store.schemaSelectionFor).mockReturnValue(['sales'])
-      vi.mocked(databricksDriver.connect).mockResolvedValue(okConnect('main', ['main']))
-      const res = await db.connect('dbx', { ...dbxParams, environment: 'prod' })
-      expect(res.ok && res.data.agentCapability.readOnlyAvailable).toBe(false)
-      expect(res.ok && res.data.agentCapability.reason).toMatch(/read-only principal/)
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(databricksDriver.runQuery).not.toHaveBeenCalled()
     } finally {
       vi.unstubAllGlobals()
     }

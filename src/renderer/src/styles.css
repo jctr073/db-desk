@@ -2889,6 +2889,33 @@ body.is-grid-col-resizing {
 .close-queries-dialog__discard {
   color: var(--red);
 }
+.writable-warning-dialog {
+  width: 460px;
+}
+.writable-warning-dialog__icon {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
+.writable-warning-dialog__body {
+  min-height: 0;
+  padding-top: 16px;
+  padding-bottom: 16px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.writable-warning-dialog__body p {
+  margin: 0;
+}
+.writable-warning-dialog__body p + p {
+  margin-top: 8px;
+}
+.writable-warning-dialog__body strong {
+  color: var(--text);
+}
+.writable-warning-dialog__advice {
+  color: var(--text-faint);
+}
 .detach-dialog {
   width: 430px;
 }

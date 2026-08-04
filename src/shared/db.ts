@@ -107,17 +107,30 @@ export interface TestResult {
 
 /**
  * What the agent is allowed to do on a live connection, decided once in the
- * main process when the connection is established. Non-prod environments are
- * always unrestricted; prod restricts Read-Only mode to credentials that
- * provably cannot write (Postgres privilege check; Databricks pending its
- * own check and clamped unconditionally until then). The renderer copy is
- * display-only — enforcement reads the main-process map.
+ * main process when the connection is established. Non-prod environments and
+ * Databricks (a CDC-replica warehouse, exempt by design) are always
+ * unrestricted; Postgres prod restricts Read-Only mode to roles that provably
+ * cannot write any protected schema (see pgPrivileges.ts). The renderer copy
+ * is display-only — enforcement reads the main-process map.
  */
 export interface AgentCapability {
   /** False = agent clamped to Metadata Only; Read-Only mode unavailable. */
   readOnlyAvailable: boolean
   /** User-facing explanation when unavailable; null otherwise. */
   reason: string | null
+  /**
+   * Why the clamp fired, when it did: 'writable' = the probe positively found
+   * write access (the renderer shows the connect-time warning dialog);
+   * 'indeterminate' = the probe failed or was unparseable (passive clamp,
+   * badge + reason only). Absent when readOnlyAvailable is true.
+   */
+  verdict?: 'writable' | 'indeterminate'
+  /**
+   * Protected schemas the connecting role can write, for a 'writable'
+   * verdict. Empty when the clamp came from a role attribute
+   * (superuser / BYPASSRLS) — the role can write everywhere.
+   */
+  writableSchemas?: string[]
 }
 
 export interface ConnectResult {

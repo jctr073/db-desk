@@ -20,6 +20,7 @@ import { ConnectionPanel } from './connections/ConnectionPanel'
 import { EnvironmentPromptDialog } from './connections/EnvironmentPromptDialog'
 import { ManageObjectsDialog } from './connections/ManageObjectsDialog'
 import { NewConnectionDialog } from './connections/NewConnectionDialog'
+import { WritableWarningDialog } from './connections/WritableWarningDialog'
 import { connAccents } from './connections/connColors'
 import { ENV_BADGE_LABELS } from './connections/types'
 import { useConnectionState } from './connections/useConnectionState'
@@ -515,6 +516,21 @@ export function App(): ReactElement {
           onCancel={connections.dismissEnvPrompt}
         />
       )}
+      {connections.writableWarning &&
+        (() => {
+          const warning = connections.writableWarning
+          return (
+            <WritableWarningDialog
+              connName={warning.connName}
+              writableSchemas={warning.writableSchemas}
+              onContinue={connections.dismissWritableWarning}
+              onDisconnect={() => {
+                connections.disconnectConnection(warning.connId)
+                connections.dismissWritableWarning()
+              }}
+            />
+          )
+        })()}
       {connections.manageDialog &&
         (() => {
           const dialog = connections.manageDialog
