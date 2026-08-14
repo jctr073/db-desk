@@ -48,6 +48,11 @@ import type {
   RepoStatus
 } from '../shared/repo'
 import type { ChooseExportResult, DataExportFormat, WriteExportResult } from '../shared/export'
+import type {
+  BackgroundAgentsState,
+  BackgroundScanRequest,
+  BackgroundScanStartResult
+} from '../shared/backgroundAgents'
 
 /**
  * The renderer end of the IPC bridge, typed against the contract in
@@ -296,6 +301,21 @@ const api = Object.freeze({
       }),
     /** Subscribe to agent progress events; returns an unsubscribe function. */
     onEvent: (callback: (evt: AgentEvent) => void): (() => void) => typedOn('agent:event', callback)
+  }),
+  agents: Object.freeze({
+    /** Current background scan jobs + queue state, for initial render. */
+    list: (): Promise<BackgroundAgentsState> => typedInvoke('agents:list'),
+    /** Enqueue a background scan; refusals come back as { ok: false }. */
+    startScan: (req: BackgroundScanRequest): Promise<BackgroundScanStartResult> =>
+      typedInvoke('agents:startScan', req),
+    cancel: (jobId: string): Promise<void> => typedInvoke('agents:cancel', jobId),
+    remove: (jobId: string): Promise<void> => typedInvoke('agents:remove', jobId),
+    retry: (jobId: string): Promise<void> => typedInvoke('agents:retry', jobId),
+    setQueuePaused: (paused: boolean): Promise<void> =>
+      typedInvoke('agents:setQueuePaused', paused),
+    /** Subscribe to job/queue pushes; returns an unsubscribe function. */
+    onChanged: (callback: (state: BackgroundAgentsState) => void): (() => void) =>
+      typedOn('agents:changed', callback)
   })
 })
 
