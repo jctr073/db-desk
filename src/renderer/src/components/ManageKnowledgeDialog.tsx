@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
 import type {
+  BackgroundScanKind,
+  BackgroundScanStartResult
+} from '../../../shared/backgroundAgents'
+import type {
   KnowledgeBaseSummary,
   KnowledgeLink,
   KnowledgeTargetGroup
@@ -12,7 +16,7 @@ import { DetachCodebaseDialog } from './DetachCodebaseDialog'
 import { BookIcon, CloseIcon, FolderIcon, PlusThinIcon, SearchIcon } from './icons'
 import { LinkBaseDialog } from './LinkBaseDialog'
 import { MonorepoSetupDialog } from './MonorepoSetupDialog'
-import { TargetedScanDialog } from './TargetedScanDialog'
+import { ScanDialog } from './ScanDialog'
 import type { QueryTarget } from './useQueryRunner'
 import { useEscapeKey } from '../useEscapeKey'
 
@@ -43,11 +47,19 @@ interface ManageKnowledgeDialogProps {
   onAttachCodebase: (kbId: string) => Promise<void>
   onDetachCodebase: (kbId: string) => Promise<void>
   onDetachAndDeleteBase: (kbId: string) => Promise<void>
-  /** Sends the scan prompt pinned to the base; the caller closes the dialog. */
-  onScan: (kbId: string) => void
-  onTargetedScan: (kbId: string, focus: string) => void
-  /** Why scans cannot run right now (agent busy, skills loading), or null. */
-  scanDisabledReason: string | null
+  /**
+   * Launches a scan pinned to the base. Resolves null when the foreground
+   * path ran (the caller closes this dialog to reveal the chat), else the
+   * background runner's result — `{ ok: false }` is surfaced as the error.
+   */
+  onStartScan: (
+    kbId: string,
+    opts: { kind: BackgroundScanKind; focus: string; background: boolean }
+  ) => Promise<BackgroundScanStartResult | null>
+  /** Blocks both scan paths (skills loading), or null. */
+  scanBlockedReason: string | null
+  /** Blocks only the foreground path (agent busy), or null. */
+  foregroundBlockedReason: string | null
   onClose: () => void
 }
 
@@ -56,7 +68,7 @@ type SubDialog =
   | { kind: 'rename' }
   | { kind: 'link'; candidates: KnowledgeBaseSummary[] }
   | { kind: 'monorepo' }
-  | { kind: 'targeted-scan' }
+  | { kind: 'scan'; initialScope: BackgroundScanKind }
   | { kind: 'detach' }
   | { kind: 'confirm-unlink' }
   | { kind: 'confirm-delete' }
@@ -81,9 +93,9 @@ export function ManageKnowledgeDialog({
   onAttachCodebase,
   onDetachCodebase,
   onDetachAndDeleteBase,
-  onScan,
-  onTargetedScan,
-  scanDisabledReason,
+  onStartScan,
+  scanBlockedReason,
+  foregroundBlockedReason,
   onClose
 }: ManageKnowledgeDialogProps): ReactElement {
   const [selectedKbId, setSelectedKbId] = useState<string | null>(
@@ -329,7 +341,9 @@ export function ManageKnowledgeDialog({
     return scopes.length > 0 ? scopes.join(', ') : ''
   }
 
-  const scanBlocked = !repoRoot ? 'Attach a codebase first' : (scanDisabledReason ?? null)
+  // The scan *button* only needs a codebase and a ready prompt: whether the
+  // agent is busy is the background toggle's problem, inside the scan dialog.
+  const scanBlocked = !repoRoot ? 'Attach a codebase first' : (scanBlockedReason ?? null)
 
   const unlinkScopes = selectedGroup
     ? selectedGroup.links.map((l) => l.schema).filter((s): s is string => !!s)
@@ -506,8 +520,8 @@ export function ManageKnowledgeDialog({
                         type="button"
                         className="manage-kb__btn"
                         disabled={!!scanBlocked}
-                        title={scanBlocked ?? 'Send the codebase-scan prompt as a chat message'}
-                        onClick={() => onScan(selectedGroup.base.id)}
+                        title={scanBlocked ?? 'Survey the whole attached codebase'}
+                        onClick={() => setSubDialog({ kind: 'scan', initialScope: 'full' })}
                       >
                         <SearchIcon size={11} />
                         Scan codebase
@@ -520,7 +534,7 @@ export function ManageKnowledgeDialog({
                           scanBlocked ??
                           'Re-scan a specific part of the codebase with your own focus instructions'
                         }
-                        onClick={() => setSubDialog({ kind: 'targeted-scan' })}
+                        onClick={() => setSubDialog({ kind: 'scan', initialScope: 'targeted' })}
                       >
                         Targeted scan…
                       </button>
@@ -656,14 +670,23 @@ export function ManageKnowledgeDialog({
           onClose={() => setSubDialog(null)}
         />
       )}
-      {subDialog?.kind === 'targeted-scan' && selectedGroup && (
-        <TargetedScanDialog
+      {subDialog?.kind === 'scan' && selectedGroup && (
+        <ScanDialog
           targetLabel={targetLabel}
           repoName={repoName}
+          initialScope={subDialog.initialScope}
+          foregroundBlockedReason={foregroundBlockedReason}
           onClose={() => setSubDialog(null)}
-          onScan={(focus) => {
+          onStart={(opts) => {
+            const kbId = selectedGroup.base.id
+            setError(null)
+            // Close either way: a rejected launch reports in the footer, which
+            // the scan dialog's overlay would hide. The foreground path takes
+            // this dialog down with it.
             setSubDialog(null)
-            onTargetedScan(selectedGroup.base.id, focus)
+            void onStartScan(kbId, opts).then((result) => {
+              if (result && !result.ok) setError(result.error)
+            })
           }}
         />
       )}
