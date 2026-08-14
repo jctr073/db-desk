@@ -78,6 +78,12 @@ export function KnowledgePanel({
   const [kindFilter, setKindFilter] = useState<KnowledgeKind | 'all'>('all')
   const [sourceFilter, setSourceFilter] = useState<KnowledgeSource | 'all'>('all')
   const [usagesRef, setUsagesRef] = useState<ColumnRef | null>(null)
+  /**
+   * Transient "records this scan wrote" filter, set by the agents tray's
+   * "View records". Cleared by its chip and by any manual filter change — it
+   * is a one-shot view, never a sticky filter.
+   */
+  const [runFilter, setRunFilter] = useState<{ since: number; until: number } | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [newMenu, setNewMenu] = useState<{ x: number; y: number } | null>(null)
   const newBtnRef = useRef<HTMLButtonElement | null>(null)
@@ -91,6 +97,7 @@ export function KnowledgePanel({
   useEffect(() => {
     setUsagesRef(null)
     setEditor(null)
+    setRunFilter(null)
   }, [state.connId, state.database])
 
   // Introspection backs the ref pickers and dangling-ref warnings.
@@ -107,6 +114,20 @@ export function KnowledgePanel({
   // load fails); the ref-based actions carry their payload and act at once.
   useEffect(() => {
     if (!nav) return
+    if (nav.action === 'scan-run') {
+      // Like 'record': the base can only be selected once its group has
+      // loaded, or useKnowledgeState's reconciliation drops the selection.
+      if (state.loadedKey !== knowledgeTargetKeyOf(nav.connId, nav.database)) {
+        if (state.loadError) onNavConsumed()
+        return
+      }
+      setEditor(null)
+      setUsagesRef(null)
+      if (state.groups.some((g) => g.base.id === nav.kbId)) state.setSelectedKbId(nav.kbId)
+      setRunFilter({ since: nav.since, until: nav.until })
+      onNavConsumed()
+      return
+    }
     if (nav.action === 'record') {
       if (state.loadedKey !== knowledgeTargetKeyOf(nav.connId, nav.database)) {
         if (state.loadError) onNavConsumed()
@@ -176,10 +197,18 @@ export function KnowledgePanel({
   // search apply within every group alike.
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase()
+    // The scan window is generous on the trailing edge: a record saved as the
+    // run finishes can carry a timestamp a moment past `until`.
+    const inRun = (record: KnowledgeRecord): boolean =>
+      !runFilter ||
+      (record.source === 'agent' &&
+        record.updatedAt >= runFilter.since &&
+        record.updatedAt <= runFilter.until + 60_000)
     const matches = (record: KnowledgeRecord): boolean =>
       isKnownKind(record.kind) &&
       (kindFilter === 'all' || record.kind === kindFilter) &&
       (sourceFilter === 'all' || record.source === sourceFilter) &&
+      inRun(record) &&
       (!q || recordSearchText(record).includes(q))
     return (selectedGroup ? [selectedGroup] : state.groups)
       .map((group) => ({
@@ -187,7 +216,7 @@ export function KnowledgePanel({
         records: group.records.filter(matches).sort((a, b) => b.updatedAt - a.updatedAt)
       }))
       .filter((entry) => entry.records.length > 0)
-  }, [state.groups, selectedGroup, search, kindFilter, sourceFilter])
+  }, [state.groups, selectedGroup, search, kindFilter, sourceFilter, runFilter])
   const visibleCount = filteredGroups.reduce((n, entry) => n + entry.records.length, 0)
 
   const usageGroups = useMemo(() => {
@@ -306,7 +335,10 @@ export function KnowledgePanel({
               className="toolbar-select kn-base-select"
               title="Knowledge base whose records are shown and edited"
               value={state.selectedKbId ?? ''}
-              onChange={(e) => state.setSelectedKbId(e.target.value || null)}
+              onChange={(e) => {
+                setRunFilter(null)
+                state.setSelectedKbId(e.target.value || null)
+              }}
             >
               {state.groups.length > 1 && (
                 <option value="">All linked bases · {allRecords.length}</option>
@@ -418,7 +450,10 @@ export function KnowledgePanel({
               <SearchIcon />
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setRunFilter(null)
+                  setSearch(e.target.value)
+                }}
                 placeholder="Search knowledge…"
                 aria-label="Search knowledge records"
               />
@@ -428,7 +463,10 @@ export function KnowledgePanel({
                 className="toolbar-select kn-filters__select"
                 title="Filter by kind"
                 value={kindFilter}
-                onChange={(e) => setKindFilter(e.target.value as KnowledgeKind | 'all')}
+                onChange={(e) => {
+                  setRunFilter(null)
+                  setKindFilter(e.target.value as KnowledgeKind | 'all')
+                }}
               >
                 <option value="all">All kinds</option>
                 {KIND_ORDER.map((kind) => (
@@ -441,13 +479,32 @@ export function KnowledgePanel({
                 className="toolbar-select kn-filters__select"
                 title="Filter by source"
                 value={sourceFilter}
-                onChange={(e) => setSourceFilter(e.target.value as KnowledgeSource | 'all')}
+                onChange={(e) => {
+                  setRunFilter(null)
+                  setSourceFilter(e.target.value as KnowledgeSource | 'all')
+                }}
               >
                 <option value="all">All sources</option>
                 <option value="human">Human</option>
                 <option value="agent">Agent</option>
               </select>
             </div>
+            {runFilter && (
+              <div className="kn-filters__row">
+                <span className="chip" title="Showing only the records that scan wrote">
+                  Records from last scan · {visibleCount}
+                  <button
+                    type="button"
+                    className="chip__x"
+                    title="Show all records"
+                    aria-label="Clear scan filter"
+                    onClick={() => setRunFilter(null)}
+                  >
+                    <CloseIcon size={11} />
+                  </button>
+                </span>
+              </div>
+            )}
           </div>
           <div className="kn-scroll">
             {state.loading && <div className="kn-loading">Loading…</div>}

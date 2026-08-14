@@ -19,6 +19,11 @@ import type {
   AgentSendRequest
 } from './agent'
 import type {
+  BackgroundAgentsState,
+  BackgroundScanRequest,
+  BackgroundScanStartResult
+} from './backgroundAgents'
+import type {
   ConnectionEnvironment,
   ConnectParams,
   ConnectResult,
@@ -190,6 +195,14 @@ export interface IpcInvokeContract {
   'agent:stop': { args: [chatId: string]; result: void }
   'agent:reset': { args: [chatId: string]; result: void }
   'agent:compact': { args: [chatId: string, model: string]; result: AgentCompactResult }
+
+  // --- Background agents ----------------------------------------------------
+  'agents:list': { args: []; result: BackgroundAgentsState }
+  'agents:startScan': { args: [req: BackgroundScanRequest]; result: BackgroundScanStartResult }
+  'agents:cancel': { args: [jobId: string]; result: void }
+  'agents:remove': { args: [jobId: string]; result: void }
+  'agents:retry': { args: [jobId: string]; result: void }
+  'agents:setQueuePaused': { args: [paused: boolean]; result: void }
 }
 
 /**
@@ -221,6 +234,8 @@ export interface IpcPushContract {
   'skills:changed': []
   /** One agent progress event for a running turn. */
   'agent:event': [evt: AgentEvent]
+  /** Background scan jobs changed (status, progress, or queue pause). */
+  'agents:changed': [state: BackgroundAgentsState]
   /** Main asks the renderer for live editor state (read_editor tool). */
   'agent:editor-read': [requestId: string]
   /** Renderer → main: the reply to a matching agent:editor-read request. */

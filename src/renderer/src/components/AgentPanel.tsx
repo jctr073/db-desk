@@ -9,6 +9,12 @@ import type {
   AgentModelOption,
   AgentPromptIntent
 } from '../../../shared/agent'
+import type {
+  BackgroundAgentJob,
+  BackgroundScanKind,
+  BackgroundScanRequest,
+  BackgroundScanStartResult
+} from '../../../shared/backgroundAgents'
 import type { AgentCapability, DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import type { McpServerStatus } from '../../../shared/mcp'
 import { REPO_SCAN_PROMPT, repoTargetedScanPrompt } from '../../../shared/repo'
@@ -97,6 +103,18 @@ interface AgentPanelProps {
     intent: AgentPromptIntent
     target?: { connId: string; database: string }
   } | null
+  /**
+   * The app's background scan runner. Absent until App wires it — without it
+   * the scan dialog still opens, but only its foreground path can run.
+   */
+  backgroundAgents?: {
+    jobs: BackgroundAgentJob[]
+    startScan: (req: BackgroundScanRequest) => Promise<BackgroundScanStartResult>
+    cancel: (jobId: string) => void
+    retry: (jobId: string) => void
+  }
+  /** One-shot reveal of the AI Agent tab (the tray's "Open agent panel"). */
+  agentTabSeq?: number
 }
 
 export function AgentPanel({
@@ -120,7 +138,9 @@ export function AgentPanel({
   knowledgeNav,
   onKnowledgeNavConsumed,
   onOpenKnowledgeRecord,
-  seed
+  seed,
+  backgroundAgents,
+  agentTabSeq
 }: AgentPanelProps): ReactElement {
   const [activeTab, setActiveTab] = useState<'files' | 'agent' | 'knowledge' | 'skills'>('agent')
   const [knowledgeNewSeq, setKnowledgeNewSeq] = useState(0)
@@ -146,6 +166,7 @@ export function AgentPanel({
   // that of its default linked base.
   const {
     links,
+    bases,
     repoStatuses,
     defaultBaseFor,
     repoStatusFor,
@@ -179,6 +200,8 @@ export function AgentPanel({
     thinking,
     compacting,
     effectiveMode,
+    model,
+    effort,
     setModelId,
     setEffort,
     setMode,
@@ -212,6 +235,17 @@ export function AgentPanel({
       ? schemas[knowledgeTarget.connId]?.[knowledgeTarget.database]
       : undefined
     return intro?.schemas.map((s) => s.name) ?? []
+  }, [knowledgeTarget, schemas])
+
+  /** Schema → relation count for the manage dialog's schema chips. */
+  const knowledgeSchemaTableCounts = useMemo(() => {
+    const intro = knowledgeTarget
+      ? schemas[knowledgeTarget.connId]?.[knowledgeTarget.database]
+      : undefined
+    return Object.fromEntries(
+      intro?.schemas.map((s) => [s.name, s.tables.length + s.views.length + s.matviews.length]) ??
+        []
+    )
   }, [knowledgeTarget, schemas])
 
   // Knowledge records for the CHAT target — the knowledge tab may be viewing
@@ -312,6 +346,15 @@ export function AgentPanel({
       setActiveTab('knowledge')
     }
   }, [knowledgeNav])
+
+  // "Open agent panel" from the agents tray reveals the chat. One-shot per
+  // seq, like the seed prefill above.
+  const prevAgentTabSeq = useRef(0)
+  useEffect(() => {
+    if (!agentTabSeq || agentTabSeq === prevAgentTabSeq.current) return
+    prevAgentTabSeq.current = agentTabSeq
+    setActiveTab('agent')
+  }, [agentTabSeq])
 
   // The target and access mode belong to the agent, not the sibling tools.
   // Close the mode popover when leaving the chat so it does not reopen later.
@@ -428,6 +471,60 @@ export function AgentPanel({
       )
     },
     [knowledgeTarget, repoStatuses, busy, compacting, sendPrompt, skillById, setRepoEnabled]
+  )
+
+  /**
+   * The scan dialog's single entry point. The foreground path is the chat turn
+   * the manage dialog has always sent; the background path enqueues a headless
+   * run in main with a snapshot of the session's settings. Resolves null when
+   * the foreground path ran (nothing to report), else the runner's result.
+   */
+  const startScan = useCallback(
+    async (
+      kbId: string,
+      opts: { kind: BackgroundScanKind; focus: string; background: boolean }
+    ): Promise<BackgroundScanStartResult | null> => {
+      if (!knowledgeTarget) return { ok: false, error: 'No knowledge target.' }
+      if (!opts.background) {
+        if (opts.kind === 'full') scanBase(kbId)
+        else targetedScanBase(kbId, opts.focus)
+        return null
+      }
+      if (!backgroundAgents) return { ok: false, error: 'Background agents unavailable.' }
+      // Same prompt sources as the foreground path: the (possibly user-edited)
+      // skill, with the shipped constants as the loading-time fallback.
+      const template = skillById.get(
+        opts.kind === 'full' ? SCAN_CODEBASE_SKILL_ID : TARGETED_SCAN_SKILL_ID
+      )?.prompt
+      const prompt =
+        opts.kind === 'full'
+          ? applySkillArgs(template ?? REPO_SCAN_PROMPT, '')
+          : template
+            ? applySkillArgs(template, opts.focus)
+            : repoTargetedScanPrompt(opts.focus)
+      return backgroundAgents.startScan({
+        kbId,
+        kind: opts.kind,
+        focus: opts.kind === 'targeted' ? opts.focus : null,
+        prompt,
+        connId: knowledgeTarget.connId,
+        connName: knowledgeTarget.connName,
+        database: knowledgeTarget.database,
+        model: model.id,
+        effort: effort && model.efforts.includes(effort) ? effort : null,
+        mode: effectiveMode
+      })
+    },
+    [
+      knowledgeTarget,
+      backgroundAgents,
+      scanBase,
+      targetedScanBase,
+      skillById,
+      model,
+      effort,
+      effectiveMode
+    ]
   )
 
   /**
@@ -657,22 +754,27 @@ export function AgentPanel({
           target={knowledgeTarget}
           groups={knowledge.groups}
           links={links}
+          allBases={bases}
           connNames={connNames}
           schemaOptions={knowledgeSchemaOptions}
           repoStatuses={repoStatuses}
+          jobs={backgroundAgents?.jobs ?? []}
+          schemaTableCounts={knowledgeSchemaTableCounts}
           initialKbId={knowledge.selectedKbId}
           onSelectBase={knowledge.setSelectedKbId}
           onAttachCodebase={attachCodebaseTo}
           onDetachCodebase={detachCodebase}
           onDetachAndDeleteBase={detachAndDeleteBase}
-          onScan={scanBase}
-          onTargetedScan={targetedScanBase}
-          scanDisabledReason={
-            skills.loading
-              ? 'Skills are still loading — try again in a moment'
-              : busy || compacting
-                ? 'The agent is busy — wait for the current turn to finish'
-                : null
+          onStartScan={startScan}
+          onCancelJob={(jobId) => backgroundAgents?.cancel(jobId)}
+          onRetryJob={(jobId) => backgroundAgents?.retry(jobId)}
+          scanBlockedReason={
+            skills.loading ? 'Skills are still loading — try again in a moment' : null
+          }
+          foregroundBlockedReason={
+            busy || compacting
+              ? 'The agent is busy — wait for the current turn to finish, or run the scan in the background'
+              : null
           }
           onClose={() => setManageKnowledgeOpen(false)}
         />

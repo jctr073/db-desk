@@ -22,6 +22,7 @@ import {
 } from './db'
 import { deleteCacheFor, dropIntrospection } from './schemaCache'
 import { invalidateAgentSchemaCache, registerAgentHandlers } from './agent'
+import { registerBackgroundAgentHandlers } from './backgroundAgents'
 import { registerMcpHandlers, stopAllMcpServers } from './mcp'
 import { registerRepoHandlers } from './repo'
 import { deleteSkillsForConnection, registerSkillHandlers } from './skills'
@@ -482,6 +483,7 @@ app.whenReady().then(() => {
   syncWatchedFolders(() => mainWindow)
   registerKnowledgeHandlers(() => mainWindow)
   registerAgentHandlers(() => mainWindow)
+  registerBackgroundAgentHandlers(() => mainWindow)
   registerMcpHandlers(() => mainWindow)
   registerRepoHandlers(() => mainWindow)
   registerSkillHandlers(() => mainWindow)

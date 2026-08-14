@@ -249,7 +249,18 @@ export function shouldForceEditorProposal(
   )
 }
 
-async function runAgentTurn(req: AgentSendRequest, send: Sender): Promise<void> {
+/**
+ * Run one agent turn. Exported for the background scan runner
+ * (backgroundAgents.ts), which runs headless turns under synthetic chatIds:
+ * `editorTools: false` omits the editor tools, because a turn with no
+ * renderer chat surface must not propose editor diffs or ping the renderer
+ * for editor state.
+ */
+export async function runAgentTurn(
+  req: AgentSendRequest,
+  send: Sender,
+  opts?: { editorTools?: boolean }
+): Promise<void> {
   const { key } = loadApiKey()
   if (!key) {
     send({
@@ -313,17 +324,19 @@ async function runAgentTurn(req: AgentSendRequest, send: Sender): Promise<void> 
   ]
   // Metadata Only offers no execution tools at all (Layer 1); its schema
   // knowledge is the system-prompt summary above.
+  const editorTools = opts?.editorTools !== false
   const tools: Anthropic.Messages.ToolUnion[] =
     req.target && mode === 'read-only'
       ? [
-          WRITE_EDITOR_TOOL,
-          READ_EDITOR_TOOL,
+          ...(editorTools ? [WRITE_EDITOR_TOOL, READ_EDITOR_TOOL] : []),
           runSqlTool(dialect),
           explainQueryTool(dialect),
           describeTableTool(dialect),
           searchSchemaTool(dialect)
         ]
-      : [WRITE_EDITOR_TOOL, READ_EDITOR_TOOL]
+      : editorTools
+        ? [WRITE_EDITOR_TOOL, READ_EDITOR_TOOL]
+        : []
   // search_knowledge and save_knowledge read/write only the local knowledge
   // store — never the warehouse — so both are offered in Metadata Only as well
   // as Read-Only. They require a target because records are keyed to it.
@@ -640,7 +653,7 @@ async function compactChat(chatId: string, modelId: string): Promise<AgentCompac
 }
 
 /** Abort the stream and cancel the running statement. */
-function stopChat(chatId: string): void {
+export function stopChat(chatId: string): void {
   const chat = chats.get(chatId)
   if (!chat) return
   chat.controller?.abort()
@@ -649,6 +662,16 @@ function stopChat(chatId: string): void {
     chat.cancelRunningQuery = null
     cancel()
   }
+}
+
+/**
+ * Stop a chat and drop its state. Unlike `agent:reset` this leaves the schema
+ * caches alone: a finished background scan must not blow the cached summary a
+ * live chat is reusing.
+ */
+export function disposeChat(chatId: string): void {
+  stopChat(chatId)
+  chats.delete(chatId)
 }
 
 export function registerAgentHandlers(getWindow: () => BrowserWindow | null): void {

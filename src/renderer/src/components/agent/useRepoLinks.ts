@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { pickDefaultLink } from '../../../../shared/knowledge'
-import type { KnowledgeLink } from '../../../../shared/knowledge'
+import type { KnowledgeBaseSummary, KnowledgeLink } from '../../../../shared/knowledge'
 import type { RepoStatus } from '../../../../shared/repo'
 import type { QueryTarget } from '../useQueryRunner'
 
@@ -15,9 +15,12 @@ export function useRepoLinks(targets: QueryTarget[]) {
   const [repoStatuses, setRepoStatuses] = useState<Record<string, RepoStatus>>({})
   /** Every knowledge link, so any target's default base resolves in-process. */
   const [links, setLinks] = useState<KnowledgeLink[]>([])
+  /** Every base in the store, for the manage dialog's "mapped elsewhere" rail. */
+  const [bases, setBases] = useState<KnowledgeBaseSummary[]>([])
 
-  // Keep the link table live so any target's default base resolves without a
-  // round-trip; structural pushes cover bases/links created or removed.
+  // Keep the link and base tables live so any target's default base resolves
+  // without a round-trip; structural pushes cover bases/links created or
+  // removed.
   useEffect(() => {
     let cancelled = false
     const load = (): void => {
@@ -28,6 +31,14 @@ export function useRepoLinks(targets: QueryTarget[]) {
         })
         .catch(() => {
           // Best-effort: a failed load simply leaves targets with no base.
+        })
+      void window.dbDesk.knowledge
+        .listBases()
+        .then((next) => {
+          if (!cancelled) setBases(next)
+        })
+        .catch(() => {
+          // Best-effort, same as links.
         })
     }
     load()
@@ -111,6 +122,7 @@ export function useRepoLinks(targets: QueryTarget[]) {
 
   return {
     links,
+    bases,
     repoStatuses,
     defaultBaseFor,
     repoStatusFor,
