@@ -348,8 +348,13 @@ export function App(): ReactElement {
   const closeAgentTray = bgAgents.closeTray
   /** The slice of the runner AgentPanel needs (manage dialog scan state). */
   const backgroundAgentsApi = useMemo(
-    () => ({ jobs: bgAgents.jobs, startScan: bgAgents.startScan }),
-    [bgAgents.jobs, bgAgents.startScan]
+    () => ({
+      jobs: bgAgents.jobs,
+      startScan: bgAgents.startScan,
+      cancel: bgAgents.cancel,
+      retry: bgAgents.retry
+    }),
+    [bgAgents.jobs, bgAgents.startScan, bgAgents.cancel, bgAgents.retry]
   )
   const openAgentPanel = useCallback(() => {
     setAgentTabSeq((seq) => seq + 1)

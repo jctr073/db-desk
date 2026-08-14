@@ -110,6 +110,8 @@ interface AgentPanelProps {
   backgroundAgents?: {
     jobs: BackgroundAgentJob[]
     startScan: (req: BackgroundScanRequest) => Promise<BackgroundScanStartResult>
+    cancel: (jobId: string) => void
+    retry: (jobId: string) => void
   }
   /** One-shot reveal of the AI Agent tab (the tray's "Open agent panel"). */
   agentTabSeq?: number
@@ -164,6 +166,7 @@ export function AgentPanel({
   // that of its default linked base.
   const {
     links,
+    bases,
     repoStatuses,
     defaultBaseFor,
     repoStatusFor,
@@ -232,6 +235,17 @@ export function AgentPanel({
       ? schemas[knowledgeTarget.connId]?.[knowledgeTarget.database]
       : undefined
     return intro?.schemas.map((s) => s.name) ?? []
+  }, [knowledgeTarget, schemas])
+
+  /** Schema → relation count for the manage dialog's schema chips. */
+  const knowledgeSchemaTableCounts = useMemo(() => {
+    const intro = knowledgeTarget
+      ? schemas[knowledgeTarget.connId]?.[knowledgeTarget.database]
+      : undefined
+    return Object.fromEntries(
+      intro?.schemas.map((s) => [s.name, s.tables.length + s.views.length + s.matviews.length]) ??
+        []
+    )
   }, [knowledgeTarget, schemas])
 
   // Knowledge records for the CHAT target — the knowledge tab may be viewing
@@ -740,15 +754,20 @@ export function AgentPanel({
           target={knowledgeTarget}
           groups={knowledge.groups}
           links={links}
+          allBases={bases}
           connNames={connNames}
           schemaOptions={knowledgeSchemaOptions}
           repoStatuses={repoStatuses}
+          jobs={backgroundAgents?.jobs ?? []}
+          schemaTableCounts={knowledgeSchemaTableCounts}
           initialKbId={knowledge.selectedKbId}
           onSelectBase={knowledge.setSelectedKbId}
           onAttachCodebase={attachCodebaseTo}
           onDetachCodebase={detachCodebase}
           onDetachAndDeleteBase={detachAndDeleteBase}
           onStartScan={startScan}
+          onCancelJob={(jobId) => backgroundAgents?.cancel(jobId)}
+          onRetryJob={(jobId) => backgroundAgents?.retry(jobId)}
           scanBlockedReason={
             skills.loading ? 'Skills are still loading — try again in a moment' : null
           }
