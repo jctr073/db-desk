@@ -19,15 +19,21 @@ export function knowledgeTargetKeyOf(connId: string, database: string): string {
 
 /**
  * A navigation request into the knowledge panel: "Show usages" / "Add
- * annotation…" routed from the schema tree, or "open this record" from a
- * `[kb:id]` citation chip in the agent transcript.
+ * annotation…" routed from the schema tree, "open this record" from a
+ * `[kb:id]` citation chip in the agent transcript, or "View records" from a
+ * finished background scan in the agents tray.
  */
 export type KnowledgeNav = {
   /** Monotonic, so repeating the same action on the same target still fires. */
   seq: number
   connId: string
   database: string
-} & ({ action: 'usages' | 'annotate'; ref: ColumnRef } | { action: 'record'; recordId: string })
+} & (
+  | { action: 'usages' | 'annotate'; ref: ColumnRef }
+  | { action: 'record'; recordId: string }
+  /** Select `kbId` and filter to the agent records that run wrote. */
+  | { action: 'scan-run'; kbId: string; since: number; until: number }
+)
 
 export interface KnowledgeState {
   connId: string | null

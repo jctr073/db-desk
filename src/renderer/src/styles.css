@@ -5,6 +5,9 @@
   --bg: #282a3a;
   --titlebar: #1e1f2a;
   --panel: #222430;
+  /* Card fill inside panels (mapping cards, tray rows) — between panel and
+     panel-hi. */
+  --panel-card: #262836;
   --panel-hi: #313344;
   --border: #3a3d4d;
   --border-soft: #313344;
@@ -42,6 +45,7 @@
   --bg: #eceef1;
   --titlebar: #e3e5e9;
   --panel: #fbfbfc;
+  --panel-card: #f6f7f9;
   --panel-hi: #f1f2f5;
   --border: #d6d9df;
   --border-soft: #e7e9ed;
@@ -5543,4 +5547,288 @@ body.is-grid-col-resizing {
 .agent-target-row__spacer {
   flex: 1 1 auto;
   min-width: 4px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Status bar: background agents segment                                *
+ * ------------------------------------------------------------------ */
+.statusbar__agents {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 11px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.statusbar__agents:hover {
+  background: var(--panel-hi);
+  color: var(--text);
+}
+.statusbar__agents-idle {
+  white-space: nowrap;
+}
+.statusbar__agents-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.statusbar__agents-pill--failed {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
+.statusbar__agents-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+/* ------------------------------------------------------------------ *
+ * Agents tray (popover over the status-bar agents segment)             *
+ * ------------------------------------------------------------------ */
+.agents-tray {
+  position: fixed;
+  width: 398px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 26px 60px var(--shadow);
+  /* Above the status bar, below .dialog-overlay (50): a modal opened on top
+     of the tray must still overlay it. */
+  z-index: 40;
+  overflow: hidden;
+}
+.agents-tray__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.agents-tray__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+.agents-tray__header-spacer {
+  flex: 1 1 auto;
+}
+.agents-tray__ghost {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.agents-tray__ghost:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+/* The shared .dtabs control is dialog-spaced; the tray sets its own margins. */
+.agents-tray__tabs {
+  margin: 8px 10px 4px;
+}
+.agents-tray__tabs .dtab {
+  padding: 5px 0;
+  font-size: 11px;
+}
+.agents-tray__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 10px 10px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.agents-tray__empty {
+  padding: 10px 2px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.agents-tray__finished-label {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.agents-tray__row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-card);
+  overflow: hidden;
+}
+.agents-tray__row--queued {
+  border-style: dashed;
+  background: transparent;
+}
+.agents-tray__row--done {
+  border-color: var(--border-soft);
+  background: transparent;
+}
+.agents-tray__row--failed {
+  border-color: color-mix(in srgb, var(--red) 35%, transparent);
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+}
+.agents-tray__row-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 9px;
+}
+.agents-tray__row-main > .spinner {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+.agents-tray__row-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.agents-tray__row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.agents-tray__row-kind {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agents-tray__row-base {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agents-tray__row-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agents-tray__row-sub {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agents-tray__row-sub--failed {
+  color: var(--red);
+}
+.agents-tray__row-btn {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.agents-tray__row-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.agents-tray__row-rail {
+  height: 3px;
+  background: var(--panel-hi);
+}
+.agents-tray__row-rail-fill {
+  height: 100%;
+  background: var(--accent);
+}
+.agents-tray__row-rail-fill--teal {
+  background: var(--teal);
+}
+.agents-tray__disc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.agents-tray__disc--done {
+  background: color-mix(in srgb, var(--green) 16%, transparent);
+  color: var(--green);
+}
+.agents-tray__disc--failed {
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+  color: var(--red);
+}
+.agents-tray__hollow {
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border: 1px solid var(--text-dim);
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.agents-tray__hollow--faint {
+  border-color: var(--text-faint);
+}
+.agents-tray__footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  background: var(--panel-hi);
+  border-top: 1px solid var(--border);
+}
+.agents-tray__hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.agents-tray__link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--accent-strong);
+  font-size: 10.5px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.agents-tray__link:hover {
+  text-decoration: underline;
+}
+/* Targeted scans read teal throughout the tray, full scans accent. */
+.spinner--teal {
+  border-top-color: var(--teal);
 }

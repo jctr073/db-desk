@@ -9,7 +9,10 @@ import type {
   AgentResultItem
 } from '../../shared/agent'
 import type { ColumnRef } from '../../shared/knowledge'
+import type { BackgroundAgentJob } from '../../shared/backgroundAgents'
+import { useBackgroundAgents } from './agents/useBackgroundAgents'
 import { AgentPanel } from './components/AgentPanel'
+import { AgentsTray } from './components/AgentsTray'
 import { EditorPanel } from './components/EditorPanel'
 import { SettingsDialog } from './components/SettingsDialog'
 import { StatusBar } from './components/StatusBar'
@@ -333,6 +336,26 @@ export function App(): ReactElement {
   )
   const clearKnowledgeNav = useCallback(() => setKnowledgeNav(null), [])
 
+  // Background scan agents: one instance drives the status-bar segment, the
+  // tray, and (via AgentPanel) the manage dialog's scan state.
+  const bgAgents = useBackgroundAgents()
+  const agentsAnchor = useRef<HTMLButtonElement | null>(null)
+  const setAgentsAnchor = useCallback((el: HTMLButtonElement | null) => {
+    agentsAnchor.current = el
+  }, [])
+  // One-shot "reveal the AI Agent tab" request from the tray's footer.
+  const [agentTabSeq, setAgentTabSeq] = useState(0)
+  const closeAgentTray = bgAgents.closeTray
+  /** The slice of the runner AgentPanel needs (manage dialog scan state). */
+  const backgroundAgentsApi = useMemo(
+    () => ({ jobs: bgAgents.jobs, startScan: bgAgents.startScan }),
+    [bgAgents.jobs, bgAgents.startScan]
+  )
+  const openAgentPanel = useCallback(() => {
+    setAgentTabSeq((seq) => seq + 1)
+    closeAgentTray()
+  }, [closeAgentTray])
+
   // "[kb:id]" citation chips in the agent transcript: point the knowledge tab
   // at the chat's target and open the cited record.
   const openKnowledgeRecord = useCallback((connId: string, database: string, recordId: string) => {
@@ -345,6 +368,25 @@ export function App(): ReactElement {
       recordId
     })
   }, [])
+
+  // "View records" on a finished background scan: point the knowledge tab at
+  // the scan's target and filter to what that run wrote.
+  const viewScanRecords = useCallback(
+    (job: BackgroundAgentJob) => {
+      setKnTargetKey(knowledgeTargetKeyOf(job.target.connId, job.target.database))
+      setKnowledgeNav({
+        seq: ++knNavSeq.current,
+        action: 'scan-run',
+        connId: job.target.connId,
+        database: job.target.database,
+        kbId: job.kbId,
+        since: job.startedAt ?? job.queuedAt,
+        until: job.finishedAt ?? Date.now()
+      })
+      closeAgentTray()
+    },
+    [closeAgentTray]
+  )
 
   // Live usage indexes for every connected database, so the tree badges
   // knowledge across all of them (not just the tab's current target).
@@ -488,6 +530,8 @@ export function App(): ReactElement {
           onKnowledgeNavConsumed={clearKnowledgeNav}
           onOpenKnowledgeRecord={openKnowledgeRecord}
           seed={agentSeed}
+          backgroundAgents={backgroundAgentsApi}
+          agentTabSeq={agentTabSeq}
         />
       </div>
       <StatusBar
@@ -501,7 +545,22 @@ export function App(): ReactElement {
           queryStatus.target ||
           (activeTarget ? `${activeTarget.connName} / ${activeTarget.database}` : '')
         }
+        agents={{
+          state: bgAgents.segment.state,
+          label: bgAgents.segment.label,
+          open: bgAgents.trayOpen,
+          onToggle: bgAgents.toggleTray,
+          setAnchor: setAgentsAnchor
+        }}
       />
+      {bgAgents.trayOpen && (
+        <AgentsTray
+          agents={bgAgents}
+          anchor={agentsAnchor}
+          onViewRecords={viewScanRecords}
+          onOpenAgentPanel={openAgentPanel}
+        />
+      )}
       {settingsOpen && (
         <SettingsDialog
           themePreference={preference}
