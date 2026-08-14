@@ -24,13 +24,13 @@ Branch: work on `kb_mgr` (already checked out). Do not touch unrelated files.
 These are defaults chosen to keep v1 small; each is trivially changeable later. Do not
 re-litigate them during implementation.
 
-| Question | Decision |
-|---|---|
-| How many background agents at once? | Global limit of **2 running**; further requests queue. One extra rule: at most **one job per base** active (queued or running) — starting a second scan for the same base is rejected with a message. |
+| Question                                               | Decision                                                                                                                                                                                                     |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| How many background agents at once?                    | Global limit of **2 running**; further requests queue. One extra rule: at most **one job per base** active (queued or running) — starting a second scan for the same base is rejected with a message.        |
 | Does a background scan write into the chat transcript? | **No.** Background scans run headless in main with their own synthetic chat id; the tray is their only surface. The foreground path (background toggle off) still sends a normal chat turn exactly as today. |
-| Does history persist across restarts? | **Session only** (in-memory in main, capped at 20 finished runs). |
-| Multi-schema "+1" in the rail — full list on hover? | Yes, via a plain `title` tooltip listing all schemas. No custom hover UI. |
-| Does "Detach" stay a separate sub-dialog? | **Yes** — `DetachCodebaseDialog` unchanged, launched from the code-path card's *Detach…* button. Rename / Unlink / Delete move to the ••• menu in the knowledge footer. |
+| Does history persist across restarts?                  | **Session only** (in-memory in main, capped at 20 finished runs).                                                                                                                                            |
+| Multi-schema "+1" in the rail — full list on hover?    | Yes, via a plain `title` tooltip listing all schemas. No custom hover UI.                                                                                                                                    |
+| Does "Detach" stay a separate sub-dialog?              | **Yes** — `DetachCodebaseDialog` unchanged, launched from the code-path card's _Detach…_ button. Rename / Unlink / Delete move to the ••• menu in the knowledge footer.                                      |
 
 Progress semantics (design shows "42%" and "128 of 300 files"): a scan agent reads
 selectively, so an honest `filesRead/filesTotal` would crawl. Percent is a **display
@@ -41,21 +41,21 @@ heuristic** (see §2.4) — monotonic, capped at 95 until the run finishes. Coun
 
 ## 1. Current-state map (read these before coding)
 
-| File | Role today |
-|---|---|
+| File                                                                | Role today                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/renderer/src/components/ManageKnowledgeDialog.tsx` (837 lines) | The dialog being restructured. Keep all its callbacks, sub-dialogs (`BaseNameDialog`, `LinkBaseDialog`, `MonorepoSetupDialog`, `DetachCodebaseDialog`, `ConfirmBaseDialog`), and its link/schema toggle logic (`schemaRows`, `toggleSchema`, `createAndLinkBase`, …) — only the layout and action placement change. |
-| `src/renderer/src/components/StatusBar.tsx` | 26px bar; segments: cog, conn dot+name, query text, schema-sync, spacer, target. New agents segment goes after schema-sync, before the spacer. |
-| `src/renderer/src/components/TargetedScanDialog.tsx` | Becomes the unified scan dialog. |
-| `src/renderer/src/components/AgentPanel.tsx` | Owns the manage dialog, `scanBase` / `targetedScanBase` (foreground scan = `sendPrompt(...)` with `kbId` pinned), `useRepoLinks`, skills (`SCAN_CODEBASE_SKILL_ID`, `TARGETED_SCAN_SKILL_ID`). |
-| `src/renderer/src/components/agent/useChatSession.ts` | `sendPrompt(prompt, target, forceRepo, intent, kbId)`; per-chat `busy`. Also the session's current `model`, `effort`, `effectiveMode` — snapshot these when enqueueing a background scan. |
-| `src/main/agent.ts` | `runAgentTurn(req, send)` (private), per-chat state in `chats` map keyed by `chatId`, `stopChat` (private), `registerAgentHandlers`. A turn with a distinct `chatId` runs concurrently with the chat — this is what makes background scans possible without touching the streaming loop. |
-| `src/main/agent/knowledge.ts` | `execSaveKnowledge` emits `tool_result` with summary `saved <kind>` / `updated <kind>`; `resolveActiveKbId` validates a supplied kbId is linked to the target. |
-| `src/main/repo.ts` | `getRepoRoot(kbId)` returns the **effective** root (repoRoot/subPath joined, validated), `listRepoFiles(root)` (walker, 1 000-result cap), `getRepoCommit`. |
-| `src/main/knowledge.ts` | `linksForTarget`, `listBases`, `groupsForTarget`, base persistence. |
-| `src/shared/ipc.ts` | The typed IPC contract — every new channel goes here first. |
-| `src/preload/index.ts` | `window.dbDesk.<ns>` bridges; add an `agents` namespace. |
-| `src/renderer/src/styles.css` | Design tokens at the top (`--panel`, `--accent`, `--teal`, …) match the handoff's palette exactly. `.statusbar*` at ~252, `.dialog*` at ~2134, `.manage-kb*` at ~2469, `.dtabs` segmented control at ~2237, `.spinner`/`.spinner--xs` at ~1702, keyframes `dbspin` at ~126. |
-| `src/renderer/src/useEscapeKey.ts` | Window-level (bubble-phase) Escape hook used by all dialogs. The tray must NOT use it (see §3.3). |
+| `src/renderer/src/components/StatusBar.tsx`                         | 26px bar; segments: cog, conn dot+name, query text, schema-sync, spacer, target. New agents segment goes after schema-sync, before the spacer.                                                                                                                                                                      |
+| `src/renderer/src/components/TargetedScanDialog.tsx`                | Becomes the unified scan dialog.                                                                                                                                                                                                                                                                                    |
+| `src/renderer/src/components/AgentPanel.tsx`                        | Owns the manage dialog, `scanBase` / `targetedScanBase` (foreground scan = `sendPrompt(...)` with `kbId` pinned), `useRepoLinks`, skills (`SCAN_CODEBASE_SKILL_ID`, `TARGETED_SCAN_SKILL_ID`).                                                                                                                      |
+| `src/renderer/src/components/agent/useChatSession.ts`               | `sendPrompt(prompt, target, forceRepo, intent, kbId)`; per-chat `busy`. Also the session's current `model`, `effort`, `effectiveMode` — snapshot these when enqueueing a background scan.                                                                                                                           |
+| `src/main/agent.ts`                                                 | `runAgentTurn(req, send)` (private), per-chat state in `chats` map keyed by `chatId`, `stopChat` (private), `registerAgentHandlers`. A turn with a distinct `chatId` runs concurrently with the chat — this is what makes background scans possible without touching the streaming loop.                            |
+| `src/main/agent/knowledge.ts`                                       | `execSaveKnowledge` emits `tool_result` with summary `saved <kind>` / `updated <kind>`; `resolveActiveKbId` validates a supplied kbId is linked to the target.                                                                                                                                                      |
+| `src/main/repo.ts`                                                  | `getRepoRoot(kbId)` returns the **effective** root (repoRoot/subPath joined, validated), `listRepoFiles(root)` (walker, 1 000-result cap), `getRepoCommit`.                                                                                                                                                         |
+| `src/main/knowledge.ts`                                             | `linksForTarget`, `listBases`, `groupsForTarget`, base persistence.                                                                                                                                                                                                                                                 |
+| `src/shared/ipc.ts`                                                 | The typed IPC contract — every new channel goes here first.                                                                                                                                                                                                                                                         |
+| `src/preload/index.ts`                                              | `window.dbDesk.<ns>` bridges; add an `agents` namespace.                                                                                                                                                                                                                                                            |
+| `src/renderer/src/styles.css`                                       | Design tokens at the top (`--panel`, `--accent`, `--teal`, …) match the handoff's palette exactly. `.statusbar*` at ~252, `.dialog*` at ~2134, `.manage-kb*` at ~2469, `.dtabs` segmented control at ~2237, `.spinner`/`.spinner--xs` at ~1702, keyframes `dbspin` at ~126.                                         |
+| `src/renderer/src/useEscapeKey.ts`                                  | Window-level (bubble-phase) Escape hook used by all dialogs. The tray must NOT use it (see §3.3).                                                                                                                                                                                                                   |
 
 Token mapping from the handoff (§4 of the design): every hex in the mock already exists as a
 CSS variable except the card fill `#262836` — add it (§6.1). **Never hard-code hexes**; the
@@ -154,9 +154,7 @@ export function foldAgentSegment(
   jobs: BackgroundAgentJob[],
   lastTrayOpenedAt: number
 ): { state: 'idle' | 'running' | 'failed'; label: string; percent: number } {
-  const failed = jobs.filter(
-    (j) => j.status === 'failed' && (j.finishedAt ?? 0) > lastTrayOpenedAt
-  )
+  const failed = jobs.filter((j) => j.status === 'failed' && (j.finishedAt ?? 0) > lastTrayOpenedAt)
   if (failed.length > 0) {
     return {
       state: 'failed',
@@ -191,7 +189,7 @@ export function foldAgentSegment(
    renderer for editor state. Everything else (clamping, knowledge tools, repo tools) stays.
 2. **Export `stopChat(chatId)`** (currently private at `src/main/agent.ts:643`).
 3. **Add and export `disposeChat(chatId)`**: `stopChat(chatId); chats.delete(chatId)` —
-   like `agent:reset` but *without* clearing the schema caches (scans benefit from the cached
+   like `agent:reset` but _without_ clearing the schema caches (scans benefit from the cached
    summary, and disposing one scan must not blow the chat's cache).
 
 ### 2.3 New file `src/main/backgroundAgents.ts` — the runner
@@ -199,7 +197,7 @@ export function foldAgentSegment(
 Owns the job table, queue, and lifecycle. Session-only state:
 
 ```ts
-const jobs = new Map<string, BackgroundAgentJob>()      // insertion order = enqueue order
+const jobs = new Map<string, BackgroundAgentJob>() // insertion order = enqueue order
 const requests = new Map<string, BackgroundScanRequest>() // snapshot kept for retry
 let queuePaused = false
 ```
@@ -208,7 +206,7 @@ Registration: `export function registerBackgroundAgentHandlers(getWindow: () => 
 — called from wherever the other `register*Handlers` are called (`src/main/index.ts`; mirror
 `registerAgentHandlers`' placement).
 
-**Broadcast.** After *every* mutation (enqueue, start, progress tick, finish, cancel, remove,
+**Broadcast.** After _every_ mutation (enqueue, start, progress tick, finish, cancel, remove,
 retry, pause): `typedSend(getWindow(), 'agents:changed', { jobs: [...jobs.values()], queuePaused })`.
 Throttle progress ticks to at most one push per 300 ms per job (a scan emits many tool events);
 always push immediately on status transitions.
@@ -238,11 +236,18 @@ exists (oldest first): transition it to `running` and fire `void runJob(job)`.
    ```ts
    const chatId = `bga:${job.id}`
    const req: AgentSendRequest = {
-     chatId, prompt: snapshot.prompt, intent: 'chat',
-     model: snapshot.model, effort: snapshot.effort, mode: snapshot.mode,
-     webSearch: false, repo: true,
+     chatId,
+     prompt: snapshot.prompt,
+     intent: 'chat',
+     model: snapshot.model,
+     effort: snapshot.effort,
+     mode: snapshot.mode,
+     webSearch: false,
+     repo: true,
      target: { connId, connName, database, kbId: job.kbId },
-     editor: null, editorSelection: null, context: []
+     editor: null,
+     editorSelection: null,
+     context: []
    }
    ```
 3. Run with an **intercepting Sender** that never forwards to the renderer's `agent:event`
@@ -329,7 +334,19 @@ export function useBackgroundAgents() {
   // toggleTray: setTrayOpen(o => !o); when opening, setLastTrayOpenedAt(Date.now()).
   // closeTray, cancel, remove, retry, setPaused → thin wrappers over window.dbDesk.agents.*
   // segment = useMemo(() => foldAgentSegment(jobs, lastTrayOpenedAt), [jobs, lastTrayOpenedAt])
-  return { jobs, queuePaused, trayOpen, segment, toggleTray, closeTray, cancel, remove, retry, setPaused, startScan }
+  return {
+    jobs,
+    queuePaused,
+    trayOpen,
+    segment,
+    toggleTray,
+    closeTray,
+    cancel,
+    remove,
+    retry,
+    setPaused,
+    startScan
+  }
 }
 ```
 
@@ -378,12 +395,13 @@ the button element via a callback ref prop (`agents.setAnchor?(el)`) stored in t
 App holds `anchorRef` and passes it to both. Either is fine — keep it to one mechanism.
 
 **Chrome.** Width 398px, `--panel` bg, `1px --border`, radius 10, shadow
-`0 26px 60px var(--shadow)`, `z-index` above the status bar but *below* `.dialog-overlay`
+`0 26px 60px var(--shadow)`, `z-index` above the status bar but _below_ `.dialog-overlay`
 (50) — use 40 — so a modal opened on top still overlays it.
 
 **Dismissal.**
+
 - Outside click: a `pointerdown` listener on `document`; if the event target is outside the
-  tray *and* outside the segment button, close.
+  tray _and_ outside the segment button, close.
 - Escape: **capture-phase** listener — `document.addEventListener('keydown', h, true)` where
   `h` checks `key === 'Escape'`, calls `event.stopPropagation()`, and closes the tray. This is
   why the tray must NOT use `useEscapeKey` (bubble phase): with the manage dialog open under
@@ -403,7 +421,7 @@ App holds `anchorRef` and passes it to both. Either is fine — keep it to one m
    - **History**: all finished/failed/cancelled, newest first.
 3. Row list (padding 4px 10px 10px, column gap 6px, `overflow-y: auto`, max-height ~340px).
 4. Footer strip (`--panel-hi`, top border, 9px 12px): hint
-   *Agents keep running while dialogs are closed.* + link-button **Open agent panel**
+   _Agents keep running while dialogs are closed._ + link-button **Open agent panel**
    (accent-strong, 10.5px) → `onOpenAgentPanel()` (App switches the right panel to the
    AI Agent tab — wire a callback through props to `AgentPanel`'s `setActiveTab`; simplest is
    a one-shot seq prop like the existing `seed` pattern, or lift a small
@@ -412,7 +430,7 @@ App holds `anchorRef` and passes it to both. Either is fine — keep it to one m
 
 **Rows** (one component, variant by status):
 
-- *Running*: card (`--panel-card` bg — new token, §6.1 — 1px `--border`, radius 8). Body row:
+- _Running_: card (`--panel-card` bg — new token, §6.1 — 1px `--border`, radius 8). Body row:
   spinner ring 11px (accent for `kind==='full'`, teal for `'targeted'` — a `--teal`-topped
   spinner variant class), then a min-width-0 column:
   line 1: kind label (**Codebase scan** / **Targeted scan**, 12px/600) + base name
@@ -425,17 +443,17 @@ App holds `anchorRef` and passes it to both. Either is fine — keep it to one m
   for targeted scans `“focus…” · X of Y files · Z records` (focus quoted, ellipsized).
   Right: ghost **Cancel** button → `cancel(id)`. Bottom edge: 3px progress rail
   (`--panel-hi` track, fill `job.percent%` in accent or teal by kind).
-- *Queued*: dashed 1px `--border` border, radius 8, no fill. Hollow 9px circle, kind label +
-  base name, sub-line *Queued — starts when a slot frees up*. Right: **Remove** →
+- _Queued_: dashed 1px `--border` border, radius 8, no fill. Hollow 9px circle, kind label +
+  base name, sub-line _Queued — starts when a slot frees up_. Right: **Remove** →
   `remove(id)`.
-- *Finished (done)*: 1px `--border-soft` border. 14px green check disc
+- _Finished (done)_: 1px `--border-soft` border. 14px green check disc
   (`color-mix(in srgb, var(--green) 16%, transparent)` bg, `--green` check `CheckIcon size={9}`).
   Label: base name (or `subPath` for monorepo bases — show `subPath ?? baseName`); sub-line
   `+N records · 4m 12s · 2h ago` (duration = finishedAt−startedAt, "ago" coarse: m/h). Right:
   **View records** → see §3.4.
-- *Failed*: border `color-mix(in srgb, var(--red) 35%, transparent)`, bg red at .07. Red ✕
+- _Failed_: border `color-mix(in srgb, var(--red) 35%, transparent)`, bg red at .07. Red ✕
   disc. Sub-line in `--red`: `Failed — <error> · 18m ago`. Right: **Retry** → `retry(id)`.
-- *Cancelled*: render like finished but with a faint hollow circle and sub-line
+- _Cancelled_: render like finished but with a faint hollow circle and sub-line
   `Cancelled · …`; button **Remove**.
 
 All row buttons: 22px tall, 10.5px, ghost (1px `--border`, `--text-dim`).
@@ -502,11 +520,11 @@ Body, top to bottom:
 1. Scope segmented control (`.dtabs` + `.dtab` house pattern): **Full scan** / **Targeted scan**.
 2. When targeted: the existing `FOCUS` label + textarea (rows 4, autoFocus, same placeholder,
    Cmd/Ctrl+Enter submits) and the existing hint copy. When full: a short hint instead —
-   *The agent surveys the whole attached codebase and records what it teaches about this
-   database.*
+   _The agent surveys the whole attached codebase and records what it teaches about this
+   database._
 3. Background toggle: a labelled checkbox row —
    label **Run in background**, sub-hint (11px `--text-faint`):
-   *The scan runs as a background agent; watch it from the status bar.* Default **checked**.
+   _The scan runs as a background agent; watch it from the status bar._ Default **checked**.
    When unchecked and `foregroundBlockedReason` is set, disable the Start button and show the
    reason inline (the `url-hint` style).
 
@@ -547,14 +565,15 @@ const startScan = useCallback(
   }, […])
 ```
 
-  Surfacing errors: pass the result back — cleanest is for the manage dialog to own the call:
-  give `ManageKnowledgeDialog` an `onStartScan` prop returning `Promise<BackgroundScanStartResult | null>`
-  (null = foreground path taken) and let it set its existing `error` state on `!ok`.
+Surfacing errors: pass the result back — cleanest is for the manage dialog to own the call:
+give `ManageKnowledgeDialog` an `onStartScan` prop returning `Promise<BackgroundScanStartResult | null>`
+(null = foreground path taken) and let it set its existing `error` state on `!ok`.
+
 - **`scanDisabledReason` split.** Background runs are not blocked by chat busyness. Pass two
   props to the manage dialog: `foregroundBlockedReason` (today's string: skills loading /
   agent busy) and keep "Attach a codebase first" derived inside the dialog as now. The scan
-  *button* is disabled only by missing codebase; the dialog's background toggle handles the
-  foreground-blocked case (§4.1). Skills still loading blocks *both* paths (prompt text isn't
+  _button_ is disabled only by missing codebase; the dialog's background toggle handles the
+  foreground-blocked case (§4.1). Skills still loading blocks _both_ paths (prompt text isn't
   ready): keep a `scanBlockedReason` for that case only.
 
 ---
@@ -647,7 +666,7 @@ Rules (extending today's `listSections` clustering at `ManageKnowledgeDialog.tsx
    `<segment>/` prefix stripped (else the full `subPath`), falling back to the base name when
    `subPath` is null.
 3. **`Unmapped · n`** — two item kinds, in this order:
-   - *Mapped elsewhere*: bases sharing a clustered `repoRoot` from (2) but with **no** link to
+   - _Mapped elsewhere_: bases sharing a clustered `repoRoot` from (2) but with **no** link to
      this target. Find them via `links`: for each such base (need the full base list — the
      dialog doesn't have it; derive instead from `links` + `groups`? The base names/subPaths of
      unlinked bases aren't in `groups`. Add one more prop: `allBases: KnowledgeBaseSummary[]`,
@@ -656,9 +675,9 @@ Rules (extending today's `listSections` clustering at `ManageKnowledgeDialog.tsx
      same way it exposes `links`.) Label = `subPath ?? name`; sublabel
      `mapped in <database>` from the base's first link (prefix with `<connName> / ` when the
      link's connId differs from the target's).
-   - *No code path*: each schema in `schemaOptions` with no link from any base in `groups`;
+   - _No code path_: each schema in `schemaOptions` with no link from any base in `groups`;
      sublabel `no code path`.
-   Omit the section when empty.
+     Omit the section when empty.
 
 Row rendering (`.manage-kb__rail-item`): a `<button>` (base rows) or inert `<div>` (unmapped),
 28-ish px tall, 8px 9px padding, radius 7:
@@ -699,7 +718,7 @@ Top → bottom for the selected base:
   (10.5px `--text-dim`), right ghost **Cancel** (24px) → `onCancelJob`. Directly below:
   3px progress rail (track `--panel-hi`, accent fill at `percent%`), 1px side margins.
 - **Queued**: same geometry, dashed `--border` border, hollow dot, title
-  **Scan queued** · sub *Starts when a slot frees up* · button **Remove** → (remove via
+  **Scan queued** · sub _Starts when a slot frees up_ · button **Remove** → (remove via
   `onCancelJob`? No—) add `onRemoveJob(jobId)` prop or reuse cancel (cancel on a queued job
   marks it cancelled; Remove then happens in the tray). Use **Cancel** here too — one verb,
   one handler; the tray is where Remove lives.
@@ -708,14 +727,14 @@ Top → bottom for the selected base:
   **Retry** → `onRetryJob`.
 - **Never scanned** (`neverScanned` && codebase attached): muted row (1px `--border`, no
   tint): **Not scanned yet** (12px/600 `--text-dim`), sub
-  *Run a scan to teach the agent this codebase.*, right **btn-primary Scan…** → opens the
+  _Run a scan to teach the agent this codebase._, right **btn-primary Scan…** → opens the
   ScanDialog with `initialScope: 'full'` (disabled with `scanBlockedReason` as title when
   set).
 - Otherwise: no banner.
 
 **(b) Mapping grid** — `display:grid; grid-template-columns: 1fr 34px 1fr; margin-top:16px`.
 
-*Code path card* (`.manage-kb__card`: 1px `--border`, radius 9, `--panel-card` bg):
+_Code path card_ (`.manage-kb__card`: 1px `--border`, radius 9, `--panel-card` bg):
 
 - Card header (8px 11px, 1px `--border-soft` bottom): uppercase 10px/600 `--text-dim`
   label **Code path**.
@@ -723,17 +742,17 @@ Top → bottom for the selected base:
   (`repoRootName(repoRoot)`; for a subPath base show the subPath leaf). Mono 10.5px
   `--text-dim` path block (`repoRoot`, wrapped, full path in `title`). Chip row (19px chips,
   radius 4, `--panel-hi` bg, 10px): commit chip (mono, from `status?.commit`, omit when null)
-  + scope chip (`whole repo` or the `subPath`). Button row (24px ghost buttons):
-  **Change…** → existing `attach()` (title strings unchanged from today), **Detach…** →
-  `{kind:'detach'}` (disabled when no root).
+  - scope chip (`whole repo` or the `subPath`). Button row (24px ghost buttons):
+    **Change…** → existing `attach()` (title strings unchanged from today), **Detach…** →
+    `{kind:'detach'}` (disabled when no root).
 - **No codebase** state: body is a dashed drop-target-looking button (dashed 1px `--border`,
   radius 7, centered, `--text-dim`): `+ Attach codebase…` → `attach()`. Keep today's
   monorepo sub-path note (`manage-kb__repo-sub` copy) under the path when `subPath` is set.
 
-*Arrow column*: two 1px vertical `--border` lines with a centered `→` (13px, accent-strong).
+_Arrow column_: two 1px vertical `--border` lines with a centered `→` (13px, accent-strong).
 Pure CSS/flex per the mock.
 
-*Schemas card* (same card chrome):
+_Schemas card_ (same card chrome):
 
 - Header row: uppercase label **Schemas in {database}**, spacer, ghost chip-button
   **Edit links…** (20px) → toggles the link editor (below).
@@ -745,10 +764,10 @@ Pure CSS/flex per the mock.
   unlink semantics. Then a dashed `+ add schema` chip (24px, dashed `--border`, `--text-faint`)
   → also opens the link editor.
 - Coverage sentence (10.5px `--text-faint`, full row):
-  *Records written here answer questions about the {a, b} schema{s} only. {k} other schema{s}
-  in {database} {are/is} covered by other bases.* — second sentence only when `k > 0`, where
-  `k` = schemas of `schemaOptions` linked by *other* groups.
-- **Link editor**: reuse today's `schemaRows` + `toggleSchema` machinery *unchanged* —
+  _Records written here answer questions about the {a, b} schema{s} only. {k} other schema{s}
+  in {database} {are/is} covered by other bases._ — second sentence only when `k > 0`, where
+  `k` = schemas of `schemaOptions` linked by _other_ groups.
+- **Link editor**: reuse today's `schemaRows` + `toggleSchema` machinery _unchanged_ —
   render the existing checkbox list (`.manage-kb__schemas`, incl. pending disable and the
   "(not in schema)" flag) in a collapsible section that replaces the chip body while open
   (header button toggles `Edit links… ⌄` / `Done`). No popover needed; in-card expansion is
@@ -759,7 +778,7 @@ Pure CSS/flex per the mock.
 
 - Left column: uppercase label **Knowledge**; sub-line 11px `--text-faint`:
   `{n} record{s}`, then when this session's `lastJob` succeeded ` · last scan added
-  {recordsWritten}`, then ` · ` link-button **view in panel** (accent on hover) → `onClose()`
+{recordsWritten}`, then `·` link-button **view in panel** (accent on hover) → `onClose()`
   after `onSelectBase(kbId)` (the dialog already syncs selection; closing reveals the panel).
 - **Scan again…** button (28px, `--panel-hi` bg, 1px `--border`, `SearchIcon size={12}`):
   label is **Scan…** when `neverScanned` (banner variant already offers it, keep both).
@@ -774,8 +793,8 @@ Pure CSS/flex per the mock.
 ### 5.4 Dialog footer
 
 Replace the error/Close footer contents: left slot = existing error display when set, else
-the hint (11px `--text-faint`): *Rename, unlink and delete live in the ••• menu of the
-mapping.* Right: **Close** (unchanged semantics, disabled while attaching).
+the hint (11px `--text-faint`): _Rename, unlink and delete live in the ••• menu of the
+mapping._ Right: **Close** (unchanged semantics, disabled while attaching).
 
 ### 5.5 ScanDialog as sub-dialog
 

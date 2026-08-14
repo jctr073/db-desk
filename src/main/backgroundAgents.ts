@@ -218,10 +218,7 @@ async function runJob(job: BackgroundAgentJob): Promise<void> {
           // distinct paths.
           readPaths.add(evt.sql.startsWith('repo: read ') ? evt.sql.slice(11) : evt.sql)
           job.filesRead = readPaths.size
-          job.percent = Math.max(
-            job.percent,
-            scanPercent(job.kind, job.filesRead, job.filesTotal)
-          )
+          job.percent = Math.max(job.percent, scanPercent(job.kind, job.filesRead, job.filesTotal))
           pushProgress()
         }
       } else if (evt.type === 'tool_result') {
