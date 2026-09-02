@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
+import type { MouseEvent as ReactMouseEvent, MutableRefObject, ReactElement } from 'react'
 
 import type { AgentResultItem } from '../../../shared/agent'
 import type { QueryResult } from '../../../shared/db'
@@ -42,6 +42,20 @@ interface ResultsPanelProps {
   onAddAgentContext?: (item: AgentResultItem) => void
   /** Attach context AND pre-fill the agent composer (e.g. "Fix this error"). */
   onAskAgent?: (prompt: string, item: AgentResultItem) => void
+  /** Registered on mount so the editor bridge can drive the export popover. */
+  commandsRef?: MutableRefObject<ResultsCommands | null>
+}
+
+/**
+ * Result commands the editor bridge reaches through a ref, mirroring the
+ * ref pattern `EditorBridge` already uses: `EditorPanel` forwards this into
+ * `useEditorBridge` so the palette/shortcuts can drive the export popover
+ * without lifting export state up out of `ResultsPanel`.
+ */
+export interface ResultsCommands {
+  /** Opens the export popover, as if the Export button was clicked. */
+  openExportMenu: () => void
+  canExport: () => boolean
 }
 
 const LIMIT_CHOICES: (number | null)[] = [100, 500, 1000, 5000, null]
@@ -164,7 +178,8 @@ export function ResultsPanel({
   contentOnly = false,
   onStatus,
   onAddAgentContext,
-  onAskAgent
+  onAskAgent,
+  commandsRef
 }: ResultsPanelProps): ReactElement {
   const active = tabs.find((tab) => tab.id === activeTabId) ?? null
   const [menuOpen, setMenuOpen] = useState(false)
@@ -272,6 +287,19 @@ export function ResultsPanel({
   const activeResult = active?.result ?? null
   const canExport = Boolean(activeResult && activeResult.fields.length > 0 && !active?.running)
   const selectedRowCount = selectedRowIndexes.size
+
+  useEffect(() => {
+    if (!commandsRef) return
+    commandsRef.current = {
+      openExportMenu: () => {
+        if (canExport) setExportOpen(true)
+      },
+      canExport: () => canExport
+    }
+    return () => {
+      if (commandsRef) commandsRef.current = null
+    }
+  }, [commandsRef, canExport])
 
   const hasSelection = selectedRowIndexes.size > 0 || selectedColumnIndexes.size > 0
 

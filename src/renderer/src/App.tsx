@@ -12,9 +12,13 @@ import type { ColumnRef } from '../../shared/knowledge'
 import type { BackgroundAgentJob } from '../../shared/backgroundAgents'
 import { useBackgroundAgents } from './agents/useBackgroundAgents'
 import { AgentPanel } from './components/AgentPanel'
+import type { AgentPanelTab } from './components/AgentPanel'
+import { CommandPalette } from './components/CommandPalette'
 import { AgentsTray } from './components/AgentsTray'
 import { EditorPanel } from './components/EditorPanel'
 import { SettingsDialog } from './components/SettingsDialog'
+import { useCommands } from './discovery/useCommands'
+import { useGlobalShortcuts } from './discovery/useGlobalShortcuts'
 import { StatusBar } from './components/StatusBar'
 import type { EditorBridge } from './components/editorBridge'
 import { useQueryRunner } from './components/useQueryRunner'
@@ -343,8 +347,12 @@ export function App(): ReactElement {
   const setAgentsAnchor = useCallback((el: HTMLButtonElement | null) => {
     agentsAnchor.current = el
   }, [])
-  // One-shot "reveal the AI Agent tab" request from the tray's footer.
-  const [agentTabSeq, setAgentTabSeq] = useState(0)
+  // One-shot "show this right-panel tab" request (tray footer, commands).
+  const [panelTab, setPanelTab] = useState<{ seq: number; tab: AgentPanelTab } | null>(null)
+  const panelTabSeq = useRef(0)
+  const showPanelTab = useCallback((tab: AgentPanelTab) => {
+    setPanelTab({ seq: ++panelTabSeq.current, tab })
+  }, [])
   const closeAgentTray = bgAgents.closeTray
   /** The slice of the runner AgentPanel needs (manage dialog scan state). */
   const backgroundAgentsApi = useMemo(
@@ -357,9 +365,41 @@ export function App(): ReactElement {
     [bgAgents.jobs, bgAgents.startScan, bgAgents.cancel, bgAgents.retry]
   )
   const openAgentPanel = useCallback(() => {
-    setAgentTabSeq((seq) => seq + 1)
+    showPanelTab('agent')
     closeAgentTray()
-  }, [closeAgentTray])
+  }, [showPanelTab, closeAgentTray])
+
+  // Feature discovery: the command palette and the app-level command table
+  // (docs/plan-feature-discovery.md). Commands the later phases add (guide,
+  // shortcuts sheet, Discover, highlight mode) are no-ops until they land.
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const openPalette = useCallback(() => setPaletteOpen(true), [])
+  const closePalette = useCallback(() => setPaletteOpen(false), [])
+  const [newChatSeq, setNewChatSeq] = useState(0)
+  const [focusComposerSeq, setFocusComposerSeq] = useState(0)
+  const [manageSeq, setManageSeq] = useState(0)
+  const requestNewChat = useCallback(() => setNewChatSeq((seq) => seq + 1), [])
+  const requestFocusComposer = useCallback(() => setFocusComposerSeq((seq) => seq + 1), [])
+  const requestManageKnowledge = useCallback(() => setManageSeq((seq) => seq + 1), [])
+  // phase 5: seed the composer with '/help'; until then just reveal the chat.
+  const askHelp = useCallback(() => showPanelTab('agent'), [showPanelTab])
+  const noop = useCallback(() => {}, [])
+  const commands = useCommands({
+    editorBridge,
+    openSettings,
+    openPalette,
+    openShortcuts: noop,
+    openGuide: noop,
+    openDiscover: noop,
+    toggleHighlight: noop,
+    openNewConnection: connections.openDialog,
+    showPanelTab,
+    newChat: requestNewChat,
+    focusComposer: requestFocusComposer,
+    askHelp,
+    manageKnowledge: requestManageKnowledge
+  })
+  useGlobalShortcuts(commands.run)
 
   // "[kb:id]" citation chips in the agent transcript: point the knowledge tab
   // at the chat's target and open the cited record.
@@ -506,6 +546,7 @@ export function App(): ReactElement {
           onQueryStatus={onQueryStatus}
           onAddAgentContext={addAgentContext}
           onAskAgent={askAgent}
+          onCommand={commands.run}
         />
         <div
           className="col-divider"
@@ -536,7 +577,10 @@ export function App(): ReactElement {
           onOpenKnowledgeRecord={openKnowledgeRecord}
           seed={agentSeed}
           backgroundAgents={backgroundAgentsApi}
-          agentTabSeq={agentTabSeq}
+          panelTab={panelTab}
+          newChatSeq={newChatSeq}
+          focusComposerSeq={focusComposerSeq}
+          manageSeq={manageSeq}
         />
       </div>
       <StatusBar
@@ -566,6 +610,12 @@ export function App(): ReactElement {
           onOpenAgentPanel={openAgentPanel}
         />
       )}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={closePalette}
+        run={commands.run}
+        enabled={commands.enabled}
+      />
       {settingsOpen && (
         <SettingsDialog
           themePreference={preference}

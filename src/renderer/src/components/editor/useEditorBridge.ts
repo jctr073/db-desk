@@ -3,6 +3,8 @@ import { useEffect, useRef } from 'react'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 
 import type { EditorBridge } from '../editorBridge'
+import type { ResultsCommands } from '../ResultsPanel'
+import type { QueryRunner } from '../useQueryRunner'
 import type { EditorProposal } from './ProposalOverlay'
 
 interface EditorBridgeParams {
@@ -24,6 +26,17 @@ interface EditorBridgeParams {
    */
   proposalHome: { connId: string; database: string | null } | null
   createFile: (connId: string, database: string | null) => void
+  /** Same code path as the Run button / ⌘⏎ (EditorPanel's runCurrent). */
+  runRef: MutableRefObject<() => void>
+  /** Same code path as ⌘S. */
+  saveRef: MutableRefObject<() => void>
+  /** Creates a fresh SQL query file, same as the "+" in the tab strip. */
+  newQueryRef: MutableRefObject<() => void>
+  runnerRef: MutableRefObject<QueryRunner>
+  /** The main ResultsPanel's export-popover handle, reached through a ref. */
+  resultsCommandsRef: MutableRefObject<ResultsCommands | null>
+  /** Whether there's a target and the active file is SQL. */
+  canRunRef: MutableRefObject<boolean>
 }
 
 /**
@@ -44,7 +57,13 @@ export function useEditorBridge({
   activeFileName,
   isSqlFile,
   proposalHome,
-  createFile
+  createFile,
+  runRef,
+  saveRef,
+  newQueryRef,
+  runnerRef,
+  resultsCommandsRef,
+  canRunRef
 }: EditorBridgeParams): {
   activeFileNameRef: MutableRefObject<string | null>
   activeIsSqlRef: MutableRefObject<boolean>
@@ -119,12 +138,48 @@ export function useEditorBridge({
         pendingApplyRef.current = text
         createFileRef.current(home.connId, home.database)
         return 'applied'
+      },
+      commands: {
+        runActive: () => runRef.current(),
+        saveActive: () => saveRef.current(),
+        formatActive: () => {
+          if (!activeIsSqlRef.current) return
+          editorRef.current?.getAction('editor.action.formatDocument')?.run()
+        },
+        newQuery: () => newQueryRef.current(),
+        pinActiveResult: () => {
+          const liveTab = runnerRef.current.tabs.find((tab) => !tab.pinned)
+          if (!liveTab || liveTab.running || !liveTab.result) return
+          runnerRef.current.pin(liveTab.id)
+        },
+        openExportMenu: () => resultsCommandsRef.current?.openExportMenu(),
+        closeAllResults: () => runnerRef.current.closeAll(),
+        canRun: () => canRunRef.current,
+        canPin: () => {
+          const liveTab = runnerRef.current.tabs.find((tab) => !tab.pinned)
+          return !!liveTab && !liveTab.running && !!liveTab.result
+        },
+        canExport: () => resultsCommandsRef.current?.canExport() ?? false
       }
     }
     return () => {
       bridge.current = null
     }
-  }, [bridge, applyProposal, editorRef, activeFileIdRef, buffersRef, pendingApplyRef, setProposal])
+  }, [
+    bridge,
+    applyProposal,
+    editorRef,
+    activeFileIdRef,
+    buffersRef,
+    pendingApplyRef,
+    setProposal,
+    runRef,
+    saveRef,
+    newQueryRef,
+    runnerRef,
+    resultsCommandsRef,
+    canRunRef
+  ])
 
   return { activeFileNameRef, activeIsSqlRef }
 }
