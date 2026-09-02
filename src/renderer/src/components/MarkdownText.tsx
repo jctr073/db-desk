@@ -1,7 +1,8 @@
 import { createContext, useContext, useMemo } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
-import { parseBlocks, parseInline } from './markdown'
+import { slugifyHeading } from '../../../shared/features'
+import { parseBlocks, parseInline, plainText } from './markdown'
 import type { InlineToken } from './markdown'
 
 /**
@@ -38,8 +39,19 @@ function renderSpans(spans: InlineToken[]): ReactNode[] {
   })
 }
 
-/** Block-level markdown (headings, lists, paragraphs) for chat prose. */
-export function Markdown({ text }: { text: string }): ReactElement {
+/**
+ * Block-level markdown (headings, lists, paragraphs) for chat prose.
+ * `headingIds` (off by default) stamps each heading with the same slug
+ * `slugifyHeading` would produce from its text, so a guide viewer can scroll
+ * straight to a heading by id — see GuideDialog.
+ */
+export function Markdown({
+  text,
+  headingIds = false
+}: {
+  text: string
+  headingIds?: boolean
+}): ReactElement {
   const blocks = useMemo(() => parseBlocks(text), [text])
   return (
     <>
@@ -49,6 +61,7 @@ export function Markdown({ text }: { text: string }): ReactElement {
             return (
               <div
                 key={i}
+                id={headingIds ? slugifyHeading(plainText(block.spans)) : undefined}
                 className={`md-h md-h${Math.min(block.level, 4)}`}
                 role="heading"
                 aria-level={block.level}
@@ -58,6 +71,27 @@ export function Markdown({ text }: { text: string }): ReactElement {
             )
           case 'rule':
             return <hr key={i} className="md-hr" />
+          case 'table':
+            return (
+              <table key={i} className="md-table">
+                <thead>
+                  <tr>
+                    {block.header.map((cell, j) => (
+                      <th key={j}>{renderSpans(cell)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, r) => (
+                    <tr key={r}>
+                      {row.map((cell, c) => (
+                        <td key={c}>{renderSpans(cell)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
           case 'list': {
             const items = block.items.map((item, j) => (
               <li key={j} className="md-li">

@@ -14,9 +14,12 @@ import { useBackgroundAgents } from './agents/useBackgroundAgents'
 import { AgentPanel } from './components/AgentPanel'
 import type { AgentPanelTab } from './components/AgentPanel'
 import { CommandPalette } from './components/CommandPalette'
+import { GuideDialog } from './components/GuideDialog'
+import { ShortcutOverlay } from './components/ShortcutOverlay'
 import { AgentsTray } from './components/AgentsTray'
 import { EditorPanel } from './components/EditorPanel'
 import { SettingsDialog } from './components/SettingsDialog'
+import { isCommandId } from '../../shared/features'
 import { useCommands } from './discovery/useCommands'
 import { useGlobalShortcuts } from './discovery/useGlobalShortcuts'
 import { StatusBar } from './components/StatusBar'
@@ -375,6 +378,20 @@ export function App(): ReactElement {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const openPalette = useCallback(() => setPaletteOpen(true), [])
   const closePalette = useCallback(() => setPaletteOpen(false), [])
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), [])
+  const closeShortcuts = useCallback(() => setShortcutsOpen(false), [])
+  // The bundled user guide, optionally scrolled to a heading slug.
+  const [guide, setGuide] = useState<{ open: boolean; anchor: string | null }>({
+    open: false,
+    anchor: null
+  })
+  const openGuide = useCallback(
+    (anchor?: string) => setGuide({ open: true, anchor: anchor ?? null }),
+    []
+  )
+  const openGuideTop = useCallback(() => openGuide(), [openGuide])
+  const closeGuide = useCallback(() => setGuide((prev) => ({ ...prev, open: false })), [])
   const [newChatSeq, setNewChatSeq] = useState(0)
   const [focusComposerSeq, setFocusComposerSeq] = useState(0)
   const [manageSeq, setManageSeq] = useState(0)
@@ -388,8 +405,8 @@ export function App(): ReactElement {
     editorBridge,
     openSettings,
     openPalette,
-    openShortcuts: noop,
-    openGuide: noop,
+    openShortcuts,
+    openGuide: openGuideTop,
     openDiscover: noop,
     toggleHighlight: noop,
     openNewConnection: connections.openDialog,
@@ -400,6 +417,14 @@ export function App(): ReactElement {
     manageKnowledge: requestManageKnowledge
   })
   useGlobalShortcuts(commands.run)
+  // Help-menu items arrive from main as command ids; the guard keeps the
+  // dispatch typed even though main is trusted.
+  const runCommand = commands.run
+  useEffect(() => {
+    return window.dbDesk.ui.onCommand((id) => {
+      if (isCommandId(id)) runCommand(id)
+    })
+  }, [runCommand])
 
   // "[kb:id]" citation chips in the agent transcript: point the knowledge tab
   // at the chat's target and open the cited record.
@@ -616,6 +641,8 @@ export function App(): ReactElement {
         run={commands.run}
         enabled={commands.enabled}
       />
+      <ShortcutOverlay open={shortcutsOpen} onClose={closeShortcuts} />
+      <GuideDialog open={guide.open} anchor={guide.anchor} onClose={closeGuide} />
       {settingsOpen && (
         <SettingsDialog
           themePreference={preference}

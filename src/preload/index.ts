@@ -316,6 +316,10 @@ const api = Object.freeze({
     /** Subscribe to job/queue pushes; returns an unsubscribe function. */
     onChanged: (callback: (state: BackgroundAgentsState) => void): (() => void) =>
       typedOn('agents:changed', callback)
+  }),
+  ui: Object.freeze({
+    /** Subscribe to Help-menu commands; returns an unsubscribe function. */
+    onCommand: (callback: (id: string) => void): (() => void) => typedOn('ui:command', callback)
   })
 })
 

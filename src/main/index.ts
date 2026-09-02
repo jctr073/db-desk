@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
 import { typedHandle, typedSend } from './ipc'
+import { installApplicationMenu } from './menu'
 import {
   validateSchemaSelectionConfig,
   validateSetEnvironmentPayload,
@@ -488,6 +489,7 @@ app.whenReady().then(() => {
   registerRepoHandlers(() => mainWindow)
   registerSkillHandlers(() => mainWindow)
   createWindow()
+  installApplicationMenu((id) => typedSend(mainWindow, 'ui:command', id))
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

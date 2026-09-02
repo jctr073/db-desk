@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { MouseEvent as ReactMouseEvent, MutableRefObject, ReactElement } from 'react'
 
+import { featureById } from '../../../../shared/features'
 import { FILE_KIND_META, supportedExtension } from '../../../../shared/files'
 import type { FileKind } from '../../../../shared/files'
 import { externalBufferId } from '../../files/externalId'
@@ -277,7 +278,7 @@ export function EditorTabStrip({
             >
               <PlayIcon />
               Run
-              <span className="btn-run__kbd">⌘⏎</span>
+              <span className="btn-run__kbd">{featureById('editor.run')?.shortcut}</span>
             </button>
           ) : (
             <div className="editor-view-toggle" aria-label="File view">
@@ -417,7 +418,7 @@ export function ActionsMenu({
           <button className="toolbar-menu__item" type="button" role="menuitem" onClick={onClose}>
             <FormatIcon />
             <span>Format SQL</span>
-            <span className="toolbar-menu__kbd">⇧⌘F</span>
+            <span className="toolbar-menu__kbd">{featureById('editor.format')?.shortcut}</span>
           </button>
         )}
         <button
@@ -432,7 +433,7 @@ export function ActionsMenu({
         >
           <SaveIcon />
           <span>Save file</span>
-          <span className="toolbar-menu__kbd">⌘S</span>
+          <span className="toolbar-menu__kbd">{featureById('editor.save')?.shortcut}</span>
         </button>
         {isSqlFile && (
           <button

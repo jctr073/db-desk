@@ -240,4 +240,6 @@ export interface IpcPushContract {
   'agent:editor-read': [requestId: string]
   /** Renderer → main: the reply to a matching agent:editor-read request. */
   'agent:editor-read-reply': [requestId: string, payload: AgentEditorReadPayload]
+  /** A Help-menu item (or accelerator) asks the renderer to run an app command. */
+  'ui:command': [commandId: string]
 }
