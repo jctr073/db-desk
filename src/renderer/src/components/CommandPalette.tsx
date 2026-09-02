@@ -13,8 +13,10 @@ export interface CommandPaletteProps {
   onClose: () => void
   run: (id: CommandId, sourceFeatureId?: string) => void
   enabled: (id: CommandId) => boolean
-  /** Feature ids recently used, most recent first (empty until phase 3). */
+  /** Feature ids recently used, most recent first; defaults to usage state. */
   recent?: string[]
+  /** Flips the highlight-mode row between "Highlight features" and "Exit highlight mode". */
+  highlightActive?: boolean
 }
 
 interface Section {
@@ -44,7 +46,8 @@ export function CommandPalette({
   onClose,
   run,
   enabled,
-  recent
+  recent,
+  highlightActive
 }: CommandPaletteProps): ReactElement | null {
   // Inside DiscoveryProvider, gesture-only features are spotlighted instead
   // of toasted, and the footer can open the Discover browser.
@@ -199,7 +202,11 @@ export function CommandPalette({
                         <span className="palette__cat">
                           {FEATURE_CATEGORY_LABELS[feature.category]}
                         </span>
-                        <span className="palette__title">{feature.title}</span>
+                        <span className="palette__title">
+                          {feature.id === 'app.highlight' && highlightActive
+                            ? 'Exit highlight mode'
+                            : feature.title}
+                        </span>
                         <span className="palette__desc">{feature.description}</span>
                         {feature.shortcut && <kbd className="palette__kbd">{feature.shortcut}</kbd>}
                       </div>

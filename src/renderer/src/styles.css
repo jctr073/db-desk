@@ -6698,3 +6698,66 @@ body.is-grid-col-resizing {
   background: var(--accent-soft);
   color: var(--text);
 }
+
+/* ── Feature discovery: highlight mode ── */
+.beacon-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+.beacon {
+  position: fixed;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  background: var(--accent);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px var(--shadow);
+  pointer-events: auto;
+  animation: dbfade 0.16s ease;
+  transition: transform 120ms ease;
+}
+.beacon:hover {
+  transform: scale(1.15);
+}
+.highlight-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 61;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 18px 50px var(--shadow);
+  font-size: 12px;
+  pointer-events: auto;
+}
+.highlight-banner__link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.highlight-banner__link:hover {
+  text-decoration: underline;
+}
+.highlight-banner__exit {
+  height: auto;
+  padding: 3px 10px;
+}

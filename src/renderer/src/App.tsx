@@ -22,6 +22,7 @@ import { EditorPanel } from './components/EditorPanel'
 import { SettingsDialog } from './components/SettingsDialog'
 import { isCommandId } from '../../shared/features'
 import { DiscoveryProvider } from './discovery/DiscoveryProvider'
+import { HighlightMode } from './discovery/HighlightMode'
 import { useCommands } from './discovery/useCommands'
 import { useGlobalShortcuts } from './discovery/useGlobalShortcuts'
 import { StatusBar } from './components/StatusBar'
@@ -394,6 +395,9 @@ export function App(): ReactElement {
   )
   const openGuideTop = useCallback(() => openGuide(), [openGuide])
   const closeGuide = useCallback(() => setGuide((prev) => ({ ...prev, open: false })), [])
+  const [highlightActive, setHighlightActive] = useState(false)
+  const toggleHighlight = useCallback(() => setHighlightActive((on) => !on), [])
+  const exitHighlight = useCallback(() => setHighlightActive(false), [])
   const [discoverOpen, setDiscoverOpen] = useState(false)
   const openDiscover = useCallback(() => setDiscoverOpen(true), [])
   const closeDiscover = useCallback(() => setDiscoverOpen(false), [])
@@ -405,7 +409,6 @@ export function App(): ReactElement {
   const requestManageKnowledge = useCallback(() => setManageSeq((seq) => seq + 1), [])
   // phase 5: seed the composer with '/help'; until then just reveal the chat.
   const askHelp = useCallback(() => showPanelTab('agent'), [showPanelTab])
-  const noop = useCallback(() => {}, [])
   const commands = useCommands({
     editorBridge,
     openSettings,
@@ -413,7 +416,7 @@ export function App(): ReactElement {
     openShortcuts,
     openGuide: openGuideTop,
     openDiscover,
-    toggleHighlight: noop,
+    toggleHighlight,
     openNewConnection: connections.openDialog,
     showPanelTab,
     newChat: requestNewChat,
@@ -647,9 +650,11 @@ export function App(): ReactElement {
           onClose={closePalette}
           run={commands.run}
           enabled={commands.enabled}
+          highlightActive={highlightActive}
         />
         <ShortcutOverlay open={shortcutsOpen} onClose={closeShortcuts} />
         <DiscoverDialog open={discoverOpen} onClose={closeDiscover} />
+        <HighlightMode active={highlightActive} onExit={exitHighlight} />
         <GuideDialog open={guide.open} anchor={guide.anchor} onClose={closeGuide} />
         {settingsOpen && (
           <SettingsDialog
