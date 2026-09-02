@@ -477,6 +477,16 @@ export const FEATURES: readonly Feature[] = [
     keywords: ['cmd+k', 'command']
   },
   {
+    id: 'app.guide',
+    title: 'User guide',
+    description: 'Read the full user guide inside the app, jumping to any section',
+    category: 'app',
+    location: 'Help › User Guide',
+    guide: 'get-oriented',
+    command: 'app.openGuide',
+    keywords: ['docs', 'documentation', 'manual', 'help']
+  },
+  {
     id: 'app.shortcuts',
     title: 'Keyboard shortcuts',
     description: 'Show the keyboard shortcuts sheet',

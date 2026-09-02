@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { parseBlocks, parseInline } from '../../src/renderer/src/components/markdown'
-import type { InlineToken } from '../../src/renderer/src/components/markdown'
+import { parseBlocks, parseInline, plainText } from '../../src/renderer/src/components/markdown'
+import type { Block, InlineToken } from '../../src/renderer/src/components/markdown'
 
 /** Flattens inline tokens back to plain text (delimiters stripped). */
 function flat(spans: InlineToken[]): string {
@@ -79,6 +79,23 @@ describe('parseInline', () => {
     const inner = (spans[0] as Extract<InlineToken, { type: 'strong' }>).children
     expect(inner).toContainEqual({ type: 'kbref', id: 'kn-1-a' })
   })
+
+  it('strips markdown links to their plain text', () => {
+    const spans = parseInline('see the [main README](../README.md) for setup')
+    expect(spans).toContainEqual({ type: 'text', text: 'main README' })
+    expect(flat(spans)).toBe('see the main README for setup')
+  })
+
+  it('still tokenizes [kb:id] as a citation, not a link', () => {
+    expect(parseInline('[kb:kn-1-a]')).toEqual([{ type: 'kbref', id: 'kn-1-a' }])
+  })
+})
+
+describe('plainText', () => {
+  it('flattens text, code, strong, and em, and drops kb citations', () => {
+    const spans = parseInline('a `b` **c *d* e** [kb:x]')
+    expect(plainText(spans)).toBe('a b c d e ')
+  })
 })
 
 describe('parseBlocks', () => {
@@ -129,5 +146,29 @@ describe('parseBlocks', () => {
     expect(blocks).toHaveLength(1)
     const para = blocks[0] as Extract<ReturnType<typeof parseBlocks>[number], { type: 'para' }>
     expect(flat(para.spans)).toBe('line one\nline two')
+  })
+
+  it('parses a pipe table into header + rows', () => {
+    const text = [
+      '| Shortcut  | Action        |',
+      '| --------- | ------------- |',
+      '| `⌘ Enter` | Run the query |',
+      '| `⌘ S`     | Save the file |'
+    ].join('\n')
+    const blocks = parseBlocks(text)
+    expect(blocks.map((b) => b.type)).toEqual(['table'])
+    const table = blocks[0] as Extract<Block, { type: 'table' }>
+    expect(table.header).toHaveLength(2)
+    expect(flat(table.header[0])).toBe('Shortcut')
+    expect(flat(table.header[1])).toBe('Action')
+    expect(table.rows).toHaveLength(2)
+    expect(table.rows[0]).toHaveLength(2)
+    expect(table.rows[0][0]).toEqual([{ type: 'code', text: '⌘ Enter' }])
+    expect(flat(table.rows[1][1])).toBe('Save the file')
+  })
+
+  it('does not treat a plain line starting with | as a table without a separator', () => {
+    const blocks = parseBlocks('| not a table')
+    expect(blocks.map((b) => b.type)).toEqual(['para'])
   })
 })
