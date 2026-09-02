@@ -11,6 +11,7 @@ import type {
 import type { AgentEditorSelectionItem, AgentResultItem } from '../../../shared/agent'
 import type { DatabaseIntrospection, QueryResult } from '../../../shared/db'
 import { fileKindFromName, isPreviewableFile, monacoLanguageForFile } from '../../../shared/files'
+import type { CommandId } from '../../../shared/features'
 import { buildResultContextItem } from '../../../shared/resultContext'
 import type { FileKind } from '../../../shared/files'
 import { statementAtOffset } from '../../../shared/sql'
@@ -18,6 +19,7 @@ import { ensureSqlLanguageFeatures } from '../sql/completions'
 import type { Theme } from '../theme'
 import { CloseIcon } from './icons'
 import { ResultsPanel } from './ResultsPanel'
+import type { ResultsCommands } from './ResultsPanel'
 import { FilePreview, buildDelimitedPreview } from './FilePreview'
 import { SaveExemplarDialog } from './SaveExemplarDialog'
 import { SqlEditor } from './SqlEditor'
@@ -68,6 +70,8 @@ interface EditorPanelProps {
   onAddAgentContext?: (item: AgentEditorSelectionItem | AgentResultItem) => void
   /** Attach result context AND pre-fill the agent composer (Fix with AI). */
   onAskAgent?: (prompt: string, item: AgentResultItem) => void
+  /** Global command dispatch (palette / shortcuts) for chords Monaco swallows. */
+  onCommand?: (id: CommandId) => void
 }
 
 function groupKeyOf(connId: string, database: string | null): string {
@@ -103,7 +107,8 @@ export function EditorPanel({
   bridge,
   onQueryStatus,
   onAddAgentContext,
-  onAskAgent
+  onAskAgent,
+  onCommand
 }: EditorPanelProps): ReactElement {
   const [limit, setLimit] = useState<number | null>(DEFAULT_LIMIT)
   const [resultsPct, setResultsPct] = useState(50)
@@ -124,6 +129,12 @@ export function EditorPanel({
   const actionsBtnRef = useRef<HTMLButtonElement | null>(null)
   const newFileBtnRef = useRef<HTMLButtonElement | null>(null)
   const cancelRenameRef = useRef(false)
+
+  // ⌘K / ⌘/ / ⌘⇧/ are registered on the editor (Monaco swallows key events
+  // before they reach the window listener) but dispatched through the same
+  // onCommand the app-level palette/shortcuts use.
+  const onCommandRef = useRef(onCommand)
+  onCommandRef.current = onCommand
 
   const activeFileIdRef = useRef<string | null>(null)
 
@@ -374,6 +385,18 @@ export function EditorPanel({
     if (firstVisible) files.selectFile(firstVisible.id)
   }, [files, activeConnId, groups])
 
+  // Mirror refs the bridge's commands read at call time. runRef/saveRef are
+  // filled below (they need runCurrent/saveFileById, declared further down);
+  // newQueryRef is filled once the local createFile wrapper exists.
+  const runnerRef = useRef(runner)
+  runnerRef.current = runner
+  const canRunRef = useRef(false)
+  canRunRef.current = !!target && isSqlFile
+  const runRef = useRef<() => void>(() => {})
+  const saveRef = useRef<() => void>(() => {})
+  const newQueryRef = useRef<() => void>(() => {})
+  const resultsCommandsRef = useRef<ResultsCommands | null>(null)
+
   // The imperative handle the AI agent panel calls into, plus the mirror
   // refs its once-registered listeners (and ours below) read at call time.
   const { activeFileNameRef, activeIsSqlRef } = useEditorBridge({
@@ -391,7 +414,13 @@ export function EditorPanel({
       : target
         ? { connId: target.connId, database: target.database }
         : null,
-    createFile: files.createFile
+    createFile: files.createFile,
+    runRef,
+    saveRef,
+    newQueryRef,
+    runnerRef,
+    resultsCommandsRef,
+    canRunRef
   })
 
   // Completion reads the active target's schema through this ref so the
@@ -424,7 +453,6 @@ export function EditorPanel({
     runner.run(sql.trim(), target, limit)
   }, [target, limit, runner, isSqlFile])
 
-  const runRef = useRef(runCurrent)
   useEffect(() => {
     runRef.current = runCurrent
   })
@@ -449,7 +477,6 @@ export function EditorPanel({
 
   // Cmd+S is registered once on mount; route it through a ref so it always
   // saves the currently selected file.
-  const saveRef = useRef<() => void>(() => {})
   useEffect(() => {
     saveRef.current = () => void saveFileById(activeFileIdRef.current)
   }, [saveFileById])
@@ -514,6 +541,17 @@ export function EditorPanel({
       editorRef.current = ed
       ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runRef.current())
       ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRef.current())
+      // Monaco swallows key events, so ⌘K / ⌘/ / ⌘⇧/ never reach the window
+      // listener (useGlobalShortcuts) unless also registered here.
+      ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () =>
+        onCommandRef.current?.('app.openPalette')
+      )
+      ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash, () =>
+        onCommandRef.current?.('app.openShortcuts')
+      )
+      ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Slash, () =>
+        onCommandRef.current?.('app.toggleHighlight')
+      )
       ed.addAction({
         id: 'db-desk.add-selection-to-agent',
         label: 'Add Selection to AI Chat',
@@ -775,6 +813,7 @@ export function EditorPanel({
     },
     [activeGroup, target, files, leavePreview]
   )
+  newQueryRef.current = () => createFile('sql')
 
   const startResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -1087,6 +1126,7 @@ export function EditorPanel({
                   onStatus={onQueryStatus}
                   onAddAgentContext={onAddAgentContext}
                   onAskAgent={onAskAgent}
+                  commandsRef={resultsCommandsRef}
                 />
               </div>
             </>

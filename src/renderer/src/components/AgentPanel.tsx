@@ -48,6 +48,8 @@ import { KbRefContext } from './MarkdownText'
 import { McpSettingsDialog } from './McpSettingsDialog'
 import { SaveExemplarDialog } from './SaveExemplarDialog'
 
+export type AgentPanelTab = 'files' | 'agent' | 'knowledge' | 'skills'
+
 interface AgentPanelProps {
   files: FileState
   /** Watched-folder files + open/selection state, for the Files tab. */
@@ -113,8 +115,23 @@ interface AgentPanelProps {
     cancel: (jobId: string) => void
     retry: (jobId: string) => void
   }
-  /** One-shot reveal of the AI Agent tab (the tray's "Open agent panel"). */
-  agentTabSeq?: number
+  /**
+   * One-shot request to switch to a given tab (e.g. the tray's "Open agent
+   * panel"). A new seq reveals `tab`; never replayed.
+   */
+  panelTab?: { seq: number; tab: AgentPanelTab } | null
+  /** One-shot request to start a new chat, revealing the agent tab first. */
+  newChatSeq?: number
+  /**
+   * One-shot request to focus the composer's textarea, revealing the agent
+   * tab first. Forwarded to `Composer` as `focusSeq`.
+   */
+  focusComposerSeq?: number
+  /**
+   * One-shot request to open the "Manage Knowledge Bases" dialog, revealing
+   * the knowledge tab first.
+   */
+  manageSeq?: number
 }
 
 export function AgentPanel({
@@ -140,9 +157,12 @@ export function AgentPanel({
   onOpenKnowledgeRecord,
   seed,
   backgroundAgents,
-  agentTabSeq
+  panelTab,
+  newChatSeq,
+  focusComposerSeq,
+  manageSeq
 }: AgentPanelProps): ReactElement {
-  const [activeTab, setActiveTab] = useState<'files' | 'agent' | 'knowledge' | 'skills'>('agent')
+  const [activeTab, setActiveTab] = useState<AgentPanelTab>('agent')
   const [knowledgeNewSeq, setKnowledgeNewSeq] = useState(0)
   const consumeKnowledgeNewSeq = useCallback(() => setKnowledgeNewSeq(0), [])
   const [skillsNewSeq, setSkillsNewSeq] = useState(0)
@@ -347,14 +367,44 @@ export function AgentPanel({
     }
   }, [knowledgeNav])
 
-  // "Open agent panel" from the agents tray reveals the chat. One-shot per
-  // seq, like the seed prefill above.
-  const prevAgentTabSeq = useRef(0)
+  // A one-shot request (e.g. the agents tray's "Open agent panel") to switch
+  // tabs. One-shot per seq, like the seed prefill above.
+  const prevPanelTabSeq = useRef(0)
   useEffect(() => {
-    if (!agentTabSeq || agentTabSeq === prevAgentTabSeq.current) return
-    prevAgentTabSeq.current = agentTabSeq
+    if (!panelTab || panelTab.seq === prevPanelTabSeq.current) return
+    prevPanelTabSeq.current = panelTab.seq
+    setActiveTab(panelTab.tab)
+  }, [panelTab])
+
+  // A one-shot request to start a new chat, revealing the agent tab first.
+  const prevNewChatSeq = useRef(0)
+  useEffect(() => {
+    if (!newChatSeq || newChatSeq === prevNewChatSeq.current) return
+    prevNewChatSeq.current = newChatSeq
     setActiveTab('agent')
-  }, [agentTabSeq])
+    newChat()
+  }, [newChatSeq, newChat])
+
+  // A one-shot request to focus the composer, revealing the agent tab first.
+  // The actual DOM focus happens in Composer once it (re)mounts on the tab.
+  const prevFocusComposerSeq = useRef(0)
+  useEffect(() => {
+    if (!focusComposerSeq || focusComposerSeq === prevFocusComposerSeq.current) return
+    prevFocusComposerSeq.current = focusComposerSeq
+    setActiveTab('agent')
+  }, [focusComposerSeq])
+
+  // A one-shot request to open "Manage Knowledge Bases", revealing the
+  // knowledge tab first.
+  const prevManageSeq = useRef(0)
+  useEffect(() => {
+    if (!manageSeq || manageSeq === prevManageSeq.current) return
+    prevManageSeq.current = manageSeq
+    setActiveTab('knowledge')
+    if (!knowledgeTarget) return
+    ensureSchema(knowledgeTarget.connId, knowledgeTarget.database)
+    setManageKnowledgeOpen(true)
+  }, [manageSeq, knowledgeTarget, ensureSchema])
 
   // The target and access mode belong to the agent, not the sibling tools.
   // Close the mode popover when leaving the chat so it does not reopen later.
@@ -746,6 +796,7 @@ export function AgentPanel({
             pickModel={pickModel}
             mcpStatuses={mcpStatuses}
             onOpenMcp={() => setMcpOpen(true)}
+            focusSeq={focusComposerSeq}
           />
         </div>
       )}

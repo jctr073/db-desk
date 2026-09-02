@@ -12,6 +12,35 @@ import type { EditorSelectionContext } from '../../../shared/agent'
 export type EditorProposalOutcome = 'applied' | 'pending' | 'unavailable'
 
 /**
+ * Editor/result commands the command palette, keyboard shortcuts and
+ * Discover browser drive through the bridge, instead of lifting editor and
+ * results state up into `App`. Each handler is a no-op when its target
+ * doesn't apply (e.g. `runActive` with no SQL file active).
+ */
+export interface EditorCommands {
+  /** Same code path as the Run button / ⌘⏎. */
+  runActive: () => void
+  /** Save the active file, same as ⌘S. */
+  saveActive: () => void
+  /** Format the active document; no-op when it isn't a SQL file. */
+  formatActive: () => void
+  /** Same as the "+" in the tab strip creating a new SQL query file. */
+  newQuery: () => void
+  /** Pin the live (unpinned) result tab; no-op with none running/finished. */
+  pinActiveResult: () => void
+  /** Open the results export popover, as if the Export button was clicked. */
+  openExportMenu: () => void
+  /** Close every result tab. */
+  closeAllResults: () => void
+  /** Whether there's a target and the active file is SQL, for the palette. */
+  canRun: () => boolean
+  /** Whether a live, finished, unpinned result exists to pin. */
+  canPin: () => boolean
+  /** Whether the active result tab can be exported. */
+  canExport: () => boolean
+}
+
+/**
  * Imperative handle the SQL editor registers so the AI agent panel can read
  * the active buffer and place generated SQL without owning the editor.
  */
@@ -28,4 +57,6 @@ export interface EditorBridge {
    * the active connection and applies there.
    */
   proposeSql: (sql: string) => EditorProposalOutcome
+  /** Editor/result commands the palette and shortcuts drive. */
+  commands: EditorCommands
 }

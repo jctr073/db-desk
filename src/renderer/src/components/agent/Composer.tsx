@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Dispatch, KeyboardEvent, ReactElement, SetStateAction } from 'react'
 
 import {
@@ -252,6 +252,8 @@ interface ComposerProps {
   pickModel: (next: AgentModelOption) => void
   mcpStatuses: McpServerStatus[]
   onOpenMcp: () => void
+  /** One-shot request to focus the textarea and place the caret at the end. */
+  focusSeq?: number
 }
 
 /** The chat composer: chips, slash menu, textarea, and the toolbar popovers. */
@@ -275,7 +277,8 @@ export function Composer({
   openPicker,
   pickModel,
   mcpStatuses,
-  onOpenMcp
+  onOpenMcp,
+  focusSeq
 }: ComposerProps): ReactElement {
   const {
     busy,
@@ -294,6 +297,21 @@ export function Composer({
     newChat,
     runCompact
   } = session
+
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // A one-shot request to focus the textarea, caret at the end. One-shot per
+  // seq, so re-renders never re-steal focus.
+  const prevFocusSeq = useRef(0)
+  useEffect(() => {
+    if (!focusSeq || focusSeq === prevFocusSeq.current) return
+    prevFocusSeq.current = focusSeq
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.focus()
+    const end = textarea.value.length
+    textarea.setSelectionRange(end, end)
+  }, [focusSeq])
 
   /** Everything in the target database the picker can attach, filtered. */
   const intro = target ? schemas[target.connId]?.[target.database] : undefined
@@ -479,6 +497,7 @@ export function Composer({
           </div>
         )}
         <textarea
+          ref={textareaRef}
           className="composer__input"
           placeholder={
             target
