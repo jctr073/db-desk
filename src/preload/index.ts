@@ -22,7 +22,7 @@ import type {
 import type { IpcInvokeContract, IpcPushContract } from '../shared/ipc'
 import type { McpServerConfig, McpServerStatus } from '../shared/mcp'
 import type { SchemaSelectionConfig } from '../shared/schemaSelection'
-import type { AppSettingsInfo, ChangeSqlDirResult } from '../shared/settings'
+import type { AppSettingsInfo, ChangeSqlDirResult, DiscoveryState } from '../shared/settings'
 import type {
   KnowledgeBase,
   KnowledgeBaseSummary,
@@ -198,7 +198,12 @@ const api = Object.freeze({
       typedInvoke('settings:setStoredApiKey', key, label),
     clearStoredApiKey: (): Promise<AppSettingsInfo> => typedInvoke('settings:clearStoredApiKey'),
     /** Subscribe to settings-change pushes; returns an unsubscribe function. */
-    onChanged: (callback: () => void): (() => void) => typedOn('settings:changed', callback)
+    onChanged: (callback: () => void): (() => void) => typedOn('settings:changed', callback),
+    /** Loads the persisted feature-discovery usage state. */
+    getDiscovery: (): Promise<DiscoveryState> => typedInvoke('settings:getDiscovery'),
+    /** Persists the renderer's feature-discovery usage state. */
+    setDiscovery: (state: DiscoveryState): Promise<void> =>
+      typedInvoke('settings:setDiscovery', state)
   }),
   mcp: Object.freeze({
     list: (): Promise<McpServerStatus[]> => typedInvoke('mcp:list'),

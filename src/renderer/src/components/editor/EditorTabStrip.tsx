@@ -245,6 +245,7 @@ export function EditorTabStrip({
           disabled={newFileDisabled}
           type="button"
           onClick={onToggleNewFileMenu}
+          data-feature="editor.newQuery"
         >
           <PlusThinIcon />
         </button>
@@ -275,6 +276,7 @@ export function EditorTabStrip({
                   : 'Connect to a database to run queries'
               }
               onClick={onRun}
+              data-feature="editor.run"
             >
               <PlayIcon />
               Run
@@ -295,6 +297,7 @@ export function EditorTabStrip({
                 type="button"
                 aria-pressed={isFilePreview}
                 onClick={onEnterFilePreview}
+                data-feature="editor.preview"
               >
                 <EyeIcon size={13} />
                 Preview
@@ -415,7 +418,13 @@ export function ActionsMenu({
       <div className="ctx-overlay" onClick={onClose} />
       <div className="ctx-menu toolbar-menu" style={menuPosition(anchor)} role="menu">
         {isSqlFile && (
-          <button className="toolbar-menu__item" type="button" role="menuitem" onClick={onClose}>
+          <button
+            className="toolbar-menu__item"
+            type="button"
+            role="menuitem"
+            onClick={onClose}
+            data-feature="editor.format"
+          >
             <FormatIcon />
             <span>Format SQL</span>
             <span className="toolbar-menu__kbd">{featureById('editor.format')?.shortcut}</span>
@@ -430,6 +439,7 @@ export function ActionsMenu({
             onSave()
             onClose()
           }}
+          data-feature="editor.save"
         >
           <SaveIcon />
           <span>Save file</span>
@@ -450,6 +460,7 @@ export function ActionsMenu({
               onClose()
               onExemplar()
             }}
+            data-feature="results.saveExemplar"
           >
             <SparkleIcon />
             <span>Save as exemplar…</span>

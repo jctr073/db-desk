@@ -14,12 +14,14 @@ import { useBackgroundAgents } from './agents/useBackgroundAgents'
 import { AgentPanel } from './components/AgentPanel'
 import type { AgentPanelTab } from './components/AgentPanel'
 import { CommandPalette } from './components/CommandPalette'
+import { DiscoverDialog } from './components/DiscoverDialog'
 import { GuideDialog } from './components/GuideDialog'
 import { ShortcutOverlay } from './components/ShortcutOverlay'
 import { AgentsTray } from './components/AgentsTray'
 import { EditorPanel } from './components/EditorPanel'
 import { SettingsDialog } from './components/SettingsDialog'
 import { isCommandId } from '../../shared/features'
+import { DiscoveryProvider } from './discovery/DiscoveryProvider'
 import { useCommands } from './discovery/useCommands'
 import { useGlobalShortcuts } from './discovery/useGlobalShortcuts'
 import { StatusBar } from './components/StatusBar'
@@ -392,6 +394,9 @@ export function App(): ReactElement {
   )
   const openGuideTop = useCallback(() => openGuide(), [openGuide])
   const closeGuide = useCallback(() => setGuide((prev) => ({ ...prev, open: false })), [])
+  const [discoverOpen, setDiscoverOpen] = useState(false)
+  const openDiscover = useCallback(() => setDiscoverOpen(true), [])
+  const closeDiscover = useCallback(() => setDiscoverOpen(false), [])
   const [newChatSeq, setNewChatSeq] = useState(0)
   const [focusComposerSeq, setFocusComposerSeq] = useState(0)
   const [manageSeq, setManageSeq] = useState(0)
@@ -407,7 +412,7 @@ export function App(): ReactElement {
     openPalette,
     openShortcuts,
     openGuide: openGuideTop,
-    openDiscover: noop,
+    openDiscover,
     toggleHighlight: noop,
     openNewConnection: connections.openDialog,
     showPanelTab,
@@ -496,203 +501,207 @@ export function App(): ReactElement {
   }, [title])
 
   return (
-    <div
-      className={`app${activeTarget ? ' has-active-conn' : ''}`}
-      style={
-        {
-          '--conn-accent': activeAccent?.hex ?? 'var(--accent)',
-          '--conn-accent-rgb': activeAccent?.rgb ?? 'var(--accent-rgb)'
-        } as CSSProperties
-      }
-    >
-      <div className="titlebar">
-        <span className="titlebar__app">DB Desk</span>
-        {activeTarget && (
-          <div className="titlebar__center">
-            <div
-              className="titlebar-pill"
-              title={`Active context — every panel targets ${activeTarget.connName} / ${activeTarget.database}`}
-            >
-              <span className="titlebar-pill__dot" />
-              {activeConnNode?.environment && (
-                <span className={`env-badge env-badge--${activeConnNode.environment}`}>
-                  {ENV_BADGE_LABELS[activeConnNode.environment]}
-                </span>
-              )}
-              <span className="titlebar-pill__name">{activeTarget.connName}</span>
-              <span className="titlebar-pill__sep">/</span>
-              <span className="titlebar-pill__db">{activeTarget.database}</span>
-              <span className="titlebar-pill__divider" />
-              <span className="titlebar-pill__label">ACTIVE CONTEXT</span>
-            </div>
-          </div>
-        )}
-      </div>
+    <DiscoveryProvider commands={commands} openGuide={openGuide} openDiscover={openDiscover}>
       <div
-        className="main-row"
-        ref={mainRowRef}
+        className={`app${activeTarget ? ' has-active-conn' : ''}`}
         style={
           {
-            '--conn-width': `${connWidth}px`,
-            '--agent-width': `${agentWidth}px`
+            '--conn-accent': activeAccent?.hex ?? 'var(--accent)',
+            '--conn-accent-rgb': activeAccent?.rgb ?? 'var(--accent-rgb)'
           } as CSSProperties
         }
       >
-        <ConnectionPanel
-          state={connections}
-          accents={accents}
-          onNewQueryFile={(connId, database) => {
-            files.createFile(connId, database)
+        <div className="titlebar">
+          <span className="titlebar__app">DB Desk</span>
+          {activeTarget && (
+            <div className="titlebar__center">
+              <div
+                className="titlebar-pill"
+                title={`Active context — every panel targets ${activeTarget.connName} / ${activeTarget.database}`}
+              >
+                <span className="titlebar-pill__dot" />
+                {activeConnNode?.environment && (
+                  <span className={`env-badge env-badge--${activeConnNode.environment}`}>
+                    {ENV_BADGE_LABELS[activeConnNode.environment]}
+                  </span>
+                )}
+                <span className="titlebar-pill__name">{activeTarget.connName}</span>
+                <span className="titlebar-pill__sep">/</span>
+                <span className="titlebar-pill__db">{activeTarget.database}</span>
+                <span className="titlebar-pill__divider" />
+                <span className="titlebar-pill__label">ACTIVE CONTEXT</span>
+              </div>
+            </div>
+          )}
+        </div>
+        <div
+          className="main-row"
+          ref={mainRowRef}
+          style={
+            {
+              '--conn-width': `${connWidth}px`,
+              '--agent-width': `${agentWidth}px`
+            } as CSSProperties
+          }
+        >
+          <ConnectionPanel
+            state={connections}
+            accents={accents}
+            onNewQueryFile={(connId, database) => {
+              files.createFile(connId, database)
+            }}
+            onOpenDataPreview={openDataPreview}
+            onAddToAgentThread={addAgentContext}
+            onKnowledgeAction={onKnowledgeAction}
+            knowledgeIds={knowledgeIds}
+            knowledgeBases={knowledgeStructure.bases}
+            knowledgeLinks={knowledgeStructure.links}
+          />
+          <div
+            className="col-divider"
+            data-feature="app.resizePanels"
+            onPointerDown={startResize('left')}
+            role="separator"
+            aria-orientation="vertical"
+          />
+          <EditorPanel
+            theme={theme}
+            targets={activeTargets}
+            activeConnId={activeConnId}
+            connNames={connNames}
+            schemas={connections.schemas}
+            ensureSchema={connections.ensureSchema}
+            files={files}
+            watched={watched}
+            runner={runner}
+            bridge={editorBridge}
+            onQueryStatus={onQueryStatus}
+            onAddAgentContext={addAgentContext}
+            onAskAgent={askAgent}
+            onCommand={commands.run}
+          />
+          <div
+            className="col-divider"
+            onPointerDown={startResize('right')}
+            role="separator"
+            aria-orientation="vertical"
+          />
+          <AgentPanel
+            files={files}
+            watched={watched}
+            connNames={connNames}
+            targets={activeTargets}
+            activeTarget={activeTarget}
+            agentCapability={activeAgentCapability}
+            editorBridge={editorBridge}
+            onAgentQuery={runner.showResult}
+            onAgentTurnEnd={runner.finalizeAiRun}
+            context={agentContext}
+            onAddContext={addAgentContext}
+            onRemoveContext={removeAgentContext}
+            schemas={connections.schemas}
+            ensureSchema={connections.ensureSchema}
+            knowledge={knowledge}
+            knowledgeTargetKey={knTargetKey}
+            onKnowledgeTargetChange={setKnTargetKey}
+            knowledgeNav={knowledgeNav}
+            onKnowledgeNavConsumed={clearKnowledgeNav}
+            onOpenKnowledgeRecord={openKnowledgeRecord}
+            seed={agentSeed}
+            backgroundAgents={backgroundAgentsApi}
+            panelTab={panelTab}
+            newChatSeq={newChatSeq}
+            focusComposerSeq={focusComposerSeq}
+            manageSeq={manageSeq}
+          />
+        </div>
+        <StatusBar
+          onOpenSettings={openSettings}
+          connText={activeTarget ? `Connection · ${activeTarget.connName}` : ''}
+          queryText={queryStatus.text}
+          schemaText={schemaSync?.text ?? ''}
+          schemaState={schemaSync?.state}
+          schemaTitle={schemaSync?.title}
+          queryTarget={
+            queryStatus.target ||
+            (activeTarget ? `${activeTarget.connName} / ${activeTarget.database}` : '')
+          }
+          agents={{
+            state: bgAgents.segment.state,
+            label: bgAgents.segment.label,
+            open: bgAgents.trayOpen,
+            onToggle: bgAgents.toggleTray,
+            setAnchor: setAgentsAnchor
           }}
-          onOpenDataPreview={openDataPreview}
-          onAddToAgentThread={addAgentContext}
-          onKnowledgeAction={onKnowledgeAction}
-          knowledgeIds={knowledgeIds}
-          knowledgeBases={knowledgeStructure.bases}
-          knowledgeLinks={knowledgeStructure.links}
         />
-        <div
-          className="col-divider"
-          onPointerDown={startResize('left')}
-          role="separator"
-          aria-orientation="vertical"
+        {bgAgents.trayOpen && (
+          <AgentsTray
+            agents={bgAgents}
+            anchor={agentsAnchor}
+            onViewRecords={viewScanRecords}
+            onOpenAgentPanel={openAgentPanel}
+          />
+        )}
+        <CommandPalette
+          open={paletteOpen}
+          onClose={closePalette}
+          run={commands.run}
+          enabled={commands.enabled}
         />
-        <EditorPanel
-          theme={theme}
-          targets={activeTargets}
-          activeConnId={activeConnId}
-          connNames={connNames}
-          schemas={connections.schemas}
-          ensureSchema={connections.ensureSchema}
-          files={files}
-          watched={watched}
-          runner={runner}
-          bridge={editorBridge}
-          onQueryStatus={onQueryStatus}
-          onAddAgentContext={addAgentContext}
-          onAskAgent={askAgent}
-          onCommand={commands.run}
-        />
-        <div
-          className="col-divider"
-          onPointerDown={startResize('right')}
-          role="separator"
-          aria-orientation="vertical"
-        />
-        <AgentPanel
-          files={files}
-          watched={watched}
-          connNames={connNames}
-          targets={activeTargets}
-          activeTarget={activeTarget}
-          agentCapability={activeAgentCapability}
-          editorBridge={editorBridge}
-          onAgentQuery={runner.showResult}
-          onAgentTurnEnd={runner.finalizeAiRun}
-          context={agentContext}
-          onAddContext={addAgentContext}
-          onRemoveContext={removeAgentContext}
-          schemas={connections.schemas}
-          ensureSchema={connections.ensureSchema}
-          knowledge={knowledge}
-          knowledgeTargetKey={knTargetKey}
-          onKnowledgeTargetChange={setKnTargetKey}
-          knowledgeNav={knowledgeNav}
-          onKnowledgeNavConsumed={clearKnowledgeNav}
-          onOpenKnowledgeRecord={openKnowledgeRecord}
-          seed={agentSeed}
-          backgroundAgents={backgroundAgentsApi}
-          panelTab={panelTab}
-          newChatSeq={newChatSeq}
-          focusComposerSeq={focusComposerSeq}
-          manageSeq={manageSeq}
-        />
+        <ShortcutOverlay open={shortcutsOpen} onClose={closeShortcuts} />
+        <DiscoverDialog open={discoverOpen} onClose={closeDiscover} />
+        <GuideDialog open={guide.open} anchor={guide.anchor} onClose={closeGuide} />
+        {settingsOpen && (
+          <SettingsDialog
+            themePreference={preference}
+            onThemePreference={setPreference}
+            onClose={closeSettings}
+          />
+        )}
+        <NewConnectionDialog state={connections} />
+        {connections.envPrompt && (
+          <EnvironmentPromptDialog
+            onChoose={connections.chooseEnvironment}
+            onCancel={connections.dismissEnvPrompt}
+          />
+        )}
+        {connections.writableWarning &&
+          (() => {
+            const warning = connections.writableWarning
+            return (
+              <WritableWarningDialog
+                connName={warning.connName}
+                writableSchemas={warning.writableSchemas}
+                onContinue={connections.dismissWritableWarning}
+                onDisconnect={() => {
+                  connections.disconnectConnection(warning.connId)
+                  connections.dismissWritableWarning()
+                }}
+              />
+            )
+          })()}
+        {connections.manageDialog &&
+          (() => {
+            const dialog = connections.manageDialog
+            const conn = connections.tree.find((node) => node.id === dialog.connId)
+            const connName = conn?.label ?? dialog.connId
+            return (
+              <ManageObjectsDialog
+                subtitle={connName}
+                catalogs={dialog.catalogs}
+                initialConfig={dialog.config}
+                schemaLists={dialog.schemaLists}
+                schemaErrors={dialog.schemaErrors}
+                initialExpanded={dialog.initialExpanded}
+                error={dialog.error}
+                onLoadSchemas={connections.loadManageCatalogSchemas}
+                onSubmit={connections.saveManageSelection}
+                onClose={connections.closeManageDialog}
+              />
+            )
+          })()}
       </div>
-      <StatusBar
-        onOpenSettings={openSettings}
-        connText={activeTarget ? `Connection · ${activeTarget.connName}` : ''}
-        queryText={queryStatus.text}
-        schemaText={schemaSync?.text ?? ''}
-        schemaState={schemaSync?.state}
-        schemaTitle={schemaSync?.title}
-        queryTarget={
-          queryStatus.target ||
-          (activeTarget ? `${activeTarget.connName} / ${activeTarget.database}` : '')
-        }
-        agents={{
-          state: bgAgents.segment.state,
-          label: bgAgents.segment.label,
-          open: bgAgents.trayOpen,
-          onToggle: bgAgents.toggleTray,
-          setAnchor: setAgentsAnchor
-        }}
-      />
-      {bgAgents.trayOpen && (
-        <AgentsTray
-          agents={bgAgents}
-          anchor={agentsAnchor}
-          onViewRecords={viewScanRecords}
-          onOpenAgentPanel={openAgentPanel}
-        />
-      )}
-      <CommandPalette
-        open={paletteOpen}
-        onClose={closePalette}
-        run={commands.run}
-        enabled={commands.enabled}
-      />
-      <ShortcutOverlay open={shortcutsOpen} onClose={closeShortcuts} />
-      <GuideDialog open={guide.open} anchor={guide.anchor} onClose={closeGuide} />
-      {settingsOpen && (
-        <SettingsDialog
-          themePreference={preference}
-          onThemePreference={setPreference}
-          onClose={closeSettings}
-        />
-      )}
-      <NewConnectionDialog state={connections} />
-      {connections.envPrompt && (
-        <EnvironmentPromptDialog
-          onChoose={connections.chooseEnvironment}
-          onCancel={connections.dismissEnvPrompt}
-        />
-      )}
-      {connections.writableWarning &&
-        (() => {
-          const warning = connections.writableWarning
-          return (
-            <WritableWarningDialog
-              connName={warning.connName}
-              writableSchemas={warning.writableSchemas}
-              onContinue={connections.dismissWritableWarning}
-              onDisconnect={() => {
-                connections.disconnectConnection(warning.connId)
-                connections.dismissWritableWarning()
-              }}
-            />
-          )
-        })()}
-      {connections.manageDialog &&
-        (() => {
-          const dialog = connections.manageDialog
-          const conn = connections.tree.find((node) => node.id === dialog.connId)
-          const connName = conn?.label ?? dialog.connId
-          return (
-            <ManageObjectsDialog
-              subtitle={connName}
-              catalogs={dialog.catalogs}
-              initialConfig={dialog.config}
-              schemaLists={dialog.schemaLists}
-              schemaErrors={dialog.schemaErrors}
-              initialExpanded={dialog.initialExpanded}
-              error={dialog.error}
-              onLoadSchemas={connections.loadManageCatalogSchemas}
-              onSubmit={connections.saveManageSelection}
-              onClose={connections.closeManageDialog}
-            />
-          )
-        })()}
-    </div>
+    </DiscoveryProvider>
   )
 }
 

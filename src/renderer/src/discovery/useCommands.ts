@@ -1,9 +1,11 @@
 import { useCallback, useMemo, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 
+import { featureForCommand } from '../../../shared/features'
 import type { CommandId } from '../../../shared/features'
 import type { EditorBridge } from '../components/editorBridge'
 import type { AgentPanelTab } from '../components/AgentPanel'
+import { usage } from './usage'
 
 /** One handler per command id; `satisfies` in the builder keeps it complete. */
 export type CommandHandlers = Record<CommandId, () => void>
@@ -25,7 +27,12 @@ export interface CommandDeps {
 }
 
 export interface Commands {
-  run: (id: CommandId) => void
+  /**
+   * Run a command. `sourceFeatureId` names the registry entry the user
+   * picked when several entries share one command (Settings vs. Watched
+   * folders both open Settings), so usage is credited to the right one.
+   */
+  run: (id: CommandId, sourceFeatureId?: string) => void
   /** False when the command would do nothing right now (e.g. Run with no SQL tab). */
   enabled: (id: CommandId) => boolean
 }
@@ -72,9 +79,9 @@ export function useCommands(deps: CommandDeps): Commands {
   )
 
   const run = useCallback(
-    (id: CommandId) => {
+    (id: CommandId, sourceFeatureId?: string) => {
       handlers[id]()
-      // phase 3: markUsed(featureForCommand(id)?.id)
+      usage.markUsed(sourceFeatureId ?? featureForCommand(id)?.id)
     },
     [handlers]
   )

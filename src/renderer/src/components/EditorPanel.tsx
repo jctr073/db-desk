@@ -15,6 +15,7 @@ import type { CommandId } from '../../../shared/features'
 import { buildResultContextItem } from '../../../shared/resultContext'
 import type { FileKind } from '../../../shared/files'
 import { statementAtOffset } from '../../../shared/sql'
+import { usage } from '../discovery/usage'
 import { ensureSqlLanguageFeatures } from '../sql/completions'
 import type { Theme } from '../theme'
 import { CloseIcon } from './icons'
@@ -450,6 +451,7 @@ export function EditorPanel({
       sql = statementAtOffset(model.getValue(), offset)?.text ?? null
     }
     if (!sql?.trim()) return
+    usage.markUsed('editor.run')
     runner.run(sql.trim(), target, limit)
   }, [target, limit, runner, isSqlFile])
 

@@ -15,6 +15,9 @@ import { CONNECTION_TYPES } from '../shared/dialect'
 import type { ConnectionType } from '../shared/dialect'
 import { CONNECTION_ENVIRONMENTS } from '../shared/db'
 import type { ConnectionEnvironment } from '../shared/db'
+import { featureById } from '../shared/features'
+import { EMPTY_DISCOVERY_STATE } from '../shared/settings'
+import type { DiscoveryState } from '../shared/settings'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -140,4 +143,43 @@ export function validateMcpServerConfig(config: unknown): void {
     }
   }
   requireBoolean(config.enabled, 'MCP server enabled')
+}
+
+/**
+ * `settings:setDiscovery` payload: per-user feature-usage state
+ * (docs/plan-feature-discovery.md §4.4). Unlike the validate* guards above,
+ * this never throws — usage tracking is a convenience, not something worth
+ * rejecting a renderer over, so unknown/malformed pieces are dropped and a
+ * clean copy is returned instead.
+ */
+export function sanitizeDiscoveryState(value: unknown): DiscoveryState {
+  if (!isRecord(value)) return { ...EMPTY_DISCOVERY_STATE }
+
+  const used: DiscoveryState['used'] = {}
+  if (isRecord(value.used)) {
+    for (const [id, entry] of Object.entries(value.used)) {
+      if (!featureById(id)) continue
+      if (!isRecord(entry)) continue
+      const { count, last } = entry
+      if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) continue
+      if (typeof last !== 'number' || !Number.isFinite(last) || last < 0) continue
+      used[id] = { count: Math.floor(count), last }
+    }
+  }
+
+  const seen: string[] = []
+  if (Array.isArray(value.seen)) {
+    const seenIds = new Set<string>()
+    for (const id of value.seen) {
+      if (typeof id !== 'string') continue
+      if (!featureById(id)) continue
+      if (seenIds.has(id)) continue
+      seenIds.add(id)
+      seen.push(id)
+    }
+  }
+
+  const state: DiscoveryState = { used, seen }
+  if (typeof value.seenVersion === 'string') state.seenVersion = value.seenVersion
+  return state
 }

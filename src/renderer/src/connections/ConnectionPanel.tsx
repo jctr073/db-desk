@@ -285,7 +285,12 @@ export function ConnectionPanel({
       <div className="panel-header">
         <span className="panel-header__title">CONNECTIONS</span>
         <div className="panel-header__spacer" />
-        <button className="icon-btn" onClick={state.openDialog} title="New connection">
+        <button
+          className="icon-btn"
+          onClick={state.openDialog}
+          title="New connection"
+          data-feature="connections.new"
+        >
           <PlusIcon />
         </button>
         <button
@@ -309,6 +314,7 @@ export function ConnectionPanel({
             onChange={(event) => state.setFilter(event.target.value)}
             placeholder="Filter connections & objects…"
             aria-label="Filter connections & objects…"
+            data-feature="schema.filter"
           />
         </div>
       </div>

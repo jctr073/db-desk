@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { usage } from '../discovery/usage'
 import { parseConnectionUrl } from '../../../shared/connectionUrl'
 import type {
   AgentCapability,
@@ -829,6 +830,7 @@ export function useConnectionState(): ConnectionState {
     setTestMsg('')
     setConnecting(false)
     setDialogOpen(true)
+    usage.markUsed('connections.new')
   }, [])
 
   const closeDialog = useCallback(() => {

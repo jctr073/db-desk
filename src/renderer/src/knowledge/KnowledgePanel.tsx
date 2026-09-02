@@ -356,6 +356,7 @@ export function KnowledgePanel({
             className="kn-base-manage__btn"
             title="Manage knowledge bases, codebases, and scans"
             onClick={onManageBases}
+            data-feature="knowledge.manage"
           >
             <BookIcon size={13} />
             Manage

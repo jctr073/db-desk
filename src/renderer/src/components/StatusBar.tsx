@@ -50,6 +50,7 @@ export function StatusBar({
         title="Settings"
         aria-label="Settings"
         type="button"
+        data-feature="app.settings"
       >
         <CogIcon size={15} />
       </button>
@@ -80,6 +81,7 @@ export function StatusBar({
           aria-expanded={agents.open}
           title={agents.label}
           onClick={agents.onToggle}
+          data-feature="knowledge.backgroundScans"
         >
           {agents.state === 'idle' ? (
             <>

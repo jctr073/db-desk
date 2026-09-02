@@ -180,6 +180,7 @@ export function ModeControl({
         className="model-pill"
         title="Agent access mode"
         onClick={() => setModeOpen((open) => !open)}
+        data-feature="agent.modes"
       >
         <ShieldIcon size={12} />
         <span className="model-pill__name">{modeOption.label}</span>
@@ -475,6 +476,7 @@ export function Composer({
                 ? 'Attach tables, views, or schemas as context'
                 : 'Connect to a database to add context'
             }
+            data-feature="agent.context"
           >
             <PlusThinIcon size={12} />
             Add context
@@ -513,6 +515,7 @@ export function Composer({
             setSlashIndex(0)
           }}
           onKeyDown={onComposerKeyDown}
+          data-feature="agent.compact"
         />
         <div className="composer__toolbar">
           <button
@@ -592,6 +595,7 @@ export function Composer({
                 setModelOpen(false)
                 setAgentToolsOpen((open) => !open)
               }}
+              data-feature="agent.webSearch"
             >
               <CogIcon size={14} />
             </button>
