@@ -6,6 +6,7 @@ import { basename, join } from 'node:path'
 import { typedHandle, typedSend } from './ipc'
 import { installApplicationMenu } from './menu'
 import {
+  sanitizeDiscoveryState,
   validateSchemaSelectionConfig,
   validateSetEnvironmentPayload,
   validateStoreSavePayload
@@ -56,9 +57,11 @@ import {
   addWatchedFolder,
   appSettingsInfo,
   clearStoredApiKey,
+  discoveryState,
   loadApiKey,
   removeWatchedFolder,
   setApiKeyVarName,
+  setDiscoveryState,
   setStoredApiKey,
   sqlFilesDir
 } from './settings'
@@ -308,6 +311,14 @@ function registerSettingsHandlers(): void {
     syncWatchedFolders(() => mainWindow)
     broadcast()
     return appSettingsInfo()
+  })
+
+  // High-frequency (usage tracking) and self-contained: no settings:changed
+  // broadcast, nothing else needs to refresh on these.
+  typedHandle('settings:getDiscovery', () => discoveryState())
+
+  typedHandle('settings:setDiscovery', (_event, state) => {
+    setDiscoveryState(sanitizeDiscoveryState(state))
   })
 }
 

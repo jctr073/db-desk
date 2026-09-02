@@ -2,6 +2,7 @@ import type { editor } from 'monaco-editor'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 
+import { usage } from '../../discovery/usage'
 import type { FileState } from '../../files/useFileState'
 
 interface FileBuffersParams {
@@ -125,6 +126,7 @@ export function useFileBuffers({
       const save = saveFileContent ?? files.saveFile
       const saved = await save(id, content)
       if (!saved) return false
+      usage.markUsed('editor.save')
       setDirtyIds((prev) => {
         if (!prev.has(id)) return prev
         const next = new Set(prev)

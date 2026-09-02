@@ -5,6 +5,7 @@ import type { AgentResultItem } from '../../../shared/agent'
 import type { QueryResult } from '../../../shared/db'
 import type { DataExportFormat } from '../../../shared/export'
 import { buildResultContextItem } from '../../../shared/resultContext'
+import { usage } from '../discovery/usage'
 import { DataGrid } from './grid/DataGrid'
 import {
   CheckIcon,
@@ -365,6 +366,7 @@ export function ResultsPanel({
     if (!destination.data) return
 
     const { token } = destination.data
+    usage.markUsed('results.export')
     setExportingFormat(format)
     try {
       let fields = displayedResult.fields
@@ -410,6 +412,7 @@ export function ResultsPanel({
       type="button"
       disabled={exportingFormat !== null}
       onClick={() => setExportOpen((open) => !open)}
+      data-feature="results.export"
     >
       {exportingFormat ? <span className="spinner spinner--xs" /> : <ExportIcon size={12} />}
       <span>{exportingFormat ? 'Exporting' : 'Export'}</span>
@@ -567,8 +570,10 @@ export function ResultsPanel({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation()
+                  usage.markUsed('results.pin')
                   onPin(tab.id)
                 }}
+                data-feature="results.pin"
               >
                 <PinIcon size={11} />
               </button>
@@ -593,6 +598,7 @@ export function ResultsPanel({
             title={`${overflowTabs.length} more result tab${overflowTabs.length === 1 ? '' : 's'}`}
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
+            data-feature="results.closeAll"
           >
             +{overflowTabs.length}
             <ChevronDownIcon size={12} />
@@ -633,6 +639,7 @@ export function ResultsPanel({
             title="Automatic row limit for SELECT queries"
             type="button"
             onClick={() => setLimitOpen((open) => !open)}
+            data-feature="results.limit"
           >
             <span className="limit-pill__icon">
               <RowsIcon />
@@ -777,6 +784,7 @@ export function ResultsPanel({
               type="button"
               onClick={() => {
                 setMenuOpen(false)
+                usage.markUsed('results.closeAll')
                 onCloseAll()
               }}
             >

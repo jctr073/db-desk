@@ -279,7 +279,7 @@ export function DataGrid({
   )
 
   return (
-    <div className="grid-scroll">
+    <div className="grid-scroll" data-feature="results.select">
       {columnWidthCss && <style>{columnWidthCss}</style>}
       <table
         className="result-grid"

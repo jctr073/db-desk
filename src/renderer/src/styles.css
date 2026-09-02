@@ -6437,3 +6437,264 @@ body.is-grid-col-resizing {
   font-weight: 600;
   text-transform: uppercase;
 }
+
+/* ── Feature discovery: palette footer ── */
+.palette__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.palette__browse {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+.palette__browse:hover {
+  text-decoration: underline;
+}
+
+/* ── Feature discovery: spotlight ── */
+.spotlight {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  /* The layer itself must not swallow clicks: only the backdrop strips and
+     the card are interactive, so the spotlit control stays usable. */
+  pointer-events: none;
+}
+.spotlight__backdrop {
+  position: fixed;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+.spotlight__hole {
+  position: absolute;
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px var(--accent);
+  pointer-events: none;
+  transition:
+    top 120ms ease,
+    left 120ms ease,
+    width 120ms ease,
+    height 120ms ease;
+}
+.spotlight__card {
+  position: fixed;
+  width: 300px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 18px 50px var(--shadow);
+  font-size: 12.5px;
+  animation: dbfade 0.16s ease;
+  pointer-events: auto;
+}
+.spotlight__card--centered {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.spotlight__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+.spotlight__desc {
+  margin-top: 4px;
+  color: var(--text);
+}
+.spotlight__loc {
+  margin-top: 4px;
+  color: var(--text-dim);
+}
+.spotlight__where {
+  margin-top: 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.spotlight__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  justify-content: flex-end;
+}
+
+/* ── Feature discovery: discover browser ── */
+.discover {
+  display: flex;
+  flex-direction: column;
+  width: 860px;
+  max-width: 94vw;
+  height: 78vh;
+  overflow: hidden;
+}
+.discover__header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.discover__titles {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.discover__title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.discover__progress {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.discover__bar {
+  flex: 0 0 auto;
+  width: 140px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--panel-hi);
+  overflow: hidden;
+}
+.discover__bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.discover__close {
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.discover__body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.discover__rail {
+  flex: 0 0 190px;
+  overflow-y: auto;
+  padding: 8px;
+  border-right: 1px solid var(--border);
+}
+.discover__rail-item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.discover__rail-item:hover {
+  background: var(--panel-hi);
+}
+.discover__rail-item.is-active {
+  background: var(--accent-soft);
+}
+.discover__rail-count {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.discover__main {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 18px;
+}
+.discover__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.discover__toolbar-label {
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.discover__cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.discover__card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-hi);
+}
+.discover__card.is-tried {
+  border-color: var(--accent);
+}
+.discover__card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.discover__tick {
+  color: var(--accent);
+}
+.discover__card-desc {
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.discover__card-loc {
+  margin-top: 4px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+.discover__card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.discover__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.discover__btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.discover__btn--primary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}

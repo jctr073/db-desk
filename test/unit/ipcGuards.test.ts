@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  sanitizeDiscoveryState,
   validateMcpServerConfig,
   validateSchemaSelectionConfig,
   validateSetEnvironmentPayload,
@@ -247,5 +248,64 @@ describe('validateMcpServerConfig', () => {
     expect(() => validateMcpServerConfig({ ...validConfig, enabled: 1 })).toThrow(
       'MCP server enabled must be a boolean'
     )
+  })
+})
+
+describe('sanitizeDiscoveryState', () => {
+  it('keeps a valid used entry and seen id', () => {
+    const result = sanitizeDiscoveryState({
+      used: { 'editor.run': { count: 3, last: 1000 } },
+      seen: ['results.pin']
+    })
+    expect(result).toEqual({
+      used: { 'editor.run': { count: 3, last: 1000 } },
+      seen: ['results.pin']
+    })
+  })
+
+  it('drops unknown feature ids from used and seen', () => {
+    const result = sanitizeDiscoveryState({
+      used: {
+        'editor.run': { count: 1, last: 1 },
+        'not.a.feature': { count: 1, last: 1 }
+      },
+      seen: ['results.pin', 'not.a.feature']
+    })
+    expect(result.used).toEqual({ 'editor.run': { count: 1, last: 1 } })
+    expect(result.seen).toEqual(['results.pin'])
+  })
+
+  it('drops non-finite or negative counts', () => {
+    const result = sanitizeDiscoveryState({
+      used: {
+        'editor.run': { count: Number.POSITIVE_INFINITY, last: 1 },
+        'results.pin': { count: -1, last: 1 },
+        'editor.save': { count: NaN, last: 1 }
+      },
+      seen: []
+    })
+    expect(result.used).toEqual({})
+  })
+
+  it('floors fractional counts', () => {
+    const result = sanitizeDiscoveryState({
+      used: { 'editor.run': { count: 2.9, last: 1000 } },
+      seen: []
+    })
+    expect(result.used['editor.run']).toEqual({ count: 2, last: 1000 })
+  })
+
+  it('dedupes seen ids', () => {
+    const result = sanitizeDiscoveryState({
+      used: {},
+      seen: ['results.pin', 'editor.run', 'results.pin']
+    })
+    expect(result.seen).toEqual(['results.pin', 'editor.run'])
+  })
+
+  it('returns an empty state for non-object input', () => {
+    expect(sanitizeDiscoveryState(null)).toEqual({ used: {}, seen: [] })
+    expect(sanitizeDiscoveryState('nope')).toEqual({ used: {}, seen: [] })
+    expect(sanitizeDiscoveryState(undefined)).toEqual({ used: {}, seen: [] })
   })
 })

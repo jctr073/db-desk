@@ -3,13 +3,15 @@ import type { KeyboardEvent, ReactElement } from 'react'
 
 import type { CommandId, Feature } from '../../../shared/features'
 import { FEATURES, FEATURE_CATEGORY_LABELS, featureById } from '../../../shared/features'
+import { useDiscoveryOptional } from '../discovery/DiscoveryProvider'
 import { searchFeatures } from '../discovery/search'
+import { recentFrom } from '../discovery/usage'
 import { useEscapeKey } from '../useEscapeKey'
 
 export interface CommandPaletteProps {
   open: boolean
   onClose: () => void
-  run: (id: CommandId) => void
+  run: (id: CommandId, sourceFeatureId?: string) => void
   enabled: (id: CommandId) => boolean
   /** Feature ids recently used, most recent first (empty until phase 3). */
   recent?: string[]
@@ -44,6 +46,9 @@ export function CommandPalette({
   enabled,
   recent
 }: CommandPaletteProps): ReactElement | null {
+  // Inside DiscoveryProvider, gesture-only features are spotlighted instead
+  // of toasted, and the footer can open the Discover browser.
+  const discovery = useDiscoveryOptional()
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const [toast, setToast] = useState<Toast | null>(null)
@@ -66,6 +71,7 @@ export function CommandPalette({
     }
   }, [])
 
+  const usageState = discovery?.usageState
   const sections = useMemo<Section[]>(() => {
     const trimmed = query.trim()
     if (trimmed) {
@@ -74,7 +80,7 @@ export function CommandPalette({
 
     const result: Section[] = []
 
-    const recentFeatures = (recent ?? [])
+    const recentFeatures = (recent ?? (usageState ? recentFrom(usageState) : []))
       .map((id) => featureById(id))
       .filter((f): f is Feature => f !== undefined)
     if (recentFeatures.length > 0) {
@@ -100,7 +106,7 @@ export function CommandPalette({
     }
 
     return result
-  }, [query, recent])
+  }, [query, recent, usageState])
 
   const allFeatures = useMemo(() => sections.flatMap((section) => section.features), [sections])
 
@@ -117,12 +123,13 @@ export function CommandPalette({
   const activate = (feature: Feature): void => {
     if (feature.command) {
       if (!enabled(feature.command)) return
-      run(feature.command)
+      run(feature.command, feature.id)
       onClose()
       return
     }
     onClose()
-    showToast(feature)
+    if (discovery) discovery.spotlight.show({ featureId: feature.id })
+    else showToast(feature)
   }
 
   const onInputKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
@@ -201,7 +208,21 @@ export function CommandPalette({
                 </div>
               ))}
             </div>
-            <div className="palette__footer">↑↓ navigate · ⏎ run · esc close</div>
+            <div className="palette__footer">
+              <span>↑↓ navigate · ⏎ run · esc close</span>
+              {discovery && (
+                <button
+                  className="palette__browse"
+                  type="button"
+                  onClick={() => {
+                    onClose()
+                    discovery.openDiscover()
+                  }}
+                >
+                  Browse all features
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

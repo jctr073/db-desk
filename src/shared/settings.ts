@@ -50,3 +50,19 @@ export type ChangeSqlDirResult =
 export function isValidVarName(name: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)
 }
+
+/**
+ * Per-user feature-discovery state (docs/plan-feature-discovery.md §4.4).
+ * Keyed by feature id from `src/shared/features.ts`; persisted in
+ * settings.json so it survives profile resets that clear localStorage.
+ */
+export interface DiscoveryState {
+  /** feature id → { count, last (ms epoch) } for commands the user ran (any surface). */
+  used: Record<string, { count: number; last: number }>
+  /** Feature ids spotlighted at least once. */
+  seen: string[]
+  /** Last app version for which "what's new" was shown (reserved; unused for now). */
+  seenVersion?: string
+}
+
+export const EMPTY_DISCOVERY_STATE: DiscoveryState = { used: {}, seen: [] }

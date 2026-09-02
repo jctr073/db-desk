@@ -25,6 +25,7 @@ import {
   skillNeedsRepo
 } from '../../../shared/skills'
 import type { Skill } from '../../../shared/skills'
+import { usage } from '../discovery/usage'
 import { SkillsPanel } from '../skills/SkillsPanel'
 import { useSkillsState } from '../skills/useSkillsState'
 import { KIND_LABELS, isKnownKind, recordTitle } from '../knowledge/format'
@@ -642,6 +643,7 @@ export function AgentPanel({
           className={`agent-tab${activeTab === 'knowledge' ? ' is-active' : ''}`}
           type="button"
           onClick={() => setActiveTab('knowledge')}
+          data-feature="knowledge.bases"
         >
           Knowledge
         </button>
@@ -649,6 +651,7 @@ export function AgentPanel({
           className={`agent-tab${activeTab === 'files' ? ' is-active' : ''}`}
           type="button"
           onClick={() => setActiveTab('files')}
+          data-feature="files.panel"
         >
           Files
         </button>
@@ -656,6 +659,7 @@ export function AgentPanel({
           className={`agent-tab${activeTab === 'skills' ? ' is-active' : ''}`}
           type="button"
           onClick={() => setActiveTab('skills')}
+          data-feature="skills.create"
         >
           Skills
         </button>
@@ -676,11 +680,14 @@ export function AgentPanel({
           disabled={activeTab === 'files' && !fileHome}
           type="button"
           onClick={() => {
-            if (activeTab === 'agent') newChat()
-            else if (activeTab === 'knowledge') setKnowledgeNewSeq((s) => s + 1)
+            if (activeTab === 'agent') {
+              usage.markUsed('agent.newChat')
+              newChat()
+            } else if (activeTab === 'knowledge') setKnowledgeNewSeq((s) => s + 1)
             else if (activeTab === 'skills') setSkillsNewSeq((s) => s + 1)
             else if (fileHome) files.createFile(fileHome.connId, fileHome.database)
           }}
+          data-feature="agent.newChat"
         >
           <PlusThinIcon />
         </button>
@@ -742,6 +749,7 @@ export function AgentPanel({
             if (!knowledgeTarget) return
             ensureSchema(knowledgeTarget.connId, knowledgeTarget.database)
             setManageKnowledgeOpen(true)
+            usage.markUsed('knowledge.manage')
           }}
         />
       ) : (

@@ -14,8 +14,14 @@ import { join } from 'node:path'
 
 import { writeJsonAtomic } from './atomicJson'
 import { API_KEY_VAR } from '../shared/agent'
-import { isValidVarName } from '../shared/settings'
-import type { ApiKeyConfig, ApiKeySource, AppSettingsInfo, WatchedFolder } from '../shared/settings'
+import { EMPTY_DISCOVERY_STATE, isValidVarName } from '../shared/settings'
+import type {
+  ApiKeyConfig,
+  ApiKeySource,
+  AppSettingsInfo,
+  DiscoveryState,
+  WatchedFolder
+} from '../shared/settings'
 
 interface StoredSettings {
   /** Absent = the default userData/queries directory. */
@@ -27,6 +33,8 @@ interface StoredSettings {
   apiKeyLabel?: string
   /** Program-wide folders the Files panel watches; absent = none. */
   watchedFolders?: WatchedFolder[]
+  /** Feature-discovery usage; see shared/settings.ts */
+  discovery?: DiscoveryState
 }
 
 let cache: StoredSettings | null = null
@@ -93,6 +101,16 @@ export function removeWatchedFolder(id: string): WatchedFolder[] {
   else settings.watchedFolders = next
   persist(settings)
   return next
+}
+
+// --- Feature-discovery usage ---
+
+export function discoveryState(): DiscoveryState {
+  return load().discovery ?? EMPTY_DISCOVERY_STATE
+}
+
+export function setDiscoveryState(state: DiscoveryState): void {
+  persist({ ...load(), discovery: state })
 }
 
 // --- API key ---

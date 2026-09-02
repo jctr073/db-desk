@@ -55,7 +55,7 @@ import type {
 import type { McpServerConfig, McpServerStatus } from './mcp'
 import type { MonorepoCreateInput, MonorepoCreateResult, MonorepoPick, RepoStatus } from './repo'
 import type { SchemaSelectionConfig } from './schemaSelection'
-import type { AppSettingsInfo, ChangeSqlDirResult } from './settings'
+import type { AppSettingsInfo, ChangeSqlDirResult, DiscoveryState } from './settings'
 import type { Skill, SkillSaveInput } from './skills'
 
 /**
@@ -150,6 +150,10 @@ export interface IpcInvokeContract {
   'settings:setApiKeyVar': { args: [name: string]; result: AppSettingsInfo }
   'settings:setStoredApiKey': { args: [key: string, label: string]; result: AppSettingsInfo }
   'settings:clearStoredApiKey': { args: []; result: AppSettingsInfo }
+  /** Feature-discovery usage state (docs/plan-feature-discovery.md §4.4). */
+  'settings:getDiscovery': { args: []; result: DiscoveryState }
+  /** Persists the renderer's in-memory usage state; not broadcast (high-frequency). */
+  'settings:setDiscovery': { args: [state: DiscoveryState]; result: void }
 
   // --- MCP servers ----------------------------------------------------------
   'mcp:list': { args: []; result: McpServerStatus[] }
