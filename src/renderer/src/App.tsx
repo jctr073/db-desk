@@ -407,8 +407,16 @@ export function App(): ReactElement {
   const requestNewChat = useCallback(() => setNewChatSeq((seq) => seq + 1), [])
   const requestFocusComposer = useCallback(() => setFocusComposerSeq((seq) => seq + 1), [])
   const requestManageKnowledge = useCallback(() => setManageSeq((seq) => seq + 1), [])
-  // phase 5: seed the composer with '/help'; until then just reveal the chat.
-  const askHelp = useCallback(() => showPanelTab('agent'), [showPanelTab])
+  // "/help": reveal the chat with the composer seeded for a help turn, which
+  // answers from the user guide and cannot touch the database.
+  const askHelp = useCallback((question?: string) => {
+    setAgentSeed({
+      seq: ++agentSeedSeq.current,
+      text: `/help ${question ?? ''}`,
+      intent: 'help'
+    })
+  }, [])
+  const askHelpCommand = useCallback(() => askHelp(), [askHelp])
   const commands = useCommands({
     editorBridge,
     openSettings,
@@ -421,7 +429,7 @@ export function App(): ReactElement {
     showPanelTab,
     newChat: requestNewChat,
     focusComposer: requestFocusComposer,
-    askHelp,
+    askHelp: askHelpCommand,
     manageKnowledge: requestManageKnowledge
   })
   useGlobalShortcuts(commands.run)
@@ -651,6 +659,7 @@ export function App(): ReactElement {
           run={commands.run}
           enabled={commands.enabled}
           highlightActive={highlightActive}
+          onAskHelp={askHelp}
         />
         <ShortcutOverlay open={shortcutsOpen} onClose={closeShortcuts} />
         <DiscoverDialog open={discoverOpen} onClose={closeDiscover} />

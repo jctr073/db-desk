@@ -42,6 +42,7 @@ import type { DatabaseIntrospection } from '../shared/db'
 import { dialectFor } from '../shared/dialect'
 
 import { buildSystemPrompt, summarizeSchema } from './agent/prompt'
+import { HELP_HIGHLIGHT_BUDGET, buildHelpSystemPrompt, execHighlightFeature } from './agent/help'
 import type { RepoPromptInfo } from './agent/prompt'
 import {
   execSearchKnowledge,
@@ -49,20 +50,7 @@ import {
   resolveActiveKbId,
   setBroadcastKnowledgeChanged
 } from './agent/knowledge'
-import {
-  LIST_REPO_FILES_TOOL,
-  GREP_REPO_TOOL,
-  READ_EDITOR_TOOL,
-  READ_REPO_FILE_TOOL,
-  SAVE_KNOWLEDGE_TOOL,
-  SEARCH_KNOWLEDGE_TOOL,
-  WRITE_EDITOR_TOOL,
-  describeTableTool,
-  explainQueryTool,
-  runSqlTool,
-  searchSchemaTool,
-  webSearchTool
-} from './agent/tools'
+import { toolsForTurn, webSearchTool } from './agent/tools'
 import {
   describeError,
   execDescribeTable,
@@ -296,12 +284,16 @@ export async function runAgentTurn(
   // Dialect follows the target connection's engine; chats without a target
   // default to PostgreSQL guidance.
   const dialect = dialectFor(req.target ? getConnectionType(req.target.connId) : null)
-  const schemaSummary = req.target ? await schemaSummaryFor(req.target) : null
+  // A help turn answers from the bundled user guide with one UI tool: no
+  // schema summary, knowledge, repo, MCP or web tools — the expensive setup
+  // below is skipped entirely and the turn cannot touch the database.
+  const isHelp = req.intent === 'help'
+  const schemaSummary = !isHelp && req.target ? await schemaSummaryFor(req.target) : null
   // MCP tools are user-configured and mode-independent: the access mode
   // protects the connected database, while MCP servers act on external
   // systems with their own credentials. Snapshot once per turn so the tool
   // array and the dispatch below cannot disagree mid-turn.
-  const mcpTools = mcpToolsForTurn()
+  const mcpTools = isHelp ? [] : mcpToolsForTurn()
   const mcpByName = new Map(mcpTools.map((t) => [t.namespacedName, t]))
   // Repo access requires both halves: the renderer's per-chat toggle AND a
   // main-side configured root on the turn's active knowledge base. The
@@ -309,7 +301,7 @@ export async function runAgentTurn(
   // access to a directory the user already attached through the main-process
   // picker, on a base actually linked to the target.
   const activeKbId = req.target ? resolveActiveKbId(req.target) : null
-  const repoRoot = req.repo && activeKbId ? getRepoRoot(activeKbId) : null
+  const repoRoot = !isHelp && req.repo && activeKbId ? getRepoRoot(activeKbId) : null
   const repo: RepoPromptInfo | null = repoRoot
     ? { root: repoRoot, commit: await getRepoCommit(repoRoot) }
     : null
@@ -318,45 +310,25 @@ export async function runAgentTurn(
   const system: Anthropic.TextBlockParam[] = [
     {
       type: 'text',
-      text: buildSystemPrompt(req, mode, schemaSummary, dialect, mcpTools, repo),
+      text: isHelp
+        ? buildHelpSystemPrompt()
+        : buildSystemPrompt(req, mode, schemaSummary, dialect, mcpTools, repo),
       cache_control: { type: 'ephemeral' }
     }
   ]
-  // Metadata Only offers no execution tools at all (Layer 1); its schema
-  // knowledge is the system-prompt summary above.
-  const editorTools = opts?.editorTools !== false
-  const tools: Anthropic.Messages.ToolUnion[] =
-    req.target && mode === 'read-only'
-      ? [
-          ...(editorTools ? [WRITE_EDITOR_TOOL, READ_EDITOR_TOOL] : []),
-          runSqlTool(dialect),
-          explainQueryTool(dialect),
-          describeTableTool(dialect),
-          searchSchemaTool(dialect)
-        ]
-      : editorTools
-        ? [WRITE_EDITOR_TOOL, READ_EDITOR_TOOL]
-        : []
-  // search_knowledge and save_knowledge read/write only the local knowledge
-  // store — never the warehouse — so both are offered in Metadata Only as well
-  // as Read-Only. They require a target because records are keyed to it.
-  if (req.target) tools.push(SEARCH_KNOWLEDGE_TOOL, SAVE_KNOWLEDGE_TOOL)
-  // Repo tools read only the attached local checkout — never the database —
-  // so, like the knowledge tools, they are mode-independent.
-  if (repoRoot) {
-    tools.push(LIST_REPO_FILES_TOOL, GREP_REPO_TOOL, READ_REPO_FILE_TOOL)
-  }
-  for (const t of mcpTools) {
-    tools.push({
-      name: t.namespacedName,
-      description: `Tool "${t.toolName}" from the user-configured MCP server "${t.serverName}".${t.description ? ` ${t.description}` : ''}`,
-      input_schema: t.inputSchema as Anthropic.Tool.InputSchema
-    })
-  }
   // Web search runs server-side; results come back as content blocks, so
   // there is no execution branch in the tool-use loop below.
-  const webTool = req.webSearch ? webSearchTool(model.id) : null
-  if (webTool) tools.push(webTool)
+  const webTool = !isHelp && req.webSearch ? webSearchTool(model.id) : null
+  const tools = toolsForTurn({
+    intent: req.intent,
+    hasTarget: !!req.target,
+    mode,
+    dialect,
+    editorTools: opts?.editorTools !== false,
+    repoRoot,
+    mcpTools,
+    webTool
+  })
   // The dynamic-filtering variant runs code execution in a server-side
   // container; its id must be echoed back on requests that continue the
   // conversation, and it may only be sent when the tool is in the request.
@@ -371,6 +343,7 @@ export async function runAgentTurn(
   let editorProposalSent = false
   let forceEditorProposal = false
   let editorProposalReminderSent = false
+  const helpBudget = { left: HELP_HIGHLIGHT_BUDGET }
 
   try {
     for (;;) {
@@ -479,7 +452,9 @@ export async function runAgentTurn(
         )
         const results: Anthropic.ToolResultBlockParam[] = []
         for (const block of toolUses) {
-          if (block.name === 'run_sql') {
+          if (isHelp && block.name === 'highlight_feature') {
+            results.push(execHighlightFeature(req, block, send, helpBudget))
+          } else if (block.name === 'run_sql') {
             results.push(await execRunSql(req, chat, mode, block, send))
           } else if (block.name === 'explain_query') {
             results.push(await execExplain(req, chat, mode, block, send, dialect))

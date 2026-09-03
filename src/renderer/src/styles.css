@@ -6761,3 +6761,18 @@ body.is-grid-col-resizing {
   height: auto;
   padding: 3px 10px;
 }
+
+/* --- Agent composer: draft-intent chip (e.g. /help) ----------------- */
+.composer__intent-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--panel-hi);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}

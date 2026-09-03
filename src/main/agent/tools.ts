@@ -9,6 +9,8 @@
 import type Anthropic from '@anthropic-ai/sdk'
 
 import type { DialectInfo } from '../../shared/dialect'
+import type { AgentMode, AgentPromptIntent } from '../../shared/agent'
+import { HIGHLIGHT_FEATURE_TOOL } from './help'
 
 /** Cap on web searches the model may run in a single turn. */
 const WEB_SEARCH_MAX_USES = 5
@@ -361,4 +363,63 @@ export const READ_EDITOR_TOOL: Anthropic.Tool = {
     type: 'object',
     properties: {}
   }
+}
+
+/** The subset of an MCP tool `toolsForTurn` needs (keeps this module free of main-process imports). */
+export interface McpToolSpec {
+  namespacedName: string
+  toolName: string
+  serverName: string
+  description?: string
+  inputSchema: unknown
+}
+
+export interface ToolsForTurnInput {
+  intent: AgentPromptIntent
+  hasTarget: boolean
+  mode: AgentMode
+  dialect: DialectInfo
+  editorTools: boolean
+  repoRoot: string | null
+  mcpTools: readonly McpToolSpec[]
+  /** The web-search server tool, already built for the model, or null. */
+  webTool: Anthropic.Messages.ToolUnion | null
+}
+
+/**
+ * The tool array for one turn, assembled in one place so the rules are
+ * testable without the network:
+ * - A `help` turn gets exactly `highlight_feature` — no database, knowledge,
+ *   repo, MCP, editor or web tools, whatever the mode or target.
+ * - Metadata Only offers no execution tools (its schema knowledge is the
+ *   system-prompt summary); Read & Run adds the SQL tools.
+ * - Knowledge tools need a target; repo tools need an attached root; MCP
+ *   and web tools are mode-independent.
+ */
+export function toolsForTurn(input: ToolsForTurnInput): Anthropic.Messages.ToolUnion[] {
+  if (input.intent === 'help') return [HIGHLIGHT_FEATURE_TOOL]
+  const { dialect, editorTools } = input
+  const tools: Anthropic.Messages.ToolUnion[] =
+    input.hasTarget && input.mode === 'read-only'
+      ? [
+          ...(editorTools ? [WRITE_EDITOR_TOOL, READ_EDITOR_TOOL] : []),
+          runSqlTool(dialect),
+          explainQueryTool(dialect),
+          describeTableTool(dialect),
+          searchSchemaTool(dialect)
+        ]
+      : editorTools
+        ? [WRITE_EDITOR_TOOL, READ_EDITOR_TOOL]
+        : []
+  if (input.hasTarget) tools.push(SEARCH_KNOWLEDGE_TOOL, SAVE_KNOWLEDGE_TOOL)
+  if (input.repoRoot) tools.push(LIST_REPO_FILES_TOOL, GREP_REPO_TOOL, READ_REPO_FILE_TOOL)
+  for (const t of input.mcpTools) {
+    tools.push({
+      name: t.namespacedName,
+      description: `Tool "${t.toolName}" from the user-configured MCP server "${t.serverName}".${t.description ? ` ${t.description}` : ''}`,
+      input_schema: t.inputSchema as Anthropic.Tool.InputSchema
+    })
+  }
+  if (input.webTool) tools.push(input.webTool)
+  return tools
 }

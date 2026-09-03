@@ -290,6 +290,7 @@ export function Composer({
     setEffort,
     input,
     setInput,
+    draftIntent,
     setDraftIntent,
     webSearch,
     setWebSearch,
@@ -348,6 +349,18 @@ export function Composer({
 
   const runSlashCommand = useCallback(
     (name: string) => {
+      if (name === 'help') {
+        setInput('/help ')
+        setDraftIntent('help')
+        requestAnimationFrame(() => {
+          const textarea = textareaRef.current
+          if (!textarea) return
+          textarea.focus()
+          const end = textarea.value.length
+          textarea.setSelectionRange(end, end)
+        })
+        return
+      }
       setInput('')
       setDraftIntent('chat')
       if (name === 'clear') newChat()
@@ -512,6 +525,8 @@ export function Composer({
             const next = e.target.value
             setInput(next)
             if (!next.trim()) setDraftIntent('chat')
+            else if (draftIntent === 'help' && !next.startsWith('/help')) setDraftIntent('chat')
+            else if (next.startsWith('/help ')) setDraftIntent('help')
             setSlashIndex(0)
           }}
           onKeyDown={onComposerKeyDown}

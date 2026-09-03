@@ -327,8 +327,8 @@ export function ChatTranscript({
           <SparkleIcon size={18} />
           <p>
             {mode === 'read-only'
-              ? "Describe the data you need and I'll write the SQL. I can see the schema and run read-only queries to verify results. Changing data or schema is blocked."
-              : "Describe the data you need and I'll write the SQL. I can see the schema of the selected database and your active editor file. I never execute anything — you run the SQL."}
+              ? "Describe the data you need and I'll write the SQL. I can see the schema and run read-only queries to verify results. Changing data or schema is blocked. Type /help to ask how to do something in DB Desk."
+              : "Describe the data you need and I'll write the SQL. I can see the schema of the selected database and your active editor file. I never execute anything — you run the SQL. Type /help to ask how to do something in DB Desk."}
           </p>
         </div>
       )}

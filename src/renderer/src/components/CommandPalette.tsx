@@ -17,6 +17,8 @@ export interface CommandPaletteProps {
   recent?: string[]
   /** Flips the highlight-mode row between "Highlight features" and "Exit highlight mode". */
   highlightActive?: boolean
+  /** Seeds a "/help <query>" turn; enables the "Ask DB Desk" row under search results. */
+  onAskHelp?: (question: string) => void
 }
 
 interface Section {
@@ -47,7 +49,8 @@ export function CommandPalette({
   run,
   enabled,
   recent,
-  highlightActive
+  highlightActive,
+  onAskHelp
 }: CommandPaletteProps): ReactElement | null {
   // Inside DiscoveryProvider, gesture-only features are spotlighted instead
   // of toasted, and the footer can open the Discover browser.
@@ -112,6 +115,14 @@ export function CommandPalette({
   }, [query, recent, usageState])
 
   const allFeatures = useMemo(() => sections.flatMap((section) => section.features), [sections])
+  // With a query, a final "Ask DB Desk" row follows the matches (index = allFeatures.length).
+  const askQuery = query.trim()
+  const askRowIndex = onAskHelp && askQuery ? allFeatures.length : -1
+  const rowCount = allFeatures.length + (askRowIndex >= 0 ? 1 : 0)
+  const askHelp = (): void => {
+    onClose()
+    onAskHelp?.(askQuery)
+  }
 
   useEffect(() => {
     rowEls.current[activeIndex]?.scrollIntoView({ block: 'nearest' })
@@ -138,14 +149,16 @@ export function CommandPalette({
   const onInputKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      setActiveIndex((i) => (allFeatures.length === 0 ? 0 : (i + 1) % allFeatures.length))
+      setActiveIndex((i) => (rowCount === 0 ? 0 : (i + 1) % rowCount))
     } else if (event.key === 'ArrowUp') {
       event.preventDefault()
-      setActiveIndex((i) =>
-        allFeatures.length === 0 ? 0 : (i - 1 + allFeatures.length) % allFeatures.length
-      )
+      setActiveIndex((i) => (rowCount === 0 ? 0 : (i - 1 + rowCount) % rowCount))
     } else if (event.key === 'Enter') {
       event.preventDefault()
+      if (activeIndex === askRowIndex) {
+        askHelp()
+        return
+      }
       const feature = allFeatures[activeIndex]
       if (feature) activate(feature)
     }
@@ -180,7 +193,7 @@ export function CommandPalette({
               placeholder="Search features…  (type to filter)"
             />
             <div className="palette__list">
-              {allFeatures.length === 0 && (
+              {allFeatures.length === 0 && askRowIndex < 0 && (
                 <div className="palette__empty">No matching features</div>
               )}
               {sections.map((section, sectionIndex) => (
@@ -214,6 +227,20 @@ export function CommandPalette({
                   })}
                 </div>
               ))}
+              {askRowIndex >= 0 && (
+                <div
+                  ref={(el) => {
+                    rowEls.current[askRowIndex] = el
+                  }}
+                  className={`palette__row palette__row--ask${askRowIndex === activeIndex ? ' is-active' : ''}`}
+                  onMouseEnter={() => setActiveIndex(askRowIndex)}
+                  onClick={askHelp}
+                >
+                  <span className="palette__cat">Help</span>
+                  <span className="palette__title">Ask DB Desk: “{askQuery}”</span>
+                  <span className="palette__desc">Answers from the user guide</span>
+                </div>
+              )}
             </div>
             <div className="palette__footer">
               <span>↑↓ navigate · ⏎ run · esc close</span>
