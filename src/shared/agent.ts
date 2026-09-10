@@ -13,7 +13,12 @@ export type AgentEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 export type AgentMode = 'metadata' | 'read-only' | 'write-admin'
 
 /** Why the user sent this turn; fix-query turns must propose an editor diff. */
-export type AgentPromptIntent = 'chat' | 'fix-query'
+/**
+ * What a turn is for. 'fix-query' turns are not complete until corrected SQL
+ * is proposed; 'help' turns answer "how do I…" questions about DB Desk from
+ * the bundled user guide with a single highlight tool and no database access.
+ */
+export type AgentPromptIntent = 'chat' | 'fix-query' | 'help'
 
 export interface AgentModeOption {
   id: AgentMode
@@ -278,6 +283,10 @@ export const AGENT_SLASH_COMMANDS: AgentSlashCommand[] = [
   {
     name: 'clear',
     description: 'Clear the conversation and start fresh'
+  },
+  {
+    name: 'help',
+    description: 'Ask how to do something in DB Desk'
   }
 ]
 
@@ -324,6 +333,16 @@ export type AgentEvent =
       type: 'editor_proposal'
       chatId: string
       sql: string
+    }
+  | {
+      /**
+       * A help turn asked the app to point at a control: the renderer
+       * spotlights the feature with this registry id.
+       */
+      type: 'ui_action'
+      chatId: string
+      action: 'spotlight'
+      featureId: string
     }
   | {
       type: 'done'

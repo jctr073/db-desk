@@ -4,6 +4,7 @@ import type { MutableRefObject, ReactElement, ReactNode } from 'react'
 import { API_KEY_VAR } from '../../../shared/agent'
 import type {
   AgentContextItem,
+  AgentEvent,
   AgentKeyStatus,
   AgentModeOption,
   AgentModelOption,
@@ -25,6 +26,7 @@ import {
   skillNeedsRepo
 } from '../../../shared/skills'
 import type { Skill } from '../../../shared/skills'
+import { useDiscovery } from '../discovery/DiscoveryProvider'
 import { usage } from '../discovery/usage'
 import { SkillsPanel } from '../skills/SkillsPanel'
 import { useSkillsState } from '../skills/useSkillsState'
@@ -202,6 +204,14 @@ export function AgentPanel({
   const knowledgeTarget =
     targets.find((t) => knowledgeTargetKeyOf(t.connId, t.database) === knowledgeTargetKey) ?? null
 
+  const { spotlight } = useDiscovery()
+  const onUiAction = useCallback(
+    (evt: Extract<AgentEvent, { type: 'ui_action' }>) => {
+      if (evt.action === 'spotlight') spotlight.show({ featureId: evt.featureId })
+    },
+    [spotlight]
+  )
+
   // The chat session: transcript, agent event subscription, per-chat settings.
   const session = useChatSession({
     target,
@@ -210,7 +220,8 @@ export function AgentPanel({
     onAgentQuery,
     onAgentTurnEnd,
     repoStatusFor,
-    agentCapability
+    agentCapability,
+    onUiAction
   })
   const {
     messages,
@@ -227,6 +238,7 @@ export function AgentPanel({
     setEffort,
     setMode,
     setInput,
+    draftIntent,
     setDraftIntent,
     setRepoEnabled,
     lastUserPrompt,
@@ -707,6 +719,14 @@ export function AgentPanel({
             <span className="ctx-chip ctx-chip--bare">No connection</span>
           )}
           <span className="agent-target-row__hint">follows app context</span>
+          {draftIntent === 'help' && (
+            <span
+              className="composer__intent-chip"
+              title="Answers from the user guide; no database access"
+            >
+              Help
+            </span>
+          )}
           <span className="agent-target-row__spacer" />
           <ModeControl
             mode={effectiveMode}

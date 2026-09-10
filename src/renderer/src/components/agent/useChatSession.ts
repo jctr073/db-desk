@@ -15,6 +15,7 @@ import type {
   AgentPromptIntent
 } from '../../../../shared/agent'
 import type { AgentCapability, QueryResult } from '../../../../shared/db'
+import { featureById } from '../../../../shared/features'
 import type { RepoStatus } from '../../../../shared/repo'
 import { lastSqlFence } from '../agentTurn'
 import type { TurnRecap } from '../agentTurn'
@@ -131,6 +132,8 @@ interface ChatSessionParams {
    * enforced authoritatively in main, this only keeps the UI honest about it.
    */
   agentCapability: AgentCapability | null
+  /** A help turn asked the app to point at a control; forwards to Spotlight. */
+  onUiAction?: (evt: Extract<AgentEvent, { type: 'ui_action' }>) => void
 }
 
 export type ChatSession = ReturnType<typeof useChatSession>
@@ -148,7 +151,8 @@ export function useChatSession({
   onAgentQuery,
   onAgentTurnEnd,
   repoStatusFor,
-  agentCapability
+  agentCapability,
+  onUiAction
 }: ChatSessionParams) {
   const [chatId, setChatId] = useState(() => nextId('chat'))
   const [chatCreatedAt, setChatCreatedAt] = useState(() => Date.now())
@@ -182,6 +186,8 @@ export function useChatSession({
   onAgentQueryRef.current = onAgentQuery
   const onAgentTurnEndRef = useRef(onAgentTurnEnd)
   onAgentTurnEndRef.current = onAgentTurnEnd
+  const onUiActionRef = useRef(onUiAction)
+  onUiActionRef.current = onUiAction
   /**
    * Running tally of the in-flight turn, kept in refs so the event handler
    * (mounted once) can build the end-of-turn recap without touching state.
@@ -280,6 +286,19 @@ export function useChatSession({
                     }
             )
           )
+          break
+        }
+        case 'ui_action': {
+          if (evt.action === 'spotlight') {
+            onUiActionRef.current?.(evt)
+            const feature = featureById(evt.featureId)
+            setMessages((prev) =>
+              appendPart(prev, {
+                kind: 'notice',
+                text: `Highlighted: ${feature?.title ?? evt.featureId}`
+              })
+            )
+          }
           break
         }
         case 'done': {
@@ -465,6 +484,16 @@ export function useChatSession({
   const send = useCallback(() => {
     const prompt = input.trim()
     if (!prompt || busy || compacting) return
+    const helpMatch = /^\/help(?:\s+([\s\S]+))?$/i.exec(prompt)
+    if (helpMatch) {
+      const question =
+        helpMatch[1]?.trim() ||
+        'Give me a short overview of what I can do in DB Desk from where I am now.'
+      setInput('')
+      setDraftIntent('chat')
+      sendPrompt(question, target, false, 'help')
+      return
+    }
     setInput('')
     setDraftIntent('chat')
     sendPrompt(prompt, target, false, draftIntent)
