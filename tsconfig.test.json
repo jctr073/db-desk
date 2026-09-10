@@ -8,5 +8,11 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "noEmit": true
   },
-  "include": ["vitest.config.ts", "test/**/*.ts", "src/shared/**/*.test.ts"]
+  "include": [
+    "vitest.config.ts",
+    "test/**/*.ts",
+    "src/shared/**/*.test.ts",
+    // Ambient `*.md?raw` module type; tests import main modules that bundle the guide.
+    "src/main/raw-md.d.ts"
+  ]
 }
